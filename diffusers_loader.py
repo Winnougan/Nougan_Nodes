@@ -2,6 +2,7 @@
 import json
 import os
 import torch
+import torch.nn.functional as F
 import folder_paths
 import comfy.sd
 import comfy.utils
@@ -30,6 +31,133 @@ def first_file(path, filenames):
             return p
     return None
 
+
+# ---------------------------------------------------------------------------
+# RoPE — try ComfyUI's own implementation first, fall back to a standard one
+# ---------------------------------------------------------------------------
+
+_comfy_rope = None
+for _mod in ("comfy.ldm.modules.attention", "comfy.ldm.flux.model"):
+    try:
+        _m = __import__(_mod, fromlist=["rope"])
+        _comfy_rope = getattr(_m, "rope", None)
+        if _comfy_rope is not None:
+            break
+    except Exception:
+        pass
+
+
+def _apply_rope(x, pe):
+    """Apply rotary positional encoding. Uses ComfyUI's own rope() when
+    available; otherwise falls back to the standard complex‑multiply RoPE
+    used by FLUX / Krea2‑type architectures."""
+    if _comfy_rope is not None:
+        return _comfy_rope(x, pe)
+
+    # ── fallback ──
+    while pe.dim() < x.dim():
+        pe = pe.unsqueeze(0)
+
+    d = x.shape[-1]
+    x_complex = torch.view_as_complex(
+        x.float().reshape(*x.shape[:-1], d // 2, 2))
+
+    if pe.is_complex():
+        pe_complex = pe
+    else:
+        pe_complex = torch.view_as_complex(
+            pe.float().reshape(*pe.shape[:-1], d // 2, 2))
+
+    return torch.view_as_real(x_complex * pe_complex).flatten(-2).to(x.dtype)
+
+
+# ---------------------------------------------------------------------------
+# Attention wrappers — ComfyUI‑compatible signatures around fast kernels
+# ---------------------------------------------------------------------------
+
+def _make_flash_wrapper():
+    """Wrap flash_attn_func so it accepts ComfyUI's (q,k,v,pe,attn_mask,…)."""
+    from flash_attn import flash_attn_func
+
+    def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None):
+        if pe is not None:
+            q = _apply_rope(q, pe)
+            k = _apply_rope(k, pe)
+
+        # Arbitrary masks aren't supported by flash_attn — fall back to SDPA
+        if attn_mask is not None:
+            return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+
+        # flash_attn expects [B, S, H, D]; ComfyUI uses [B, H, S, D]
+        q = q.transpose(1, 2).contiguous()
+        k = k.transpose(1, 2).contiguous()
+        v = v.transpose(1, 2).contiguous()
+
+        out = flash_attn_func(q, k, v)
+        return out.transpose(1, 2)          # back to [B, H, S, D]
+
+    return _wrapper
+
+
+def _make_sage_wrapper():
+    """Wrap sageattn so it accepts ComfyUI's (q,k,v,pe,attn_mask,…)."""
+    from sageattention import sageattn
+
+    def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None):
+        if pe is not None:
+            q = _apply_rope(q, pe)
+            k = _apply_rope(k, pe)
+
+        if attn_mask is not None:
+            return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+
+        # sageattn expects [B, H, S, D] — same layout as ComfyUI
+        return sageattn(q, k, v)
+
+    return _wrapper
+
+
+def _apply_attention_patches(model, sage_ver, flash_ver):
+    if sage_ver == "None" and flash_ver == "None":
+        return model
+
+    wrapper = None
+    name = None
+
+    # Flash first, then Sage overwrites (Sage wins if both are set)
+    if flash_ver != "None":
+        try:
+            wrapper = _make_flash_wrapper()
+            name = flash_ver
+        except ImportError:
+            print(f"[Nougan] ⚠️ {flash_ver} selected but 'flash-attn' not installed.")
+        except Exception as e:
+            print(f"[Nougan] ❌ Failed to build {flash_ver} wrapper: {e}")
+
+    if sage_ver != "None":
+        try:
+            wrapper = _make_sage_wrapper()
+            name = sage_ver
+        except ImportError:
+            print(f"[Nougan] ⚠️ {sage_ver} selected but 'sageattention' not installed.")
+        except Exception as e:
+            print(f"[Nougan] ❌ Failed to build {sage_ver} wrapper: {e}")
+
+    if wrapper is not None:
+        if hasattr(model, "set_model_attn1_patch"):
+            model.set_model_attn1_patch(wrapper)
+            model.set_model_attn2_patch(wrapper)
+            print(f"[Nougan] ✅ Patched attn1 + attn2 with {name} "
+                  f"(ComfyUI‑compatible wrapper, RoPE={'native' if _comfy_rope else 'fallback'})")
+        else:
+            print(f"[Nougan] ❌ Model does not support attention patching ({name})")
+
+    return model
+
+
+# ---------------------------------------------------------------------------
+# Model scanning (unchanged)
+# ---------------------------------------------------------------------------
 
 def _is_diffusers_folder(path: str) -> bool:
     if not os.path.isdir(path):
@@ -117,8 +245,7 @@ def _resolve(name: str):
 
 
 # ---------------------------------------------------------------------------
-# Node  (attention patching removed — use ComfyUI's native --use-flash-attention
-#        or KJNodes' Patch Sage Attention node instead)
+# Node
 # ---------------------------------------------------------------------------
 
 class NouganDiffusersLoader:
@@ -129,6 +256,16 @@ class NouganDiffusersLoader:
                 "model_name": (
                     _get_available_diffusers_models(),
                     {"tooltip": "Select the diffusers model folder or file."},
+                ),
+                "sageattention_version": (
+                    ["None", "SageAttention 2", "SageAttention 3"],
+                    {"default": "None",
+                     "tooltip": "SageAttention version. Requires: pip install sageattention"},
+                ),
+                "flashattention_version": (
+                    ["None", "FlashAttention 2", "FlashAttention 3", "FlashAttention 4"],
+                    {"default": "None",
+                     "tooltip": "FlashAttention version. Requires: pip install flash-attn"},
                 ),
             },
             "optional": {
@@ -143,10 +280,13 @@ class NouganDiffusersLoader:
     TITLE = "Nougan Diffusers Loader"
 
     @classmethod
-    def IS_CHANGED(cls, model_name, model_data="{}", **kw):
-        return f"{model_name}_{model_data}"
+    def IS_CHANGED(cls, model_name, sageattention_version,
+                   flashattention_version, model_data="{}", **kw):
+        return f"{model_name}_{sageattention_version}_{flashattention_version}_{model_data}"
 
-    def load(self, model_name, model_data="{}"):
+    def load(self, model_name, sageattention_version,
+             flashattention_version, model_data="{}"):
+
         cfg = {}
         if model_data and model_data.strip():
             try:
@@ -154,7 +294,9 @@ class NouganDiffusersLoader:
             except json.JSONDecodeError:
                 pass
 
-        name = cfg.get("model_name", model_name) or model_name
+        name  = cfg.get("model_name", model_name) or model_name
+        sage  = cfg.get("sageattention_version", sageattention_version)
+        flash = cfg.get("flashattention_version", flashattention_version)
 
         model_path = _resolve(name)
         if model_path is None:
@@ -199,5 +341,8 @@ class NouganDiffusersLoader:
         else:
             print(f"[Nougan] Loading unified model: {model_path}")
             unet = comfy.sd.load_diffusion_model(model_path)
+
+        if unet is not None:
+            unet = _apply_attention_patches(unet, sage, flash)
 
         return (unet, clip, vae)
