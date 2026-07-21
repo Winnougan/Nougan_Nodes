@@ -130,40 +130,36 @@ def _make_flash_wrapper():
     NOT "return the final attention output". For those architectures the
     real attention computation happens internally afterwards (often via
     ComfyUI's own comfy_kitchen fused kernels), so a custom Flash/Sage
-    backend cannot be injected through this particular hook — it can only
-    apply RoPE to q/k here. We detect nothing reliably in advance, so we
-    always return a dict; this keeps things RoPE-correct and crash-free
-    for qkv-preprocessing-style hooks. If this wrapper is instead used
-    somewhere that expects a full attention replacement (older-style
-    Kijai patches), see _make_flash_wrapper_full_attn below.
+    backend cannot be injected through this particular hook.
+
+    IMPORTANT: we intentionally do NOT apply RoPE here anymore. Doing so
+    produced heavily artifacted images — strong evidence that Krea2
+    applies its own internal RoPE to q/k regardless of what this patch
+    returns, so rotating them here caused a double-rotation (corrupting
+    attention). This wrapper is now a no-op passthrough for q/k; it
+    exists only so the attn1/attn2 patch slots are technically "filled"
+    without breaking generation. Real attention backend selection is not
+    functional through this hook for this architecture.
     """
     from flash_attn import flash_attn_func  # noqa: F401  (validates install)
 
     def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None, **kwargs):
-        pe, attn_mask = _resolve_pe_and_mask(pe, attn_mask, extra_options)
-
-        if pe is not None:
-            q, k = _apply_rope_qk(q, k, pe)
-
+        # Deliberately not touching q/k/pe here — see docstring above.
         return {"q": q, "k": k}
 
     return _wrapper
 
 
 def _make_sage_wrapper(sage_ver="SageAttention 2"):
-    """See _make_flash_wrapper's docstring — this hook is a q/k
-    preprocessing step on architectures like Krea2 (dict-return contract),
-    not a full attention replacement. We apply RoPE here and hand back
-    the (possibly rotated) q/k; the model computes attention itself.
+    """See _make_flash_wrapper's docstring — same reasoning applies.
+    RoPE is intentionally NOT applied here (caused artifacted images,
+    almost certainly from double-rotation against Krea2's own internal
+    RoPE application). This is now an inert q/k passthrough.
     """
     from sageattention import sageattn  # noqa: F401  (validates install)
 
     def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None, **kwargs):
-        pe, attn_mask = _resolve_pe_and_mask(pe, attn_mask, extra_options)
-
-        if pe is not None:
-            q, k = _apply_rope_qk(q, k, pe)
-
+        # Deliberately not touching q/k/pe here — see docstring above.
         return {"q": q, "k": k}
 
     return _wrapper
@@ -207,13 +203,13 @@ def _apply_attention_patches(model, sage_ver, flash_ver):
         if hasattr(model, "set_model_attn1_patch"):
             model.set_model_attn1_patch(wrapper)
             model.set_model_attn2_patch(wrapper)
-            rope_status = "native" if _comfy_apply_rope else "fallback"
-            print(f"[Nougan] ✅ Patched attn1 + attn2 with {name} "
-                  f"(RoPE={rope_status}). NOTE: on some architectures "
-                  f"(e.g. Krea2) this hook only preprocesses q/k (RoPE) — "
-                  f"the actual attention kernel is computed internally by "
-                  f"the model itself and is NOT replaced by "
-                  f"{name} in that case.")
+            print(f"[Nougan] ⚠️ {name} selected, but this architecture's "
+                  f"attn1/attn2 hook only supports q/k preprocessing "
+                  f"(dict-return contract) and applying RoPE there caused "
+                  f"image corruption — so this patch is now an inert "
+                  f"passthrough. {name} is NOT actually accelerating "
+                  f"attention for this model; generation uses the "
+                  f"model's own internal/native attention path.")
         else:
             # --- Fallback: patch at the module level (Kijai-style global patch) ---
             try:
