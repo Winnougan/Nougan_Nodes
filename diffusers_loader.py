@@ -18,6 +18,9 @@ _MODEL_DATA_INPUT = (
      "tooltip": "Managed by the Nougan Diffusers Loader UI."},
 )
 
+# File extensions that may be a single-file UNet / diffusion model.
+_DIFFUSERS_FILE_EXTS = (".safetensors", ".bin", ".gguf", ".ckpt", ".pt")
+
 
 def first_file(path, filenames):
     if path is None or not os.path.exists(path):
@@ -29,65 +32,110 @@ def first_file(path, filenames):
     return None
 
 
-def _candidate_dirs():
-    """Every directory that may hold a diffusers model folder or a unet file.
+def _is_diffusers_folder(path: str) -> bool:
+    """True if `path` looks like a HuggingFace/Diffusers model directory."""
+    if not os.path.isdir(path):
+        return False
+    try:
+        entries = os.listdir(path)
+    except OSError:
+        return False
+    low = {e.lower() for e in entries}
+    if "unet" in low:
+        return True
+    if "model_index.json" in low:
+        return True
+    if any(e.lower().startswith("diffusion_pytorch_model") for e in entries):
+        return True
+    return False
 
-    Combines ComfyUI's category mappings (so user overrides in
-    extra_model_paths.yaml and user-dir models are honoured) with the *physical*
-    default subfolders under each models root. Some ComfyUI builds don't list
-    models/diffusion_models under the category strings we query, which silently
-    hid models placed there — adding the physical dirs closes that gap.
+
+def _roots():
+    """Every directory that may contain a diffusers model folder or unet file.
+
+    Union of: ComfyUI category mappings (unet + diffusion_models + diffusers, so
+    extra_model_paths.yaml overrides are honoured) AND the physical default
+    subfolders derived from the real models root (so a folder that is only
+    registered under a different category key — a common cause of 'invisible'
+    models — is still scanned).
     """
-    dirs = []
+    roots = []
 
-    # 1) ComfyUI category mappings (covers extra_model_paths + user models dir)
-    for name in ("diffusion_models", "unet", "diffusers"):
+    # 1) category mappings
+    for name in ("unet", "diffusion_models", "diffusers"):
         try:
-            dirs.extend(folder_paths.get_folder_paths(name))
+            roots.extend(folder_paths.get_folder_paths(name))
         except Exception:
             pass
 
-    # 2) Explicit physical subfolders under every known models root
-    roots = []
+    # 2) physical subfolders under every models root we can discover
+    bases = []
     md = getattr(folder_paths, "models_dir", None)
     if md:
-        roots.append(md)
+        bases.append(md)
     try:
-        roots.append(os.path.join(folder_paths.get_user_directory(), "models"))
+        bases.append(os.path.join(folder_paths.get_user_directory(), "models"))
     except Exception:
         pass
-    for cat in ("checkpoints", "loras"):        # last-resort: derive a models root
+    for cat in ("checkpoints", "loras", "vae", "clip"):   # derive a models root
         try:
             for p in folder_paths.get_folder_paths(cat):
-                roots.append(os.path.dirname(p))
+                bases.append(os.path.dirname(p))
         except Exception:
             pass
-    for root in roots:
+    for base in bases:
         for sub in ("diffusion_models", "unet", "diffusers"):
-            dirs.append(os.path.join(root, sub))
+            roots.append(os.path.join(base, sub))
 
-    # dedupe (keep order); non-existent dirs are filtered at the use-site
     seen, out = set(), []
-    for d in dirs:
-        d = os.path.normpath(d)
-        if d and d not in seen:
-            seen.add(d)
-            out.append(d)
+    for r in roots:
+        r = os.path.normpath(r)
+        if r and r not in seen and os.path.isdir(r):
+            seen.add(r)
+            out.append(r)
     return out
 
 
+def _scan():
+    """Recursively find models. Returns (roots, found) where found maps a
+    slash-normalised relative path -> 'folder' | 'file'. Diffusers folders are
+    detected by signature and pruned (we don't descend into them, so their
+    internal unet/vae files never show up as standalone models)."""
+    roots = _roots()
+    found = {}
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root):
+            rel = os.path.relpath(dirpath, root)
+            if rel != "." and _is_diffusers_folder(dirpath):
+                found.setdefault(rel.replace(os.sep, "/"), "folder")
+                dirnames[:] = []          # prune — don't list its internals
+                continue
+            for fn in filenames:
+                if fn.lower().endswith(_DIFFUSERS_FILE_EXTS):
+                    key = fn if rel == "." else os.path.join(rel, fn)
+                    found.setdefault(key.replace(os.sep, "/"), "file")
+    return roots, found
+
+
 def _get_available_diffusers_models():
-    models = []
-    for base in _candidate_dirs():
-        if not os.path.isdir(base):
-            continue
-        for item in os.listdir(base):
-            full = os.path.join(base, item)
-            if os.path.isdir(full) or item.endswith(
-                (".safetensors", ".ckpt", ".bin", ".gguf")
-            ):
-                models.append(item)
-    return sorted(set(models))
+    roots, found = _scan()
+    names = sorted(found.keys())
+    # ── diagnostics: proves the new code is loaded and shows exactly what
+    #    was scanned, so a miss is debuggable from the console in one look. ──
+    print(f"[Nougan] Diffusers scan — {len(roots)} root(s): {roots}")
+    print(f"[Nougan] Diffusers scan — {len(names)} entr{'y' if len(names)==1 else 'ies'} found: {names[:25]}{'…' if len(names) > 25 else ''}")
+    return names
+
+
+def _resolve(name: str):
+    """Resolve a dropdown entry (relative path) back to a real path, trying
+    every root in the same order the scan used."""
+    rel = str(name).replace("/", os.sep)
+    for root in _roots():
+        p = os.path.join(root, rel)
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def _apply_attention_patches(model, sage_ver, flash_ver):
@@ -179,15 +227,9 @@ class NouganDiffusersLoader:
         sage  = cfg.get("sageattention_version", sageattention_version)
         flash = cfg.get("flashattention_version", flashattention_version)
 
-        # ── resolve path (same dir list the dropdown was built from) ───
-        model_path = None
-        for base in _candidate_dirs():
-            p = os.path.join(base, name)
-            if os.path.exists(p):
-                model_path = p
-                break
+        model_path = _resolve(name)
         if model_path is None:
-            raise ValueError(f"[Nougan] Model '{name}' not found.")
+            raise ValueError(f"[Nougan] Model '{name}' not found in any scanned root.")
 
         unet = clip = vae = None
 
