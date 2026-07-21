@@ -1,7 +1,7 @@
 <div align="center">
 
 # 🌀 Winnougan (Nougan's Nodes)
-<img width="1536" height="1024" alt="Nougan_nodes" src="https://github.com/user-attachments/assets/d1ee9081-20b6-45cb-b28e-6688c19e8184" />
+<img width="1536" height="1024" alt="f8ba2080-1d9e-4188-afc5-02e01f898dfd" src="https://github.com/user-attachments/assets/7bc16746-2f0b-4ff7-8de5-d6e076bc3f6a" />
 
 ### Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
