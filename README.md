@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌀 Nougan
+# 🌀 Winnougan (Nougan's Nodes)
 <img width="1536" height="1024" alt="Nougan_nodes" src="https://github.com/user-attachments/assets/76276d28-bc06-40ec-94dc-831164ffc96a" />
 
 
