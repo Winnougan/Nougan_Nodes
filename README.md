@@ -117,6 +117,8 @@ A single node that lays down the **uncensoring foundation** for Krea 2 by baking
 
 The Krea 2 node reads its LoRAs from its **own** folder — `nougan/loras/` — **not** from the global `ComfyUI/models/loras/`. That's what makes the workflow portable. To use your own three uncensored LoRAs, just copy them in and rename them to the three names the node expects.
 
+Grab an uncensored LoRA like this one and rename it accordingly: https://civitai.com/models/2775340/krea2-textfusion-refusal-reduction-lora
+
 ### The three target names
 
 | Slot | Rename your file to (exact) |
