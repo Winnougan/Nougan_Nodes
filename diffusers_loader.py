@@ -18,7 +18,6 @@ _MODEL_DATA_INPUT = (
      "tooltip": "Managed by the Nougan Diffusers Loader UI."},
 )
 
-# File extensions that may be a single-file UNet / diffusion model.
 _DIFFUSERS_FILE_EXTS = (".safetensors", ".bin", ".gguf", ".ckpt", ".pt")
 
 
@@ -33,7 +32,6 @@ def first_file(path, filenames):
 
 
 def _is_diffusers_folder(path: str) -> bool:
-    """True if `path` looks like a HuggingFace/Diffusers model directory."""
     if not os.path.isdir(path):
         return False
     try:
@@ -51,24 +49,12 @@ def _is_diffusers_folder(path: str) -> bool:
 
 
 def _roots():
-    """Every directory that may contain a diffusers model folder or unet file.
-
-    Union of: ComfyUI category mappings (unet + diffusion_models + diffusers, so
-    extra_model_paths.yaml overrides are honoured) AND the physical default
-    subfolders derived from the real models root (so a folder that is only
-    registered under a different category key — a common cause of 'invisible'
-    models — is still scanned).
-    """
     roots = []
-
-    # 1) category mappings
     for name in ("unet", "diffusion_models", "diffusers"):
         try:
             roots.extend(folder_paths.get_folder_paths(name))
         except Exception:
             pass
-
-    # 2) physical subfolders under every models root we can discover
     bases = []
     md = getattr(folder_paths, "models_dir", None)
     if md:
@@ -77,7 +63,7 @@ def _roots():
         bases.append(os.path.join(folder_paths.get_user_directory(), "models"))
     except Exception:
         pass
-    for cat in ("checkpoints", "loras", "vae", "clip"):   # derive a models root
+    for cat in ("checkpoints", "loras", "vae", "clip"):
         try:
             for p in folder_paths.get_folder_paths(cat):
                 bases.append(os.path.dirname(p))
@@ -86,7 +72,6 @@ def _roots():
     for base in bases:
         for sub in ("diffusion_models", "unet", "diffusers"):
             roots.append(os.path.join(base, sub))
-
     seen, out = set(), []
     for r in roots:
         r = os.path.normpath(r)
@@ -97,10 +82,6 @@ def _roots():
 
 
 def _scan():
-    """Recursively find models. Returns (roots, found) where found maps a
-    slash-normalised relative path -> 'folder' | 'file'. Diffusers folders are
-    detected by signature and pruned (we don't descend into them, so their
-    internal unet/vae files never show up as standalone models)."""
     roots = _roots()
     found = {}
     for root in roots:
@@ -108,7 +89,7 @@ def _scan():
             rel = os.path.relpath(dirpath, root)
             if rel != "." and _is_diffusers_folder(dirpath):
                 found.setdefault(rel.replace(os.sep, "/"), "folder")
-                dirnames[:] = []          # prune — don't list its internals
+                dirnames[:] = []
                 continue
             for fn in filenames:
                 if fn.lower().endswith(_DIFFUSERS_FILE_EXTS):
@@ -120,16 +101,13 @@ def _scan():
 def _get_available_diffusers_models():
     roots, found = _scan()
     names = sorted(found.keys())
-    # ── diagnostics: proves the new code is loaded and shows exactly what
-    #    was scanned, so a miss is debuggable from the console in one look. ──
     print(f"[Nougan] Diffusers scan — {len(roots)} root(s): {roots}")
-    print(f"[Nougan] Diffusers scan — {len(names)} entr{'y' if len(names)==1 else 'ies'} found: {names[:25]}{'…' if len(names) > 25 else ''}")
+    print(f"[Nougan] Diffusers scan — {len(names)} entries found: "
+          f"{names[:25]}{'…' if len(names) > 25 else ''}")
     return names
 
 
 def _resolve(name: str):
-    """Resolve a dropdown entry (relative path) back to a real path, trying
-    every root in the same order the scan used."""
     rel = str(name).replace("/", os.sep)
     for root in _roots():
         p = os.path.join(root, rel)
@@ -138,43 +116,9 @@ def _resolve(name: str):
     return None
 
 
-def _apply_attention_patches(model, sage_ver, flash_ver):
-    if sage_ver == "None" and flash_ver == "None":
-        return model
-
-    print(f"[Nougan] Applying attention patches: Sage={sage_ver}, Flash={flash_ver}")
-
-    def _patch(m, func, name):
-        if hasattr(m, "set_model_attn1_patch"):
-            m.set_model_attn1_patch(func)
-            m.set_model_attn2_patch(func)
-            print(f"[Nougan] ✅ Patched attn1 + attn2 with {name}")
-        else:
-            print(f"[Nougan] ❌ Model does not support attention patching ({name})")
-
-    if sage_ver != "None":
-        try:
-            from sageattention import sageattn
-            _patch(model, sageattn, sage_ver)
-        except ImportError:
-            print(f"[Nougan] ⚠️ {sage_ver} selected but 'sageattention' not installed.")
-        except Exception as e:
-            print(f"[Nougan] ❌ {sage_ver} failed: {e}")
-
-    if flash_ver != "None":
-        try:
-            from flash_attn import flash_attn_func
-            _patch(model, flash_attn_func, flash_ver)
-        except ImportError:
-            print(f"[Nougan] ⚠️ {flash_ver} selected but 'flash-attn' not installed.")
-        except Exception as e:
-            print(f"[Nougan] ❌ {flash_ver} failed: {e}")
-
-    return model
-
-
 # ---------------------------------------------------------------------------
-# Node
+# Node  (attention patching removed — use ComfyUI's native --use-flash-attention
+#        or KJNodes' Patch Sage Attention node instead)
 # ---------------------------------------------------------------------------
 
 class NouganDiffusersLoader:
@@ -185,16 +129,6 @@ class NouganDiffusersLoader:
                 "model_name": (
                     _get_available_diffusers_models(),
                     {"tooltip": "Select the diffusers model folder or file."},
-                ),
-                "sageattention_version": (
-                    ["None", "SageAttention 2", "SageAttention 3"],
-                    {"default": "None",
-                     "tooltip": "SageAttention version. Requires: pip install sageattention"},
-                ),
-                "flashattention_version": (
-                    ["None", "FlashAttention 2", "FlashAttention 3", "FlashAttention 4"],
-                    {"default": "None",
-                     "tooltip": "FlashAttention version. Requires: pip install flash-attn"},
                 ),
             },
             "optional": {
@@ -209,13 +143,10 @@ class NouganDiffusersLoader:
     TITLE = "Nougan Diffusers Loader"
 
     @classmethod
-    def IS_CHANGED(cls, model_name, sageattention_version,
-                   flashattention_version, model_data="{}", **kw):
-        return f"{model_name}_{sageattention_version}_{flashattention_version}_{model_data}"
+    def IS_CHANGED(cls, model_name, model_data="{}", **kw):
+        return f"{model_name}_{model_data}"
 
-    def load(self, model_name, sageattention_version,
-             flashattention_version, model_data="{}"):
-
+    def load(self, model_name, model_data="{}"):
         cfg = {}
         if model_data and model_data.strip():
             try:
@@ -223,9 +154,7 @@ class NouganDiffusersLoader:
             except json.JSONDecodeError:
                 pass
 
-        name  = cfg.get("model_name", model_name) or model_name
-        sage  = cfg.get("sageattention_version", sageattention_version)
-        flash = cfg.get("flashattention_version", flashattention_version)
+        name = cfg.get("model_name", model_name) or model_name
 
         model_path = _resolve(name)
         if model_path is None:
@@ -270,8 +199,5 @@ class NouganDiffusersLoader:
         else:
             print(f"[Nougan] Loading unified model: {model_path}")
             unet = comfy.sd.load_diffusion_model(model_path)
-
-        if unet is not None:
-            unet = _apply_attention_patches(unet, sage, flash)
 
         return (unet, clip, vae)
