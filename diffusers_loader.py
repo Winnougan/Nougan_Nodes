@@ -48,9 +48,7 @@ for _mod in ("comfy.ldm.modules.attention", "comfy.ldm.flux.model"):
 
 
 def _apply_rope(x, pe):
-    """Apply rotary positional encoding. Uses ComfyUI's own rope() when
-    available; otherwise falls back to the standard complex‑multiply RoPE
-    used by FLUX / Krea2‑type architectures."""
+    """Apply rotary positional encoding."""
     if _comfy_rope is not None:
         return _comfy_rope(x, pe)
 
@@ -72,14 +70,42 @@ def _apply_rope(x, pe):
 
 
 # ---------------------------------------------------------------------------
-# Attention wrappers — ComfyUI‑compatible signatures around fast kernels
+# Attention wrappers — Kijai-compatible ComfyUI patch signatures
+# ---------------------------------------------------------------------------
+# NOTE: Different ComfyUI model architectures call attention patches with
+# different signatures. Some (older / generic path) call:
+#     def patch(q, k, v, extra_options) -> Tensor
+# while others (e.g. krea2, and other newer architectures) call:
+#     def patch(q, k, v, pe=..., attn_mask=..., extra_options=...) -> Tensor
+# i.e. "pe" and "attn_mask" arrive as their own keyword arguments rather
+# than being bundled inside extra_options. To be compatible with both,
+# every wrapper below accepts pe/attn_mask/extra_options as separate
+# optional kwargs (falling back to extra_options if pe/attn_mask aren't
+# passed directly), plus a **kwargs catch-all for forward-compatibility
+# with any other call conventions.
+#
+# q, k, v arrive as [B, H, S, D] (batch, heads, seq_len, head_dim)
 # ---------------------------------------------------------------------------
 
+
+def _resolve_pe_and_mask(pe, attn_mask, extra_options):
+    """Normalize the various calling conventions into (pe, attn_mask)."""
+    extra_options = extra_options or {}
+    if pe is None:
+        pe = extra_options.get("pe", None)
+    if attn_mask is None:
+        attn_mask = extra_options.get("attn_mask", None)
+    return pe, attn_mask
+
+
 def _make_flash_wrapper():
-    """Wrap flash_attn_func so it accepts ComfyUI's (q,k,v,pe,attn_mask,…)."""
+    """Wrap flash_attn_func with a ComfyUI-compatible attention signature."""
     from flash_attn import flash_attn_func
 
-    def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None):
+    def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None, **kwargs):
+        pe, attn_mask = _resolve_pe_and_mask(pe, attn_mask, extra_options)
+
+        # Apply RoPE if provided
         if pe is not None:
             q = _apply_rope(q, pe)
             k = _apply_rope(k, pe)
@@ -88,36 +114,67 @@ def _make_flash_wrapper():
         if attn_mask is not None:
             return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
 
-        # flash_attn expects [B, S, H, D]; ComfyUI uses [B, H, S, D]
+        # flash_attn expects [B, S, H, D]; ComfyUI provides [B, H, S, D]
+        orig_dtype = q.dtype
         q = q.transpose(1, 2).contiguous()
         k = k.transpose(1, 2).contiguous()
         v = v.transpose(1, 2).contiguous()
 
+        # flash_attn requires fp16/bf16
+        if q.dtype == torch.float32:
+            q = q.half()
+            k = k.half()
+            v = v.half()
+
         out = flash_attn_func(q, k, v)
-        return out.transpose(1, 2)          # back to [B, H, S, D]
+
+        # Back to [B, H, S, D]
+        out = out.transpose(1, 2)
+        return out.to(orig_dtype)
 
     return _wrapper
 
 
-def _make_sage_wrapper():
-    """Wrap sageattn so it accepts ComfyUI's (q,k,v,pe,attn_mask,…)."""
+def _make_sage_wrapper(sage_ver="SageAttention 2"):
+    """Wrap sageattn with a ComfyUI-compatible attention signature."""
     from sageattention import sageattn
 
-    def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None):
+    def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None, **kwargs):
+        pe, attn_mask = _resolve_pe_and_mask(pe, attn_mask, extra_options)
+
+        # Apply RoPE if provided
         if pe is not None:
             q = _apply_rope(q, pe)
             k = _apply_rope(k, pe)
 
+        # sageattn doesn't support arbitrary masks — fall back to SDPA
         if attn_mask is not None:
             return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
 
         # sageattn expects [B, H, S, D] — same layout as ComfyUI
-        return sageattn(q, k, v)
+        # Ensure contiguous and correct dtype (sageattn works with fp16/bf16)
+        orig_dtype = q.dtype
+        if q.dtype == torch.float32:
+            q = q.half()
+            k = k.half()
+            v = v.half()
+
+        q = q.contiguous()
+        k = k.contiguous()
+        v = v.contiguous()
+
+        out = sageattn(q, k, v)
+        return out.to(orig_dtype)
 
     return _wrapper
 
 
 def _apply_attention_patches(model, sage_ver, flash_ver):
+    """Apply attention patches to the model using ComfyUI's native patch API.
+
+    Priority: SageAttention > FlashAttention (if both set, Sage wins).
+    This mirrors Kijai's approach in HunyuanVideoWrapper / FluxWrapper.
+    """
     if sage_ver == "None" and flash_ver == "None":
         return model
 
@@ -130,27 +187,61 @@ def _apply_attention_patches(model, sage_ver, flash_ver):
             wrapper = _make_flash_wrapper()
             name = flash_ver
         except ImportError:
-            print(f"[Nougan] ⚠️ {flash_ver} selected but 'flash-attn' not installed.")
+            print(f"[Nougan] ⚠️ {flash_ver} selected but 'flash-attn' not installed. "
+                  f"Install with: pip install flash-attn --no-build-isolation")
         except Exception as e:
             print(f"[Nougan] ❌ Failed to build {flash_ver} wrapper: {e}")
 
     if sage_ver != "None":
         try:
-            wrapper = _make_sage_wrapper()
+            wrapper = _make_sage_wrapper(sage_ver)
             name = sage_ver
         except ImportError:
-            print(f"[Nougan] ⚠️ {sage_ver} selected but 'sageattention' not installed.")
+            print(f"[Nougan] ⚠️ {sage_ver} selected but 'sageattention' not installed. "
+                  f"Install with: pip install sageattention")
         except Exception as e:
             print(f"[Nougan] ❌ Failed to build {sage_ver} wrapper: {e}")
 
     if wrapper is not None:
+        # --- Primary method: ComfyUI model-level attention patches ---
         if hasattr(model, "set_model_attn1_patch"):
             model.set_model_attn1_patch(wrapper)
             model.set_model_attn2_patch(wrapper)
+            rope_status = "native" if _comfy_rope else "fallback"
             print(f"[Nougan] ✅ Patched attn1 + attn2 with {name} "
-                  f"(ComfyUI‑compatible wrapper, RoPE={'native' if _comfy_rope else 'fallback'})")
+                  f"(RoPE={rope_status})")
         else:
-            print(f"[Nougan] ❌ Model does not support attention patching ({name})")
+            # --- Fallback: patch at the module level (Kijai-style global patch) ---
+            try:
+                import comfy.ldm.modules.attention as attn_module
+
+                _original_optimized = getattr(attn_module, "optimized_attention", None)
+
+                def _patched_optimized_attention(q, k, v, heads, mask=None, **kwargs):
+                    """Global fallback patch matching comfy.ldm.modules.attention.optimized_attention"""
+                    # Reshape from [B, S, H*D] to [B, H, S, D]
+                    b, s, _ = q.shape
+                    d = q.shape[-1] // heads
+                    q_r = q.view(b, s, heads, d).transpose(1, 2)
+                    k_r = k.view(b, k.shape[1], heads, d).transpose(1, 2)
+                    v_r = v.view(b, v.shape[1], heads, d).transpose(1, 2)
+
+                    extra_opts = {}
+                    if mask is not None:
+                        extra_opts["attn_mask"] = mask
+
+                    out = wrapper(q_r, k_r, v_r, extra_options=extra_opts)
+
+                    # Back to [B, S, H*D]
+                    out = out.transpose(1, 2).reshape(b, s, -1)
+                    return out
+
+                attn_module.optimized_attention = _patched_optimized_attention
+                print(f"[Nougan] ✅ Applied global attention patch: {name} "
+                      f"(module-level fallback)")
+            except Exception as e:
+                print(f"[Nougan] ❌ Model does not support attention patching "
+                      f"({name}): {e}")
 
     return model
 
