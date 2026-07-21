@@ -29,20 +29,57 @@ def first_file(path, filenames):
     return None
 
 
-def _get_available_diffusers_models():
-    search_dirs = []
-    for folder_name in ["diffusion_models", "unet", "diffusers"]:
-        search_dirs.extend(folder_paths.get_folder_paths(folder_name))
+def _candidate_dirs():
+    """Every directory that may hold a diffusers model folder or a unet file.
 
-    seen, unique = set(), []
-    for d in search_dirs:
-        if d not in seen:
+    Combines ComfyUI's category mappings (so user overrides in
+    extra_model_paths.yaml and user-dir models are honoured) with the *physical*
+    default subfolders under each models root. Some ComfyUI builds don't list
+    models/diffusion_models under the category strings we query, which silently
+    hid models placed there — adding the physical dirs closes that gap.
+    """
+    dirs = []
+
+    # 1) ComfyUI category mappings (covers extra_model_paths + user models dir)
+    for name in ("diffusion_models", "unet", "diffusers"):
+        try:
+            dirs.extend(folder_paths.get_folder_paths(name))
+        except Exception:
+            pass
+
+    # 2) Explicit physical subfolders under every known models root
+    roots = []
+    md = getattr(folder_paths, "models_dir", None)
+    if md:
+        roots.append(md)
+    try:
+        roots.append(os.path.join(folder_paths.get_user_directory(), "models"))
+    except Exception:
+        pass
+    for cat in ("checkpoints", "loras"):        # last-resort: derive a models root
+        try:
+            for p in folder_paths.get_folder_paths(cat):
+                roots.append(os.path.dirname(p))
+        except Exception:
+            pass
+    for root in roots:
+        for sub in ("diffusion_models", "unet", "diffusers"):
+            dirs.append(os.path.join(root, sub))
+
+    # dedupe (keep order); non-existent dirs are filtered at the use-site
+    seen, out = set(), []
+    for d in dirs:
+        d = os.path.normpath(d)
+        if d and d not in seen:
             seen.add(d)
-            unique.append(d)
+            out.append(d)
+    return out
 
+
+def _get_available_diffusers_models():
     models = []
-    for base in unique:
-        if not os.path.exists(base):
+    for base in _candidate_dirs():
+        if not os.path.isdir(base):
             continue
         for item in os.listdir(base):
             full = os.path.join(base, item)
@@ -142,17 +179,9 @@ class NouganDiffusersLoader:
         sage  = cfg.get("sageattention_version", sageattention_version)
         flash = cfg.get("flashattention_version", flashattention_version)
 
-        # ── resolve path ──────────────────────────────────────────────
+        # ── resolve path (same dir list the dropdown was built from) ───
         model_path = None
-        dirs = []
-        for fn in ["diffusion_models", "unet", "diffusers"]:
-            dirs.extend(folder_paths.get_folder_paths(fn))
-        seen, unique = set(), []
-        for d in dirs:
-            if d not in seen:
-                seen.add(d)
-                unique.append(d)
-        for base in unique:
+        for base in _candidate_dirs():
             p = os.path.join(base, name)
             if os.path.exists(p):
                 model_path = p
