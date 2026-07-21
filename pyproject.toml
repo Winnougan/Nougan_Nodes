@@ -1,0 +1,12 @@
+[project]
+name = "nougan_nodes"
+description = "Custom nodes for ComfyUI by Winnougan"
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Winnougan/Nougan_Nodes"
+
+[tool.comfy]
+PublisherId = "winnougan"
