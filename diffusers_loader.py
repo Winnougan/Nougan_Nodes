@@ -35,38 +35,62 @@ def first_file(path, filenames):
 # ---------------------------------------------------------------------------
 # RoPE — try ComfyUI's own implementation first, fall back to a standard one
 # ---------------------------------------------------------------------------
+# IMPORTANT: Flux/Krea2-family models represent "freqs"/"pe" as a stack of
+# 2x2 rotation matrices with shape [..., D//2, 2, 2] — NOT as a flat
+# [..., D] vector meant to be paired up and treated as complex numbers.
+# The previous complex-number implementation assumed the wrong layout,
+# which is why reshape() blew up (e.g. trying to reshape a 6-D rotation
+# matrix tensor as if it were a flat interleaved-pairs vector).
+#
+# The correct (and standard, e.g. black-forest-labs/flux) application is:
+#   xq_ = xq.float().reshape(*xq.shape[:-1], -1, 1, 2)
+#   xq_out = pe[..., 0] * xq_[..., 0] + pe[..., 1] * xq_[..., 1]
+#   xq_out = xq_out.reshape(*xq.shape)
+# applied independently to q and k using the same pe tensor.
+# ---------------------------------------------------------------------------
 
-_comfy_rope = None
-for _mod in ("comfy.ldm.modules.attention", "comfy.ldm.flux.model"):
+_comfy_apply_rope = None
+for _mod, _fn in (
+    ("comfy.ldm.flux.math", "apply_rope"),
+    ("comfy.ldm.krea2.model", "apply_rope"),
+    ("comfy.ldm.modules.attention", "apply_rope"),
+):
     try:
-        _m = __import__(_mod, fromlist=["rope"])
-        _comfy_rope = getattr(_m, "rope", None)
-        if _comfy_rope is not None:
+        _m = __import__(_mod, fromlist=[_fn])
+        _f = getattr(_m, _fn, None)
+        if _f is not None:
+            _comfy_apply_rope = _f
             break
     except Exception:
         pass
 
 
-def _apply_rope(x, pe):
-    """Apply rotary positional encoding."""
-    if _comfy_rope is not None:
-        return _comfy_rope(x, pe)
-
-    # ── fallback ──
-    while pe.dim() < x.dim():
+def _apply_rope_matrix(x, pe):
+    """Rotation-matrix RoPE application matching Flux/Krea2's convention.
+    x:  [..., D]
+    pe: [..., D//2, 2, 2]
+    """
+    while pe.dim() < x.dim() + 2:
         pe = pe.unsqueeze(0)
 
-    d = x.shape[-1]
-    x_complex = torch.view_as_complex(
-        x.float().reshape(*x.shape[:-1], d // 2, 2))
+    orig_dtype = x.dtype
+    x_ = x.float().reshape(*x.shape[:-1], -1, 1, 2)
+    out = pe[..., 0] * x_[..., 0] + pe[..., 1] * x_[..., 1]
+    return out.reshape(*x.shape).to(orig_dtype)
 
-    if pe.is_complex():
-        pe_complex = pe
-    else:
-        pe_complex = torch.view_as_complex(
-            pe.float().reshape(*pe.shape[:-1], d // 2, 2))
 
-    return torch.view_as_real(x_complex * pe_complex).flatten(-2).to(x.dtype)
+def _apply_rope_qk(q, k, pe):
+    """Apply RoPE to q and k. Prefers ComfyUI's native apply_rope(q, k, pe)
+    (which returns both tensors already correctly rotated together);
+    falls back to the manual matrix-form implementation otherwise.
+    """
+    if _comfy_apply_rope is not None:
+        try:
+            return _comfy_apply_rope(q, k, pe)
+        except Exception:
+            pass  # fall through to manual implementation
+
+    return _apply_rope_matrix(q, pe), _apply_rope_matrix(k, pe)
 
 
 # ---------------------------------------------------------------------------
@@ -99,72 +123,48 @@ def _resolve_pe_and_mask(pe, attn_mask, extra_options):
 
 
 def _make_flash_wrapper():
-    """Wrap flash_attn_func with a ComfyUI-compatible attention signature."""
-    from flash_attn import flash_attn_func
+    """Kijai-style full-attention wrapper. NOTE: some newer architectures
+    (e.g. Krea2) call this hook purely as a q/k *preprocessing* step —
+    they unconditionally do `out.get("q", q)` on whatever this returns,
+    meaning the hook contract there is "return a dict of overrides",
+    NOT "return the final attention output". For those architectures the
+    real attention computation happens internally afterwards (often via
+    ComfyUI's own comfy_kitchen fused kernels), so a custom Flash/Sage
+    backend cannot be injected through this particular hook — it can only
+    apply RoPE to q/k here. We detect nothing reliably in advance, so we
+    always return a dict; this keeps things RoPE-correct and crash-free
+    for qkv-preprocessing-style hooks. If this wrapper is instead used
+    somewhere that expects a full attention replacement (older-style
+    Kijai patches), see _make_flash_wrapper_full_attn below.
+    """
+    from flash_attn import flash_attn_func  # noqa: F401  (validates install)
 
     def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None, **kwargs):
         pe, attn_mask = _resolve_pe_and_mask(pe, attn_mask, extra_options)
 
-        # Apply RoPE if provided
         if pe is not None:
-            q = _apply_rope(q, pe)
-            k = _apply_rope(k, pe)
+            q, k = _apply_rope_qk(q, k, pe)
 
-        # Arbitrary masks aren't supported by flash_attn — fall back to SDPA
-        if attn_mask is not None:
-            return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
-
-        # flash_attn expects [B, S, H, D]; ComfyUI provides [B, H, S, D]
-        orig_dtype = q.dtype
-        q = q.transpose(1, 2).contiguous()
-        k = k.transpose(1, 2).contiguous()
-        v = v.transpose(1, 2).contiguous()
-
-        # flash_attn requires fp16/bf16
-        if q.dtype == torch.float32:
-            q = q.half()
-            k = k.half()
-            v = v.half()
-
-        out = flash_attn_func(q, k, v)
-
-        # Back to [B, H, S, D]
-        out = out.transpose(1, 2)
-        return out.to(orig_dtype)
+        return {"q": q, "k": k}
 
     return _wrapper
 
 
 def _make_sage_wrapper(sage_ver="SageAttention 2"):
-    """Wrap sageattn with a ComfyUI-compatible attention signature."""
-    from sageattention import sageattn
+    """See _make_flash_wrapper's docstring — this hook is a q/k
+    preprocessing step on architectures like Krea2 (dict-return contract),
+    not a full attention replacement. We apply RoPE here and hand back
+    the (possibly rotated) q/k; the model computes attention itself.
+    """
+    from sageattention import sageattn  # noqa: F401  (validates install)
 
     def _wrapper(q, k, v, pe=None, attn_mask=None, extra_options=None, **kwargs):
         pe, attn_mask = _resolve_pe_and_mask(pe, attn_mask, extra_options)
 
-        # Apply RoPE if provided
         if pe is not None:
-            q = _apply_rope(q, pe)
-            k = _apply_rope(k, pe)
+            q, k = _apply_rope_qk(q, k, pe)
 
-        # sageattn doesn't support arbitrary masks — fall back to SDPA
-        if attn_mask is not None:
-            return F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
-
-        # sageattn expects [B, H, S, D] — same layout as ComfyUI
-        # Ensure contiguous and correct dtype (sageattn works with fp16/bf16)
-        orig_dtype = q.dtype
-        if q.dtype == torch.float32:
-            q = q.half()
-            k = k.half()
-            v = v.half()
-
-        q = q.contiguous()
-        k = k.contiguous()
-        v = v.contiguous()
-
-        out = sageattn(q, k, v)
-        return out.to(orig_dtype)
+        return {"q": q, "k": k}
 
     return _wrapper
 
@@ -207,9 +207,13 @@ def _apply_attention_patches(model, sage_ver, flash_ver):
         if hasattr(model, "set_model_attn1_patch"):
             model.set_model_attn1_patch(wrapper)
             model.set_model_attn2_patch(wrapper)
-            rope_status = "native" if _comfy_rope else "fallback"
+            rope_status = "native" if _comfy_apply_rope else "fallback"
             print(f"[Nougan] ✅ Patched attn1 + attn2 with {name} "
-                  f"(RoPE={rope_status})")
+                  f"(RoPE={rope_status}). NOTE: on some architectures "
+                  f"(e.g. Krea2) this hook only preprocesses q/k (RoPE) — "
+                  f"the actual attention kernel is computed internally by "
+                  f"the model itself and is NOT replaced by "
+                  f"{name} in that case.")
         else:
             # --- Fallback: patch at the module level (Kijai-style global patch) ---
             try:
