@@ -7,11 +7,32 @@ catch { ({ app } = await import("/scripts/app.js")); }
 
 const NODE_NAME = "NouganTextEncodeZeroNeg";
 
+// Hide a widget visually AND reclaim its space. For canvas widgets the
+// computeSize/draw override is enough; for DOM widgets (e.g. a multiline
+// STRING, which ComfyUI renders as a real <textarea>) we MUST also hide the
+// element itself, otherwise it keeps painting as an empty grey box below the
+// custom panel. Safe to call repeatedly (the element is re-hidden each time).
 function hideWidget(w) {
-    if (!w || w._ndlHidden) return;
+    if (!w) return;
+    const el = w.element || w.inputEl;
+    if (el) {
+        el.style.display = "none";
+        el.style.height = "0";
+        el.style.pointerEvents = "none";
+    }
+    if (w._ndlHidden) return;
     w._ndlHidden = true;
     w.computeSize = () => [0, -4];
     w.draw = () => {};
+}
+
+// Force LiteGraph to re-measure the node so the space freed by hidden
+// widgets (and the hidden DOM element) actually collapses the node border.
+function recompute(node) {
+    requestAnimationFrame(() => {
+        node.setDirtyCanvas(true, true);
+        if (typeof node.onResize === "function") node.onResize(node.size);
+    });
 }
 
 const STYLE_ID = "nougan-te-styles";
@@ -49,9 +70,7 @@ function injectStyles() {
         }
         .nte-textarea::placeholder { color: #4a6278; font-style: italic; }
 
-        .nte-mode-row {
-            display: flex; gap: 6px; align-items: center;
-        }
+        .nte-mode-row { display: flex; gap: 6px; align-items: center; }
         .nte-pill {
             padding: 4px 12px; border-radius: 12px; font-size: 11px;
             font-weight: 600; cursor: pointer; transition: all .15s;
@@ -69,9 +88,7 @@ function injectStyles() {
             font-size: 10px; color: #5a7a94;
         }
         .nte-count { font-variant-numeric: tabular-nums; }
-        .nte-status {
-            display: inline-flex; align-items: center; gap: 4px;
-        }
+        .nte-status { display: inline-flex; align-items: center; gap: 4px; }
         .nte-status .dot {
             width: 6px; height: 6px; border-radius: 50%;
             background: #3a5a72; transition: background .3s;
@@ -98,10 +115,10 @@ app.registerExtension({
             const wPos  = this.widgets?.find(w => w.name === "positive");
             const wMode = this.widgets?.find(w => w.name === "negative_mode");
 
+            // Hide BOTH the canvas footprint and the DOM element.
             hideWidget(wPos);
             hideWidget(wMode);
 
-            // ── Build panel ──
             const panel = document.createElement("div");
             panel.className = "nte-panel";
             panel.innerHTML = `
@@ -137,7 +154,6 @@ app.registerExtension({
             const countEl = $("count");
             const dot     = $("dot");
 
-            // ── Helpers ──
             function updateCount() {
                 const v = ta.value;
                 const words = v.trim() ? v.trim().split(/\s+/).length : 0;
@@ -159,7 +175,6 @@ app.registerExtension({
                 updateCount();
             }
 
-            // ── Events ──
             ta.addEventListener("input", () => {
                 if (wPos) wPos.value = ta.value;
                 updateCount();
@@ -168,15 +183,24 @@ app.registerExtension({
             pillZ.addEventListener("click", () => { setMode("Zero Out"); markOk(); });
             pillE.addEventListener("click", () => { setMode("Empty String"); markOk(); });
 
-            // Stash for onConfigure
-            this._nte = { refreshDOM };
+            // Stash refs so onConfigure can re-hide + repaint after a reload.
+            this._nte = {
+                refreshDOM,
+                rehide: () => { hideWidget(wPos); hideWidget(wMode); },
+            };
+
             refreshDOM();
+            recompute(this);   // ← collapse the node to fit ONLY the panel
         };
 
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function (info) {
             onConfigure?.apply(this, arguments);
+            // On reload the saved (tall) node size + the native textarea can
+            // reappear; re-hide the element, repaint the DOM, and re-measure.
+            this._nte?.rehide();
             this._nte?.refreshDOM();
+            recompute(this);
         };
     },
 });
