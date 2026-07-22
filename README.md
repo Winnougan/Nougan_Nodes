@@ -1,7 +1,7 @@
 <div align="center">
 
 # 🌀 Winnougan (Nougan's Nodes)
-<img width="1536" height="1024" alt="f8ba2080-1d9e-4188-afc5-02e01f898dfd" src="https://github.com/user-attachments/assets/7bc16746-2f0b-4ff7-8de5-d6e076bc3f6a" />
+<img width="1536" height="1024" alt="f8ba2080-1d9e-4188-afc5-02e01f898dfd" src="https://github.com/user-attachments/assets/24ea8230-f450-4c9a-b7d1-79cad27211e7" />
 
 ### Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
@@ -112,6 +112,130 @@ A single node that lays down the **uncensoring foundation** for Krea 2 by baking
 > 🎯 **Why a dedicated node instead of the regular LoRA loader?** The regular loader is a *general tool* ("which of my hundreds of LoRAs?"); this node is a *curated preset* ("give me the proven Krea 2 uncensor foundation, instantly, on any machine"). They're meant to be used **together** — Krea 2 lays the base, your regular loader handles styles/characters/concepts on top. See the [FAQ](#why-use-the-krea-2-node-over-the-regular-lora-loader).
 
 ---
+
+### 🎯 Nougan Text Encode + Zero Neg
+
+A single ComfyUI node that replaces the classic **`CLIP Text Encode` → `Conditioning Zero Out`** two‑node chain. Feed it a `CLIP` and a positive prompt, and it hands you back **both** conditioning outputs at once — a properly encoded positive *and* a ready‑made negative — so your graph stays clean and you never have to wire up a separate zero‑out node again.
+
+```
+        ┌──────────────────────────────────────────┐
+  CLIP ─┤  Nougan Text Encode + Zero Neg 🎯        │
+        │                                          │
+        │  ✍️ Positive Prompt                      │──► POSITIVE  (CONDITIONING)
+        │  ┌────────────────────────────────────┐  │
+        │  │ a cinematic portrait, golden hour… │  │
+        │  └────────────────────────────────────┘  │
+        │                                          │
+        │  Negative Conditioning                   │
+        │  ( ⊘ Zero Out )  ( ∅ Empty String )      │──► NEGATIVE  (CONDITIONING)
+        │                                          │
+        │  42 chars · 8 words            ● ready   │
+        └──────────────────────────────────────────┘
+```
+
+| Output | Contents |
+|---|---|
+| **POSITIVE** | Your prompt text, tokenized and encoded through CLIP (`clip.tokenize` → `encode_from_tokens_scheduled`). |
+| **NEGATIVE** | Generated automatically from the mode you pick — **Zero Out** or **Empty String** (below). |
+
+Wire **POSITIVE** → sampler `positive`, **NEGATIVE** → sampler `negative`. Done.
+
+---
+
+## The two negative modes — what they actually do
+
+This is the part worth understanding, because the two options are **not** the same thing even though they both mean "no negative prompt."
+
+### ⊘ Zero Out *(default)*
+
+Takes the positive conditioning and **replaces every value with `0`** — including the `pooled_output` (the global CLIP pooler embedding that SDXL / Flux‑family models carry alongside the token sequence). The tensor keeps the exact same *shape* as the positive (same token length, same hidden dimension); only the numbers become zero.
+
+Mathematically this is a **true null vector** — a signal CLIP itself could never produce. It represents *absolute nothing*, so when classifier‑free guidance runs, the model is pushed maximally "away from the void" and toward your positive prompt.
+
+```
+positive embedding : [ 0.42, -1.10,  0.03,  2.71, … ]   ← rich, meaningful
+zero‑out negative  : [ 0.00,  0.00,  0.00,  0.00, … ]   ← mathematical zero
+```
+
+**Best for:** modern **flow‑matching / rectified‑flow** models — **Flux, Krea 2, Ideogram 4**, and similar — especially when you run them with **CFG > 1**. This matches ComfyUI's built‑in `ConditioningZeroOut` exactly.
+
+### ∅ Empty String
+
+Encodes the literal text `""` (an empty string) **through CLIP as a normal prompt**. This produces a **real, non‑zero embedding** — CLIP's learned representation of *"no text."* The tokenizer still emits start/end tokens, the transformer layers still run, and the pooler still outputs a genuine (small but non‑zero) vector.
+
+```
+positive embedding     : [ 0.42, -1.10,  0.03,  2.71, … ]   ← rich, meaningful
+empty‑string negative  : [ 0.05,  0.11, -0.02,  0.09, … ]   ← CLIP's idea of "nothing"
+```
+
+That's the key distinction: **`CLIP("")` ≠ `0`**. An empty‑string embedding is *in‑distribution* for the text encoder; a zero vector is not.
+
+**Best for:** models **trained with traditional CFG and blank negatives** — classic **SD 1.5 / SD 2.1 / SDXL** workflows where you'd normally just leave the negative box empty. Feeding those models a real empty‑text embedding keeps you inside the distribution they were trained on.
+
+---
+
+## Side‑by‑side
+
+| | **⊘ Zero Out** | **∅ Empty String** |
+|---|---|---|
+| What it is | Tensor of literal zeros | CLIP encoding of `""` |
+| Values | All `0.0` | Small, real, non‑zero |
+| `pooled_output` | Zeroed too | Real empty‑text pooler vector |
+| In‑distribution for CLIP? | ❌ No (a null CLIP can't produce) | ✅ Yes |
+| Ideal models | Flux, Krea 2, Ideogram 4, flow models | SD 1.5 / 2.1 / SDXL, classic CFG |
+| Equivalent built‑in node | `ConditioningZeroOut` | `CLIP Text Encode` with `""` |
+
+---
+
+## 💡 The CFG = 1 shortcut (why it often doesn't matter)
+
+Classifier‑free guidance combines the two conditionings like this:
+
+```
+output = negative + CFG × (positive − negative)
+```
+
+Set **CFG = 1.0** and the math collapses:
+
+```
+output = negative + 1 × (positive − negative) = positive
+```
+
+The negative term **cancels out entirely**. So if you're running a flow model at **CFG 1.0** (the default for Flux / Krea 2 / Ideogram 4), the negative conditioning has **literally zero effect on the image** — the sampler still *requires* the input, but it never uses it. In that case either mode gives identical results; the node simply provides a valid placeholder so the pipeline doesn't error.
+
+The moment you push **CFG above 1**, the negative starts mattering again — and that's when choosing the right mode (usually **Zero Out** for flow models) gives you a cleaner, stronger guidance signal.
+
+---
+
+## Which one should I pick?
+
+- **Flux / Krea 2 / Ideogram 4 / any flow‑matching model** → **⊘ Zero Out** (the default).
+- **SD 1.5 / SDXL / traditionally‑trained models with a blank negative** → **∅ Empty String**.
+- **Running at CFG 1.0?** → Either; it makes no difference. Leave it on Zero Out.
+- **Unsure?** → Generate the same seed with both and compare. For most modern models you won't see a difference at CFG 1, and Zero Out is the safe default once you raise CFG.
+
+---
+
+## The UI
+
+The node ships with a styled front‑end panel:
+
+- A **monospace prompt textarea** with live **character / word count**.
+- **Pill‑button toggles** for the negative mode (no fiddly dropdown).
+- A small **status dot** that pulses green on every change so you know your edit registered.
+- Saved prompt text and mode **restore correctly** on workflow reload.
+
+---
+
+## Install
+
+Drop the package into `ComfyUI/custom_nodes/Nougan/`, restart ComfyUI, hard‑refresh the browser, then:
+
+**Right‑click canvas → Add Node → conditioning → Nougan Text Encode + Zero Neg 🎯**
+
+---
+
+*Part of the **Nougan** node suite — Diffusers Loader 🚀 · Krea 2 Loader 🌀 · Get Image 🖼️ · Text Encode + Zero Neg 🎯*
 
 ## 📥 Bundled LoRAs — copy & rename your 3 favorites
 
