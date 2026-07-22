@@ -1,18 +1,13 @@
 // nougan-title-font-ui.js
 // D:\ComfyUI\custom_nodes\Nougan\web\nougan-title-font-ui.js
-//
-// BILLBOARD MODE: the entire card is rendered at a constant on-screen size
-// regardless of canvas zoom. We counter-scale the panel by 1/zoom (so the
-// layer's zoom cancels out) and resize the canvas node rectangle to match,
-// keeping the outline + hit-testing aligned with the visible card.
 
 let app;
 try { ({ app } = await import("../../scripts/app.js")); }
 catch { ({ app } = await import("/scripts/app.js")); }
 
 const NODE_NAME = "NouganTitleFont";
-const DESIGN_W = 360; // card design width in px (its on-screen width at all zooms)
 
+// ── Hide a widget visually AND reclaim its space (canvas + DOM element) ──
 function hideWidget(w) {
     if (!w) return;
     const el = w.element || w.inputEl;
@@ -24,13 +19,12 @@ function hideWidget(w) {
 }
 function recompute(node) {
     requestAnimationFrame(() => {
+        node.setDirtyCanvas(true, true);
         if (typeof node.onResize === "function") node.onResize(node.size);
-        node.setDirtyCanvas?.(true, true);
     });
 }
-function curScale() { return (app.canvas && app.canvas.ds && app.canvas.ds.scale) || 1; }
-function curInv()   { return Math.max(0.125, Math.min(8, 1 / curScale())); }
 
+// ── Color presets (one-click color + style) ──
 const PRESETS = [
     { n: "Sunset", a: "#ff512f", b: "#f09819", s: "Gradient" },
     { n: "Ocean",  a: "#2193b0", b: "#6dd5ed", s: "Gradient" },
@@ -51,6 +45,7 @@ function hexA(hex, a) {
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+// ── Apply the chosen look to the title element ──
 function applyStyle(el, v) {
     el.style.fontSize = v.size + "px";
     el.style.fontWeight = v.bold ? "900" : "700";
@@ -60,12 +55,13 @@ function applyStyle(el, v) {
     el.style.margin = "0";
     el.style.setProperty("--ga", v.a);
     el.style.setProperty("--gb", v.b);
+    // reset fill / clip / stroke / shadow every pass
     el.style.background = ""; el.style.webkitBackgroundClip = ""; el.style.backgroundClip = "";
     el.style.webkitTextFillColor = ""; el.style.color = ""; el.style.webkitTextStroke = "";
     el.style.textShadow = "none";
 
-    const sw = Math.max(1, Math.round(v.size / 28));
-    const g  = Math.max(6, Math.round(v.size / 5));
+    const sw = Math.max(1, Math.round(v.size / 28));   // outline stroke width
+    const g  = Math.max(6, Math.round(v.size / 5));    // glow radius
 
     switch (v.style) {
         case "Solid":    el.style.color = v.a; break;
@@ -100,22 +96,17 @@ function applyStyle(el, v) {
     }
 }
 
+// ── Styles + keyframes (injected once) ──
 const STYLE_ID = "nougan-tf-styles";
 function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = `
-        /* Panel is a billboard: it does NOT grab pointer events itself, so the
-           empty banner/preview area falls through to the canvas (=> the node
-           stays draggable). Only the real controls opt back in. */
         .ntf-panel{font-family:'Inter','Segoe UI',system-ui,sans-serif;padding:0;overflow:hidden;
           border-radius:8px;background:linear-gradient(160deg,#11151f,#0a0d14);border:1px solid #243149;
-          color:#dce6f5;font-size:12px;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+          color:#dce6f5;font-size:12px;pointer-events:auto;box-shadow:0 10px 30px rgba(0,0,0,.45)}
         .ntf-panel *{box-sizing:border-box}
-        .ntf-controls,.ntf-controls *{pointer-events:auto}
-        .ntf-title.ntf-linked{pointer-events:auto}
-
         .ntf-inner{padding:10px;display:flex;flex-direction:column;gap:9px}
         .ntf-bar{height:3px;margin:-10px -10px 0 -10px;border-radius:0;
           background:linear-gradient(90deg,#ff3d7f,#7a5cff,#3da5ff,#ff3d7f);background-size:200% 100%;
@@ -123,15 +114,15 @@ function injectStyles() {
         @keyframes ntf-bar{to{background-position:200% 0}}
 
         .ntf-preview{position:relative;min-height:64px;border-radius:8px;display:flex;align-items:center;
-          justify-content:center;text-align:center;padding:10px;overflow:hidden;
+          justify-content:center;text-align:center;padding:10px;overflow:hidden;pointer-events:none;
           background:#0a0e16;border:1px solid #1c2740}
         .ntf-title{display:inline-block;max-width:100%;word-break:break-word;text-decoration:none;
           transform-origin:center}
-        .ntf-title.ntf-linked{cursor:pointer}
+        .ntf-title.ntf-linked{pointer-events:auto;cursor:pointer}
         .ntf-title.ntf-linked:hover{text-decoration:underline}
-        .ntf-linkbadge{position:absolute;top:6px;right:8px;font-size:11px;opacity:.85}
+        .ntf-linkbadge{position:absolute;top:6px;right:8px;font-size:11px;opacity:.85;pointer-events:none}
 
-        .ntf-controls{display:flex;flex-direction:column;gap:7px}
+        .ntf-controls{display:flex;flex-direction:column;gap:7px;pointer-events:auto}
         .ntf-lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:#7f93ad;font-weight:700}
         .ntf-text{width:100%;padding:7px 9px;border-radius:6px;border:1px solid #2c3a55;background:#0a1018;
           color:#eaf2ff;font-size:13px;outline:none}
@@ -181,15 +172,6 @@ app.registerExtension({
         if (nodeData.name !== NODE_NAME) return;
         injectStyles();
 
-        // Keep the canvas rectangle width glued to the billboard card width,
-        // even if LiteGraph's own onResize tries to expand it to the panel's
-        // unscaled (design) width.
-        const onResize = nodeType.prototype.onResize;
-        nodeType.prototype.onResize = function (size) {
-            onResize?.apply(this, arguments);
-            this.size[0] = Math.round(DESIGN_W * curInv()) + 4;
-        };
-
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             onNodeCreated?.apply(this, arguments);
@@ -210,11 +192,9 @@ app.registerExtension({
 
             [wText, wSize, wBold, wGlow, wStyle, wColorA, wColorB, wAnim, wUrl].forEach(hideWidget);
 
+            // ── Build panel ──
             const panel = document.createElement("div");
             panel.className = "ntf-panel";
-            // Fixed design width + counter-scale origin → the billboard math.
-            panel.style.width = DESIGN_W + "px";
-            panel.style.transformOrigin = "top left";
             panel.innerHTML = `
                 <div class="ntf-inner">
                     <div class="ntf-bar"></div>
@@ -270,6 +250,7 @@ app.registerExtension({
             });
 
             const $ = s => panel.querySelector(`[data-n="${s}"]`);
+            const inner   = panel.querySelector(".ntf-inner");
             const preview = $("preview"), titleEl = $("title"), badge = $("badge");
             const ta = $("ta"), slider = $("slider"), numIn = $("num");
             const swA = $("swA"), swB = $("swB"), chips = $("chips");
@@ -277,11 +258,14 @@ app.registerExtension({
             const selStyle = $("selStyle"), selAnim = $("selAnim");
             const urlIn = $("url"), openBtn = $("open");
 
+            // Build color-preset chips
             PRESETS.forEach(p => {
                 const c = document.createElement("span");
                 c.className = "ntf-chip"; c.title = p.n;
                 c.style.background = `linear-gradient(135deg, ${p.a}, ${p.b})`;
-                c.addEventListener("click", () => { wColorA.value = p.a; wColorB.value = p.b; wStyle.value = p.s; render(); });
+                c.addEventListener("click", () => {
+                    wColorA.value = p.a; wColorB.value = p.b; wStyle.value = p.s; render();
+                });
                 chips.appendChild(c);
             });
 
@@ -298,20 +282,9 @@ app.registerExtension({
             });
 
             let lastAnim = "None";
-
-            // Counter-scale the card and resize the canvas rectangle to match,
-            // so the card is a constant on-screen size at every zoom level.
-            function applyBillboard() {
-                const inv = curInv();
-                panel.style.transform = `scale(${inv})`;
-                const natH = panel.offsetHeight || 380;     // design height (transform ignored)
-                storedH = Math.round(natH * inv) + 4;       // widget height in graph units
-                node.size[0] = Math.round(DESIGN_W * inv) + 4;
-                if (node._ntf) node._ntf.lastScale = curScale();
-            }
-
             function render() {
                 const v = vals();
+                // widgets → controls (guard text/url so the caret doesn't jump while typing)
                 if (ta.value !== v.text) ta.value = v.text;
                 if (urlIn.value !== v.url) urlIn.value = v.url;
                 slider.value = v.size; numIn.value = v.size;
@@ -320,10 +293,12 @@ app.registerExtension({
                 pillGlow.classList.toggle("on", v.glow);
                 selStyle.value = v.style; selAnim.value = v.animate;
 
+                // preview text + look
                 titleEl.textContent = v.text || "Your Title";
                 titleEl.style.opacity = v.text ? "1" : ".4";
                 applyStyle(titleEl, v);
 
+                // link state (incremental so animations don't restart on each keystroke)
                 titleEl.classList.toggle("ntf-linked", !!v.url);
                 if (v.url) {
                     titleEl.setAttribute("href", v.url);
@@ -342,17 +317,25 @@ app.registerExtension({
                 badge.style.display = v.url ? "" : "none";
                 openBtn.disabled = !v.url;
 
+                // ambient glow behind the title tinted by color A
                 preview.style.background =
                     `radial-gradient(120% 130% at 50% 0%, ${hexA(v.a, 0.14)}, transparent 70%), #0a0e16`;
 
-                applyBillboard();
-                recompute(node);
-                requestAnimationFrame(() => { applyBillboard(); recompute(node); });
+                fit(); requestAnimationFrame(fit);
             }
 
+            // Grow / shrink the node to exactly fit the (possibly huge) title.
+            function fit() {
+                const h = inner.offsetHeight;
+                if (h > 0) { const total = h + 6; if (Math.abs(total - storedH) > 2) { storedH = total; recompute(node); } }
+            }
+
+            // ── Events (controls → widgets → render) ──
             ta.addEventListener("input", () => { wText.value = ta.value; render(); });
             slider.addEventListener("input", () => { wSize.value = +slider.value; render(); });
-            numIn.addEventListener("input", () => { wSize.value = Math.max(8, Math.min(240, +numIn.value || 8)); render(); });
+            numIn.addEventListener("input", () => {
+                wSize.value = Math.max(8, Math.min(240, +numIn.value || 8)); render();
+            });
             swA.addEventListener("input", () => { wColorA.value = swA.value; render(); });
             swB.addEventListener("input", () => { wColorB.value = swB.value; render(); });
             pillBold.addEventListener("click", () => { wBold.value = !wBold.value; render(); });
@@ -360,10 +343,15 @@ app.registerExtension({
             selStyle.addEventListener("change", () => { wStyle.value = selStyle.value; render(); });
             selAnim.addEventListener("change", () => { wAnim.value = selAnim.value; render(); });
             urlIn.addEventListener("input", () => { wUrl.value = urlIn.value; render(); });
-            openBtn.addEventListener("click", () => { const u = (wUrl.value || "").trim(); if (u) window.open(u, "_blank", "noopener"); });
+            openBtn.addEventListener("click", () => {
+                const u = (wUrl.value || "").trim();
+                if (u) window.open(u, "_blank", "noopener");
+            });
 
-            // Exposed for the zoom + configure hooks below.
-            this._ntf = { refreshDOM: render, lastScale: null };
+            this._ntf = {
+                refreshDOM: render,
+                rehide: () => [wText, wSize, wBold, wGlow, wStyle, wColorA, wColorB, wAnim, wUrl].forEach(hideWidget),
+            };
 
             render();
         };
@@ -371,14 +359,8 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function (info) {
             onConfigure?.apply(this, arguments);
+            this._ntf?.rehide();
             this._ntf?.refreshDOM();
-        };
-
-        // Re-billboard whenever the zoom changes (detected on canvas draw).
-        const onDrawForeground = nodeType.prototype.onDrawForeground;
-        nodeType.prototype.onDrawForeground = function (ctx) {
-            onDrawForeground?.apply(this, arguments);
-            if (this._ntf && curScale() !== this._ntf.lastScale) this._ntf.refreshDOM();
         };
     },
 });
