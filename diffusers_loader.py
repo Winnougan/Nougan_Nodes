@@ -1,5 +1,4 @@
 # diffusers_loader.py
-import json
 import os
 import torch
 import torch.nn.functional as F
@@ -373,21 +372,32 @@ class NouganDiffusersLoader:
     @classmethod
     def IS_CHANGED(cls, model_name, sageattention_version,
                    flashattention_version, model_data="{}", **kw):
+        # model_data is kept in the key for signature stability, but the JS
+        # panel no longer writes it, so it is effectively always "{}".
         return f"{model_name}_{sageattention_version}_{flashattention_version}_{model_data}"
 
     def load(self, model_name, sageattention_version,
              flashattention_version, model_data="{}"):
 
-        cfg = {}
-        if model_data and model_data.strip():
-            try:
-                cfg = json.loads(model_data)
-            except json.JSONDecodeError:
-                pass
-
-        name  = cfg.get("model_name", model_name) or model_name
-        sage  = cfg.get("sageattention_version", sageattention_version)
-        flash = cfg.get("flashattention_version", flashattention_version)
+        # ── Single source of truth ─────────────────────────────────────────
+        # The native combo widgets (model_name / sageattention_version /
+        # flashattention_version) are authoritative. The JS panel mirrors
+        # them 1:1 and writes back on every change, and they serialize and
+        # restore with the workflow.
+        #
+        # The hidden `model_data` JSON is intentionally NOT parsed or used
+        # here. It used to be a second source of truth that the panel wrote
+        # and that this function let OVERRIDE the native widgets — but the
+        # panel's DOM could be stale at load time (populated before the
+        # saved values were restored), so it would write the alphabetically
+        # first model into the JSON and clobber the real saved selection.
+        # That was the "always resets to the Fal Ideogram model on reload"
+        # bug. Ignoring model_data also auto-heals any workflow files that
+        # were already saved with a corrupted JSON blob.
+        # ───────────────────────────────────────────────────────────────────
+        name  = model_name
+        sage  = sageattention_version
+        flash = flashattention_version
 
         model_path = _resolve(name)
         if model_path is None:
