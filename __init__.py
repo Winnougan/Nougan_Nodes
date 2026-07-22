@@ -1,4 +1,5 @@
 # __init__.py
+import os
 from .diffusers_loader    import NouganDiffusersLoader
 from .get_image           import NouganGetImage
 from .krea2_loader        import NouganKrea2Loader, get_krea2_lora_status
@@ -16,7 +17,6 @@ NODE_CLASS_MAPPINGS = {
     "NouganTextBox":           NouganTextBox,
     "NouganTitleFont":         NouganTitleFont,
 }
-
 NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganDiffusersLoader":   "Nougan Diffusers Loader 🚀",
     "NouganGetImage":          "Nougan Get Image 🖼️",
@@ -25,6 +25,24 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganTextBox":           "Nougan Text Box 📝",
     "NouganTitleFont":         "Nougan Title Font 🌈",
 }
+
+# Lora Loader (from-scratch build): wrapped so it can NEVER take down the six
+# core nodes above. Only the two classes that exist are imported/registered.
+try:
+    from .nougan_lora_loader import NouganLoraLoader, NouganLoraLoaderMulti
+    NODE_CLASS_MAPPINGS.update({
+        "NouganLoraLoader":      NouganLoraLoader,
+        "NouganLoraLoaderMulti": NouganLoraLoaderMulti,
+    })
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "NouganLoraLoader":      "Nougan Lora Loader 📁",
+        "NouganLoraLoaderMulti": "Nougan Lora Loader (Multi-Model) 📁",
+    })
+    print("[Nougan] ✅ Lora Loader loaded (2 nodes).")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Lora Loader NOT loaded ({type(_e).__name__}: {_e}) — core 6 nodes are fine.")
+    traceback.print_exc()
 
 
 def _register_routes():
@@ -38,7 +56,16 @@ def _register_routes():
     async def _krea2_loras(_request):
         return web.json_response({"loras": get_krea2_lora_status()})
 
+    @PromptServer.instance.routes.get("/nougan/loras")
+    async def _nougan_loras(_request):
+        try:
+            import os as _os
+            import folder_paths as _fp
+            names = [str(x).replace(_os.sep, "/") for x in _fp.get_filename_list("loras")]
+        except Exception:
+            names = []
+        return web.json_response(names)
+
 
 _register_routes()
-
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
