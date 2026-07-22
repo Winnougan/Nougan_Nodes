@@ -185,6 +185,26 @@ app.registerExtension({
             if (wFlash?.value) selFlash.value = wFlash.value;
             badges(); status(); sync();
 
+            // ── Resync after ComfyUI restores saved widget values ──────────
+            // onNodeCreated runs BEFORE the saved workflow's widget values
+            // are applied to this node (that happens in onConfigure). At the
+            // point above, wModel/wSage/wFlash still hold their *defaults*,
+            // and the <select> elements snapshot those defaults. Nothing
+            // then re-reads the widgets once the real saved values land —
+            // which is exactly why it looked like "resets to Fal Ideogram /
+            // attention off" on every reload.
+            const onConfigure = nodeType.prototype.onConfigure;
+            nodeType.prototype.onConfigure = function (info) {
+                onConfigure?.apply(this, arguments);
+
+                populateModels();                       // re-read wModel.value now that it's real
+                if (wSage)  selSage.value  = wSage.value  || "None";
+                if (wFlash) selFlash.value = wFlash.value || "None";
+                badges();
+                status();
+                sync();
+            };
+
             requestAnimationFrame(() => { this.setDirtyCanvas(true, true); this.onResize?.(this.size); });
         };
     },
