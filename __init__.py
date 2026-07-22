@@ -1,23 +1,29 @@
 # __init__.py
-from .diffusers_loader   import NouganDiffusersLoader
-from .get_image          import NouganGetImage
-from .krea2_loader       import NouganKrea2Loader, get_krea2_lora_status
-from .text_encode        import NouganTextEncodeZeroNeg
+from .diffusers_loader    import NouganDiffusersLoader
+from .get_image           import NouganGetImage
+from .krea2_loader        import NouganKrea2Loader, get_krea2_lora_status
+from .text_encode         import NouganTextEncodeZeroNeg
+from .text_box            import NouganTextBox
+from .title_font          import NouganTitleFont
 
 WEB_DIRECTORY = "./web"
 
 NODE_CLASS_MAPPINGS = {
-    "NouganDiffusersLoader":  NouganDiffusersLoader,
-    "NouganGetImage":         NouganGetImage,
-    "NouganKrea2Loader":      NouganKrea2Loader,
+    "NouganDiffusersLoader":   NouganDiffusersLoader,
+    "NouganGetImage":          NouganGetImage,
+    "NouganKrea2Loader":       NouganKrea2Loader,
     "NouganTextEncodeZeroNeg": NouganTextEncodeZeroNeg,
+    "NouganTextBox":           NouganTextBox,
+    "NouganTitleFont":         NouganTitleFont,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "NouganDiffusersLoader":  "Nougan Diffusers Loader 🚀",
-    "NouganGetImage":         "Nougan Get Image 🖼️",
-    "NouganKrea2Loader":      "Nougan Krea 2 · Uncensored 🌀",
+    "NouganDiffusersLoader":   "Nougan Diffusers Loader 🚀",
+    "NouganGetImage":          "Nougan Get Image 🖼️",
+    "NouganKrea2Loader":       "Nougan Krea 2 · Uncensored 🌀",
     "NouganTextEncodeZeroNeg": "Nougan Text Encode + Zero Neg 🎯",
+    "NouganTextBox":           "Nougan Text Box 📝",
+    "NouganTitleFont":         "Nougan Title Font 🌈",
 }
 
 
