@@ -9,6 +9,7 @@ from .title_font          import NouganTitleFont
 
 WEB_DIRECTORY = "./web"
 
+# ── Core nodes: always registered (never wrapped — these must always load) ──
 NODE_CLASS_MAPPINGS = {
     "NouganDiffusersLoader":   NouganDiffusersLoader,
     "NouganGetImage":          NouganGetImage,
@@ -26,8 +27,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganTitleFont":         "Nougan Title Font 🌈",
 }
 
-# Lora Loader (from-scratch build): wrapped so it can NEVER take down the six
-# core nodes above. Only the two classes that exist are imported/registered.
+# ── Optional: Lora Loader (from-scratch build) ─────────────────────────────
+# Wrapped so it can NEVER take down the six core nodes above.
 try:
     from .nougan_lora_loader import NouganLoraLoader, NouganLoraLoaderMulti
     NODE_CLASS_MAPPINGS.update({
@@ -42,6 +43,50 @@ try:
 except Exception as _e:
     import traceback
     print(f"[Nougan] ⚠️  Lora Loader NOT loaded ({type(_e).__name__}: {_e}) — core 6 nodes are fine.")
+    traceback.print_exc()
+
+# ── Optional: Mask Editor ──────────────────────────────────────────────────
+# Its OWN try, so a mask-editor problem can never affect the core suite OR the
+# lora nodes. Importing the module also self-registers its /nougan/mask_editor/
+# upload route, so the editor's "Load image" button works the moment this loads.
+try:
+    from .mask_editor import NouganMaskEditor
+    NODE_CLASS_MAPPINGS["NouganMaskEditor"] = NouganMaskEditor
+    NODE_DISPLAY_NAME_MAPPINGS["NouganMaskEditor"] = "Nougan Mask Editor 🎨"
+    print("[Nougan] ✅ Mask Editor loaded.")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Mask Editor NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
+    traceback.print_exc()
+
+# ── Optional: Mask Composite ───────────────────────────────────────────────
+try:
+    from .mask_composite import NouganMaskComposite
+    NODE_CLASS_MAPPINGS["NouganMaskComposite"] = NouganMaskComposite
+    NODE_DISPLAY_NAME_MAPPINGS["NouganMaskComposite"] = "Nougan Mask Composite 🎭"
+    print("[Nougan] ✅ Mask Composite loaded.")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Mask Composite NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
+    traceback.print_exc()
+
+# ── Optional: Regional Character LoRA (Krea2 / Flux-2 single-stream DiT) ───
+# Its OWN try, so a problem here can never affect the core suite, the lora
+# nodes, or the mask nodes. Pairs with web/nougan-regional_lora.js (the
+# in-node visual region editor). Legacy IDs kept so old graphs that reference
+# the original standalone pack still load without rewiring.
+try:
+    from .nougan_regional_lora import NouganRegionalCharacterLoRA
+    NODE_CLASS_MAPPINGS["NouganRegionalCharacterLoRA"] = NouganRegionalCharacterLoRA
+    NODE_CLASS_MAPPINGS["Krea2RegionalCharacterLoRA"]  = NouganRegionalCharacterLoRA
+    NODE_CLASS_MAPPINGS["RegionalCharacterLora"]       = NouganRegionalCharacterLoRA
+    NODE_DISPLAY_NAME_MAPPINGS["NouganRegionalCharacterLoRA"] = "Nougan Regional Character LoRA 👥"
+    NODE_DISPLAY_NAME_MAPPINGS["Krea2RegionalCharacterLoRA"]  = "Nougan Regional Character LoRA 👥"
+    NODE_DISPLAY_NAME_MAPPINGS["RegionalCharacterLora"]       = "Nougan Regional Character LoRA 👥"
+    print("[Nougan] ✅ Regional Character LoRA loaded.")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Regional Character LoRA NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
     traceback.print_exc()
 
 
