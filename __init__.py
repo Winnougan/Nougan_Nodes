@@ -119,6 +119,23 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Prompt Relay NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
     traceback.print_exc()
 
+# ── Optional: LM Studio Bridge (LLM · vision · audio via LM Studio dev mode) ─
+# Pairs with web/nougan-lmstudio.js (live DOM console + progress bar on node).
+try:
+    from .lm_studio import NouganLMStudio, NouganLMStudioPromptBox
+    NODE_CLASS_MAPPINGS.update({
+        "NouganLMStudio":          NouganLMStudio,
+        "NouganLMStudioPromptBox": NouganLMStudioPromptBox,
+    })
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "NouganLMStudio":          "Nougan LM Studio 🧠",
+        "NouganLMStudioPromptBox": "Nougan LM Studio Prompt Box 💬",
+    })
+    print("[Nougan] ✅ LM Studio Bridge loaded (2 nodes).")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  LM Studio Bridge NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
+    traceback.print_exc()
 
 def _register_routes():
     try:
