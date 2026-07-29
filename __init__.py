@@ -45,6 +45,22 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Lora Loader NOT loaded ({type(_e).__name__}: {_e}) — core 6 nodes are fine.")
     traceback.print_exc()
 
+# ── Optional: Lora Inspector (Civitai metadata browser) ────────────────────
+# Its OWN try, so a problem here can never affect the core suite, the lora
+# loaders, or anything else. Importing the module also self-registers its
+# /nougan/lora_inspector/inspect route, so the on-node inspect button works
+# the moment this loads. Pairs with web/nougan-lora_inspector.js (progress
+# bar, sample strip, click-to-copy prompt).
+try:
+    from .nougan_lora_inspector import NouganLoraInspector
+    NODE_CLASS_MAPPINGS["NouganLoraInspector"] = NouganLoraInspector
+    NODE_DISPLAY_NAME_MAPPINGS["NouganLoraInspector"] = "Nougan Lora Inspector 🔍"
+    print("[Nougan] ✅ Lora Inspector loaded.")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Lora Inspector NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
+    traceback.print_exc()
+
 # ── Optional: Mask Editor ──────────────────────────────────────────────────
 # Its OWN try, so a mask-editor problem can never affect the core suite OR the
 # lora nodes. Importing the module also self-registers its /nougan/mask_editor/
