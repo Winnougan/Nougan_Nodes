@@ -28,7 +28,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 }
 
 # ── Optional: Lora Loader (from-scratch build) ─────────────────────────────
-# Wrapped so it can NEVER take down the six core nodes above.
 try:
     from .nougan_lora_loader import NouganLoraLoader, NouganLoraLoaderMulti
     NODE_CLASS_MAPPINGS.update({
@@ -46,11 +45,6 @@ except Exception as _e:
     traceback.print_exc()
 
 # ── Optional: Lora Inspector (Civitai metadata browser) ────────────────────
-# Its OWN try, so a problem here can never affect the core suite, the lora
-# loaders, or anything else. Importing the module also self-registers its
-# /nougan/lora_inspector/inspect route, so the on-node inspect button works
-# the moment this loads. Pairs with web/nougan-lora_inspector.js (progress
-# bar, sample strip, click-to-copy prompt).
 try:
     from .nougan_lora_inspector import NouganLoraInspector
     NODE_CLASS_MAPPINGS["NouganLoraInspector"] = NouganLoraInspector
@@ -62,9 +56,6 @@ except Exception as _e:
     traceback.print_exc()
 
 # ── Optional: Mask Editor ──────────────────────────────────────────────────
-# Its OWN try, so a mask-editor problem can never affect the core suite OR the
-# lora nodes. Importing the module also self-registers its /nougan/mask_editor/
-# upload route, so the editor's "Load image" button works the moment this loads.
 try:
     from .mask_editor import NouganMaskEditor
     NODE_CLASS_MAPPINGS["NouganMaskEditor"] = NouganMaskEditor
@@ -87,10 +78,6 @@ except Exception as _e:
     traceback.print_exc()
 
 # ── Optional: Regional Character LoRA (Krea2 / Flux-2 single-stream DiT) ───
-# Its OWN try, so a problem here can never affect the core suite, the lora
-# nodes, or the mask nodes. Pairs with web/nougan-regional_lora.js (the
-# in-node visual region editor). Legacy IDs kept so old graphs that reference
-# the original standalone pack still load without rewiring.
 try:
     from .nougan_regional_lora import NouganRegionalCharacterLoRA
     NODE_CLASS_MAPPINGS["NouganRegionalCharacterLoRA"] = NouganRegionalCharacterLoRA
@@ -103,6 +90,33 @@ try:
 except Exception as _e:
     import traceback
     print(f"[Nougan] ⚠️  Regional Character LoRA NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
+    traceback.print_exc()
+
+# ── Optional: Prompt Relay (temporal local-prompt control for LTX Video) ───
+# Its OWN try, so a problem here can never affect the core suite, the lora
+# nodes, the mask nodes, or regional LoRA.  The sub-package contains three
+# modules (relay_core, patches, advanced_options) and pairs with
+# web/nougan-timeline_editor.js (the draggable-block timeline UI).
+try:
+    from .prompt_relay import (
+        PromptRelayEncode,
+        PromptRelayEncodeTimeline,
+        PromptRelayAdvancedOptions,
+    )
+    NODE_CLASS_MAPPINGS.update({
+        "PromptRelayEncode":          PromptRelayEncode,
+        "PromptRelayEncodeTimeline":  PromptRelayEncodeTimeline,
+        "PromptRelayAdvancedOptions": PromptRelayAdvancedOptions,
+    })
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "PromptRelayEncode":          "Nougan Prompt Relay Encode 🎬",
+        "PromptRelayEncodeTimeline":  "Nougan Prompt Relay Timeline 🎞️",
+        "PromptRelayAdvancedOptions": "Nougan Prompt Relay Options ⚙️",
+    })
+    print("[Nougan] ✅ Prompt Relay loaded (3 nodes).")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Prompt Relay NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
     traceback.print_exc()
 
 
