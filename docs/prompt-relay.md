@@ -8,9 +8,8 @@ A ground-up rewrite of Kijai's Prompt Relay — with a visual timeline editor, t
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-orange)](https://github.com/comfyanonymous/ComfyUI)
 [![Models](https://img.shields.io/badge/models-LTX%20%C2%B7%20LTX2%20%C2%B7%20LTXAV-blue)](https://huggingface.co/Lightricks/LTX-Video)
-[![Nodes](https://img.shields.io/badge/nodes-3-success)](#-node-reference)
-[![License](https://img.shields.io/badge/license-MIT-green)](../README.md#-license)
-
+[![Nodes](https://img.shields.io/badge/nodes-3-success)](#node-reference)
+[![License](https://img.shields.io/badge/license-MIT-green)](../README.md#license)
 ---
 
 ## What it does
@@ -62,17 +61,17 @@ Kijai's original introduced Prompt Relay to ComfyUI. This is a full rewrite of e
 ## 📖 Table of Contents
 
 - [What it does](#what-it-does)
-- [Why this fork](#-why-this-fork)
-- [Installation](#-installation)
-- [Quick start](#-quick-start)
-- [The timeline editor](#-the-timeline-editor)
-- [Node reference](#-node-reference)
-- [Advanced options](#-advanced-options)
-- [Epsilon cheat sheet](#-epsilon-cheat-sheet)
-- [Technical deep dives](#-technical-deep-dives)
-- [Architecture](#-architecture)
-- [Troubleshooting](#-troubleshooting)
-- [Credits](#-credits)
+- [Why this fork](#why-this-fork)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [The timeline editor](#the-timeline-editor)
+- [Node reference](#node-reference)
+- [Advanced options](#advanced-options)
+- [Epsilon cheat sheet](#epsilon-cheat-sheet)
+- [Technical deep dives](#technical-deep-dives)
+- [Architecture](#architecture)
+- [Troubleshooting](#troubleshooting)
+- [Credits](#credits)
 
 ---
 
