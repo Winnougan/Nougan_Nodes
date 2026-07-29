@@ -3,11 +3,6 @@
 # 🌀 Winnougan (Nougan's Nodes)
 <img width="1536" height="1024" alt="Nougan Nodes" src="https://github.com/user-attachments/assets/e292034a-5854-43a4-9141-705c170dfd3f" />
 
-<div align="center">
-
-# 🌀 Winnougan (Nougan's Nodes)
-<img width="1536" height="1024" alt="Nougan Nodes" src="https://github.com/user-attachments/assets/e292034a-5854-43a4-9141-705c170dfd3f" />
-
 ### Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
 **Seventeen nodes across five families — loaders, LoRA tooling, masking, temporal video prompts, and a local LLM bridge — every one with its own themed, live UI.**
@@ -110,6 +105,9 @@ Every node family has its own page in [`docs/`](docs/):
 ## 📄 License
 
 MIT — take it, ship it, remix it.
+[![Nodes](https://img.shields.io/badge/nodes-17-ff4081?style=for-the-badge)](#node-index)
+[![Docs](https://img.shields.io/badge/docs-per--node-69f0ae?style=for-the-badge)](docs/)
+[![License](https://img.shields.io/badge/license-MIT-69f0ae?style=for-the-badge)](#license)
 
 ---
 
