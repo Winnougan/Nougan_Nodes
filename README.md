@@ -1055,3 +1055,25 @@ Returns the full payload (`model_name`, `base_model`, `trigger_words`, `images[]
 ---
 
 *Queries the public [Civitai API](https://github.com/civitai/civitai/wiki/REST-API-Reference) (`/api/v1/model-versions/by-hash/{sha256}`). Not affiliated with Civitai. Part of the Nougan node suite.*
+---
+<div align="center">
+
+# 🎬 Nougan Prompt Relay
+<img width="1536" height="1024" alt="Prompt_Replay_Revamp" src="https://github.com/user-attachments/assets/3654c316-b263-490f-aab5-e5f9a856b833" />
+
+**Temporal local-prompt control for LTX Video · LTX2 · LTXAV**
+
+A ground-up rewrite of Kijai's Prompt Relay — with a visual timeline editor, token-overflow safety, non-destructive model patching, and per-stream audio tuning.
+
+![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-orange)
+![Models](https://img.shields.io/badge/models-LTX%20%C2%B7%20LTX2%20%C2%B7%20LTXAV-blue)
+![Nodes](https://img.shields.io/badge/nodes-3-success)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+</div>
+
+---
+
+## What it does
+
+Prompt Relay conditions **different time segments of a video with different prompts**, while one global prompt anchors the whole scene. It injects a Gaussian temporal penalty into cross-attention so segment A's tokens are suppressed when the model attends from segment B's frames — producing smooth, text-driven scene transitions with no keyframes, no ControlNet, no img2img chains.
