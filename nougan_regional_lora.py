@@ -1,21 +1,14 @@
-# nougan_regional_lora.py — Nougan Regional Character LoRA (Krea2 / Flux-2 family)
-# ---------------------------------------------------------------------------------
-# EXPERIMENTAL BUILD. Two independent, region-gated controls from one editor:
-#   (1) REGIONAL LoRA  — each character LoRA's delta is added at forward time and
-#       masked to that character's image tokens (standard Linear-level mechanism;
-#       architecture-agnostic at the Linear, but the image-token LAYOUT is an
-#       assumption — the first forward PRINTS a probe so you can confirm it).
-#   (2) REGIONAL TEXT  — each region's typed prompt is encoded with the CLIP and
-#       wrapped with ComfyUI's OWN ConditioningSetAreaPercentage (we call the core
-#       node's method, so the area math is ComfyUI's tested code, NOT a guess).
-#       A global prompt (no area) layers shared direction on top.
-# The editor stores {regions:[{char,x,y,w,h,text}...], global:"..."} in the hidden
-# "regions" widget — the single source of truth.
-import re
+"""nougan_regional_lora.py — Nougan Regional Character LoRA"""
+
 import json
+import re
 import torch
-import safetensors.torch
 import folder_paths
+
+try:
+    import safetensors.torch
+except ImportError:
+    safetensors = None
 
 try:
     import comfy.patcher_extension as _pext
@@ -27,24 +20,20 @@ except Exception:
 WRAPPER_KEY = "nougan_regional_lora"
 
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
 def _lora_list():
     try:
         return folder_paths.get_filename_list("loras")
     except Exception:
-        return ["<put .safetensors in models/loras>"]
+        return ["<no loras found>"]
 
 
 def _resolve(name):
-    if folder_paths is not None:
-        try:
-            p = folder_paths.get_full_path("loras", name)
-            if p:
-                return p
-        except Exception:
-            pass
+    try:
+        p = folder_paths.get_full_path("loras", name)
+        if p:
+            return p
+    except Exception:
+        pass
     return name
 
 
@@ -59,8 +48,11 @@ def _norm(s):
 
 
 def _load_lora_matrices(path):
+    if safetensors is None:
+        return {}
     sd = safetensors.torch.load_file(path)
-    groups, alphas = {}, {}
+    groups = {}
+    alphas = {}
     for k, v in sd.items():
         if k.endswith(".alpha") or k.endswith("alpha"):
             alphas[re.sub(r"\.?alpha$", "", k)] = float(v.flatten()[0].item())
@@ -77,7 +69,8 @@ def _load_lora_matrices(path):
     for base, mats in groups.items():
         if "down" not in mats or "up" not in mats:
             continue
-        down, up = mats["down"], mats["up"]
+        down = mats["down"]
+        up = mats["up"]
         rank = down.shape[0]
         alpha = alphas.get(base, alphas.get(base + ".alpha", float(rank)))
         out[_norm(base)] = {"down": down, "up": up, "scale": float(alpha) / float(rank)}
@@ -87,6 +80,10 @@ def _load_lora_matrices(path):
 def _iter_linears(module):
     for name, sub in module.named_modules():
         if isinstance(sub, torch.nn.Linear):
+            yield name, sub
+            continue
+        w = getattr(sub, "weight", None)
+        if w is not None and torch.is_tensor(w) and w.dim() == 2:
             yield name, sub
 
 
@@ -107,17 +104,22 @@ def _parse_regions(s):
             continue
         norm.append({
             "char": "b" if str(r.get("char", "a")).lower() == "b" else "a",
-            "x": float(r.get("x", 0)), "y": float(r.get("y", 0)),
-            "w": float(r.get("w", 0.5)), "h": float(r.get("h", 1)),
+            "x": float(r.get("x", 0)),
+            "y": float(r.get("y", 0)),
+            "w": float(r.get("w", 0.5)),
+            "h": float(r.get("h", 1)),
             "text": str(r.get("text", "")),
         })
     return {"regions": norm, "global": str(g or "")}
 
 
 def _rect_grid(rows, cols, x, y, w, h, feather):
-    c0, c1 = x * cols, (x + w) * cols
-    r0, r1 = y * rows, (y + h) * rows
-    fc, fr = max(1e-3, feather * cols), max(1e-3, feather * rows)
+    c0 = x * cols
+    c1 = (x + w) * cols
+    r0 = y * rows
+    r1 = (y + h) * rows
+    fc = max(1e-3, feather * cols)
+    fr = max(1e-3, feather * rows)
     cc = torch.arange(cols, dtype=torch.float32).unsqueeze(0)
     rr = torch.arange(rows, dtype=torch.float32).unsqueeze(1)
     inx = torch.sigmoid((cc - c0) / fc) * torch.sigmoid((c1 - cc) / fc)
@@ -126,9 +128,16 @@ def _rect_grid(rows, cols, x, y, w, h, feather):
 
 
 def _build_layer_map(dm, la, lb, sa, sb):
-    amap = {s: {**d, "scale": d["scale"] * sa} for s, d in la.items()}
-    bmap = {s: {**d, "scale": d["scale"] * sb} for s, d in lb.items()}
-    lmap, matched = {}, 0
+    amap = {}
+    for s, d in la.items():
+        amap[s] = dict(d)
+        amap[s]["scale"] = d["scale"] * sa
+    bmap = {}
+    for s, d in lb.items():
+        bmap[s] = dict(d)
+        bmap[s]["scale"] = d["scale"] * sb
+    lmap = {}
+    matched = 0
     for name, mod in _iter_linears(dm):
         sig = _norm(name)
         entry = {}
@@ -142,9 +151,6 @@ def _build_layer_map(dm, la, lb, sa, sb):
     return lmap, matched, len(amap), len(bmap)
 
 
-# ---------------------------------------------------------------------------
-# regional text conditioning (ComfyUI's own area mechanism)
-# ---------------------------------------------------------------------------
 def _encode(clip, text):
     toks = clip.tokenize(text if text else "")
     try:
@@ -155,21 +161,53 @@ def _encode(clip, text):
         c = c[0]
     if torch.is_tensor(c):
         c = [[c, {}]]
-    return c if isinstance(c, list) else []
+    if isinstance(c, list):
+        return c
+    return []
+
+
+def _manual_mask(c, h, w, y, x, dtype=torch.float32):
+    """Build a rectangular mask (1,H,W) in [0,1] coords and attach it the way
+    ConditioningSetMask does, instead of using the raw 'area' percentage tuple.
+    The old tuple format ("percentage", h, w, y, x) assumes a fixed number of
+    spatial dims in the latent; that assumption breaks on ComfyUI builds/models
+    where noise.shape[2:] has a different dim count (e.g. 3 dims instead of 2),
+    causing an IndexError deep in resolve_areas_and_cond_masks_multidim.
+    A mask is resolved against the actual tensor shape at sample time, so it
+    sidesteps that mismatch entirely.
+    """
+    MASK_H, MASK_W = 256, 256
+    mask = torch.zeros((1, MASK_H, MASK_W), dtype=dtype)
+    y0 = int(round(y * MASK_H)); y1 = int(round((y + h) * MASK_H))
+    x0 = int(round(x * MASK_W)); x1 = int(round((x + w) * MASK_W))
+    y1 = max(y0 + 1, min(MASK_H, y1))
+    x1 = max(x0 + 1, min(MASK_W, x1))
+    y0 = max(0, min(y0, MASK_H - 1))
+    x0 = max(0, min(x0, MASK_W - 1))
+    mask[:, y0:y1, x0:x1] = 1.0
+
+    out = []
+    for item in c:
+        t0, t1 = item[0], item[1]
+        d = dict(t1)
+        d.pop("area", None)               # drop old-style area if present
+        d["mask"] = mask
+        d["mask_strength"] = 1.0
+        d["set_area_to_bounds"] = False   # soft regional mask, not a hard area
+        out.append([t0, d])
+    return out
 
 
 def _build_regional_conditioning(clip, regs, global_text):
-    try:
-        from nodes import ConditioningSetAreaPercentage as CSAP
-    except Exception:
-        CSAP = None
     out = []
     g = (global_text or "").strip()
     has_region_text = any((r.get("text") or "").strip() for r in regs)
+
     if g:
-        out.extend(_encode(clip, g))                 # global: no area -> applies everywhere
+        out.extend(_encode(clip, g))
     elif not has_region_text:
-        out.extend(_encode(clip, ""))                # never hand back empty conditioning
+        out.extend(_encode(clip, ""))
+
     for r in regs:
         t = (r.get("text") or "").strip()
         if not t:
@@ -177,28 +215,39 @@ def _build_regional_conditioning(clip, regs, global_text):
         c = _encode(clip, t)
         if not c:
             continue
-        if CSAP is not None:
-            c = CSAP().append(c, float(r["w"]), float(r["h"]), float(r["x"]), float(r["y"]))[0]
-        else:  # best-effort manual percentage (only if the core node is somehow absent)
-            c = [[t0, {**t1, "area": ("percentage", float(r["h"]), float(r["w"]),
-                                       float(r["y"]), float(r["x"]))}] for (t0, t1) in c]
+        rw = float(r["w"])
+        rh = float(r["h"])
+        rx = float(r["x"])
+        ry = float(r["y"])
+        c = _manual_mask(c, rh, rw, ry, rx)
         out.extend(c)
+
     if not out:
         out = _encode(clip, "")
     return out
 
 
-# ---------------------------------------------------------------------------
-# per-forward session: grid + masks + lazy device prep + probe
-# ---------------------------------------------------------------------------
+def _zero_conditioning(cond):
+    if not cond:
+        return cond
+    t = cond[0]
+    d = {}
+    for k, v in t[1].items():
+        if k != "area":
+            d[k] = v
+    if "pooled_output" in d and d["pooled_output"] is not None:
+        d["pooled_output"] = d["pooled_output"].clone().zero_()
+    return [[t[0].clone().zero_(), d]]
+
+
 class _RegionalSession:
     def __init__(self, lmap, regs, feather):
         self.lmap = lmap
         self.regs = regs
         self.feather = feather
         self.grid = None
-        self.grid_mask = {}      # char -> [rows*cols] cpu
-        self.mult_cache = {}     # (char, seq) -> device tensor
+        self.grid_mask = {}
+        self.mult_cache = {}
         self.n_text = None
         self.dev = None
         self.cd = None
@@ -222,7 +271,10 @@ class _RegionalSession:
                     if r["char"] != ch:
                         continue
                     rm = _rect_grid(rows, cols, r["x"], r["y"], r["w"], r["h"], self.feather)
-                    m = rm if m is None else torch.maximum(m, rm)
+                    if m is None:
+                        m = rm
+                    else:
+                        m = torch.maximum(m, rm)
                 if m is not None:
                     self.grid_mask[ch] = m
 
@@ -230,7 +282,10 @@ class _RegionalSession:
         if self.prepared:
             return
         self.dev = out.device
-        self.cd = out.dtype if out.dtype in (torch.float16, torch.bfloat16) else torch.float32
+        if out.dtype in (torch.float16, torch.bfloat16):
+            self.cd = out.dtype
+        else:
+            self.cd = torch.float32
         for (_mod, entry) in self.lmap.values():
             for ch in ("a", "b"):
                 d = entry.get(ch)
@@ -245,9 +300,9 @@ class _RegionalSession:
             return
         if self.grid and any(s > self.grid[0] * self.grid[1] for s in self.seen_seqs):
             self.probe_done = True
-            print(f"[NouganRegionalLoRA] probe: grid={self.grid} n_img={self.grid[0]*self.grid[1]} "
-                  f"n_text≈{self.n_text} seq_lengths_seen={sorted(self.seen_seqs)} "
-                  f"(seq==n_img→image stream · seq>n_img→joint · seq<n_img→text stream, skipped)")
+            n_img = self.grid[0] * self.grid[1]
+            print(f"[NouganRegionalLoRA] probe: grid={self.grid} n_img={n_img} "
+                  f"n_text~{self.n_text} seq_lengths_seen={sorted(self.seen_seqs)}")
 
     def mask_mult(self, ch, seq):
         if self.grid is None or ch not in self.grid_mask:
@@ -263,7 +318,7 @@ class _RegionalSession:
         elif seq > n_img:
             self.n_text = seq - n_img
             base = torch.cat([torch.zeros(self.n_text), gm])
-        else:  # text-only stream: no spatial tokens -> cannot regionalize here
+        else:
             self.mult_cache[key] = None
             return None
         t = base.to(self.dev, self.cd)
@@ -292,41 +347,42 @@ def _make_hook(sess, entry):
                 continue
             if xf is None:
                 xf = x.to(sess.cd)
-            delta = (xf @ d["down_d"].t()) @ d["up_d"].t()
+            try:
+                delta = (xf @ d["down_d"].t()) @ d["up_d"].t()
+            except RuntimeError:
+                continue
             add = delta * mult.view(1, seq, 1)
-            res = add if res is None else res + add
+            if res is None:
+                res = add
+            else:
+                res = res + add
         if res is None:
             return out
         return out + res.to(out.dtype)
     return hook
 
 
-# ---------------------------------------------------------------------------
-# node
-# ---------------------------------------------------------------------------
 class NouganRegionalCharacterLoRA:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "model": ("MODEL",),
-                "clip": ("CLIP", {"tooltip": "Needed to encode each region's typed prompt."}),
+                "clip": ("CLIP",),
                 "lora_a": (_lora_list(),),
                 "strength_a": ("FLOAT", {"default": 1.0, "min": -4.0, "max": 4.0, "step": 0.05}),
                 "lora_b": (_lora_list(),),
                 "strength_b": ("FLOAT", {"default": 1.0, "min": -4.0, "max": 4.0, "step": 0.05}),
-                "feather": ("FLOAT", {"default": 0.06, "min": 0.0, "max": 0.3, "step": 0.01,
-                                      "tooltip": "Softness of the LoRA region seam (fraction of the token grid)."}),
-                "regions": ("STRING", {"default": "{}", "multiline": False,
-                                       "tooltip": "Managed by the in-node region editor."}),
+                "feather": ("FLOAT", {"default": 0.06, "min": 0.0, "max": 0.3, "step": 0.01}),
+                "regions": ("STRING", {"default": "{}", "multiline": False}),
             },
         }
 
-    RETURN_TYPES = ("MODEL", "CONDITIONING")
-    RETURN_NAMES = ("MODEL", "CONDITIONING")
+    RETURN_TYPES = ("MODEL", "CONDITIONING", "CONDITIONING")
+    RETURN_NAMES = ("MODEL", "CONDITIONING", "NEGATIVE")
     FUNCTION = "apply"
     CATEGORY = "conditioning/regional"
-    TITLE = "Nougan Regional Character LoRA 🎭"
+    TITLE = "Nougan Regional Character LoRA"
 
     @classmethod
     def IS_CHANGED(cls, regions="{}", lora_a="", lora_b="", strength_a=1.0,
@@ -337,7 +393,8 @@ class NouganRegionalCharacterLoRA:
         la = _load_lora_matrices(_resolve(lora_a))
         lb = _load_lora_matrices(_resolve(lora_b))
         data = _parse_regions(regions)
-        regs, global_text = data["regions"], data["global"]
+        regs = data["regions"]
+        global_text = data["global"]
 
         patched = model.clone()
         dm = getattr(patched.model, "diffusion_model", patched.model)
@@ -345,8 +402,11 @@ class NouganRegionalCharacterLoRA:
         print(f"[NouganRegionalLoRA] matched {matched} spatial-capable layers "
               f"(A:{na} B:{nb} targets in file).")
         if matched == 0:
-            print("[NouganRegionalLoRA] !! 0 layers matched — LoRA key stems don't line up "
-                  "with this model; run recon_krea2.py to compare.")
+            print("[NouganRegionalLoRA] !! 0 layers matched.")
+            sample_lora = list(la.keys())[:5] if la else list(lb.keys())[:5]
+            sample_model = [n for n, _ in _iter_linears(dm)][:5]
+            print(f"[NouganRegionalLoRA]   LoRA key stems (first 5):  {sample_lora}")
+            print(f"[NouganRegionalLoRA]   Model module names (first 5): {sample_model}")
 
         sess = _RegionalSession(lmap, regs, feather)
 
@@ -362,12 +422,14 @@ class NouganRegionalCharacterLoRA:
                         x = v
                         break
             if x is not None:
-                H, W = x.shape[-2], x.shape[-1]
+                H = x.shape[-2]
+                W = x.shape[-1]
                 sess.set_grid(max(1, H // 2), max(1, W // 2))
             else:
                 sess.set_grid(None, None)
-            handles = [mod.register_forward_hook(_make_hook(sess, entry))
-                       for (mod, entry) in sess.lmap.values()]
+            handles = []
+            for (mod, entry) in sess.lmap.values():
+                handles.append(mod.register_forward_hook(_make_hook(sess, entry)))
             try:
                 return executor(*args, **kwargs)
             finally:
@@ -379,14 +441,17 @@ class NouganRegionalCharacterLoRA:
         elif hasattr(patched, "add_wrapper"):
             patched.add_wrapper(_WRAPPER_ENUM, wrapper)
         else:
-            raise RuntimeError("This ComfyUI build lacks model wrapper support. Update ComfyUI.")
+            raise RuntimeError("This ComfyUI build lacks model wrapper support.")
 
         cond = _build_regional_conditioning(clip, regs, global_text)
+        neg = _zero_conditioning(cond)
+
         n_reg = sum(1 for r in regs if (r.get("text") or "").strip())
         print(f"[NouganRegionalLoRA] regional text: {n_reg} region prompt(s)"
               + (" + global" if global_text.strip() else ""))
-        return (patched, cond)
+
+        return (patched, cond, neg)
 
 
 NODE_CLASS_MAPPINGS = {"NouganRegionalCharacterLoRA": NouganRegionalCharacterLoRA}
-NODE_DISPLAY_NAME_MAPPINGS = {"NouganRegionalCharacterLoRA": "Nougan Regional Character LoRA 🎭"}
+NODE_DISPLAY_NAME_MAPPINGS = {"NouganRegionalCharacterLoRA": "Nougan Regional Character LoRA"}
