@@ -6,11 +6,11 @@
 
 Two nodes that turn any model loaded in LM Studio's dev server into a live, streaming, multimodal ComfyUI node — with an on-node DOM console, a drag-and-drop image strip, and a resizable output reader.
 
-![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-2b3342?style=flat-square)
-![LM Studio](https://img.shields.io/badge/LM%20Studio-dev%20mode-ffb347?style=flat-square)
-![Python](https://img.shields.io/badge/Python-3.10+-39c2ff?style=flat-square)
-![Frontend](https://img.shields.io/badge/Frontend-live%20DOM%20console-43e08c?style=flat-square)
-![Nodes](https://img.shields.io/badge/Nodes-2-c9d3e0?style=flat-square)
+[![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-006064?style=for-the-badge)](https://github.com/comfyanonymous/ComfyUI)
+[![LM Studio](https://img.shields.io/badge/LM%20Studio-dev%20mode-ffb347?style=for-the-badge)](https://lmstudio.ai)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Frontend](https://img.shields.io/badge/Frontend-live%20DOM%20console-43e08c?style=for-the-badge)](#features)
+[![Nodes](https://img.shields.io/badge/nodes-2-ff4081?style=for-the-badge)](#nodes-at-a-glance)
 
 ```text
 ┌─ NOUGAN LM STUDIO 🧠 ────────────────────────────────────┐
