@@ -1065,10 +1065,10 @@ Returns the full payload (`model_name`, `base_model`, `trigger_words`, `images[]
 
 A ground-up rewrite of Kijai's Prompt Relay — with a visual timeline editor, token-overflow safety, non-destructive model patching, and per-stream audio tuning.
 
-![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-orange)
-![Models](https://img.shields.io/badge/models-LTX%20%C2%B7%20LTX2%20%C2%B7%20LTXAV-blue)
-![Nodes](https://img.shields.io/badge/nodes-3-success)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-orange)](https://github.com/comfyanonymous/ComfyUI)
+[![Models](https://img.shields.io/badge/models-LTX%20%C2%B7%20LTX2%20%C2%B7%20LTXAV-blue)](https://huggingface.co/Lightricks/LTX-Video)
+[![Nodes](https://img.shields.io/badge/nodes-3-success)](#-node-reference)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 </div>
 
