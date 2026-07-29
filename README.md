@@ -1059,7 +1059,7 @@ Returns the full payload (`model_name`, `base_model`, `trigger_words`, `images[]
 <div align="center">
 
 # 🎬 Nougan Prompt Relay
-<img width="1536" height="1024" alt="Prompt_Replay_Revamp" src="https://github.com/user-attachments/assets/3654c316-b263-490f-aab5-e5f9a856b833" />
+<img width="1536" height="1024" alt="Prompt_Replay_Revamp_02" src="https://github.com/user-attachments/assets/f10ccabf-8b2a-4926-938b-8c52e8029642" />
 
 **Temporal local-prompt control for LTX Video · LTX2 · LTXAV**
 
@@ -1077,3 +1077,371 @@ A ground-up rewrite of Kijai's Prompt Relay — with a visual timeline editor, t
 ## What it does
 
 Prompt Relay conditions **different time segments of a video with different prompts**, while one global prompt anchors the whole scene. It injects a Gaussian temporal penalty into cross-attention so segment A's tokens are suppressed when the model attends from segment B's frames — producing smooth, text-driven scene transitions with no keyframes, no ControlNet, no img2img chains.
+
+```
+GLOBAL:  "cinematic, 35mm film, a red fox"
+
+  0s ──────── 2s ──────── 4s ──────── 5.4s
+  ┌───────────┬───────────┬───────────┐
+  │ trots     │ pauses at │ vanishes  │
+  │ through   │ the edge  │ into      │
+  │ snowfall  │ of a lake │ morning   │
+  │           │           │ mist      │
+  └───────────┴───────────┴───────────┘
+   segment 1    segment 2   segment 3
+```
+
+One latent. One sampler pass. Three distinct scenes, blended where you want them blended.
+
+---
+
+## ✨ Why this fork
+
+Kijai's original introduced Prompt Relay to ComfyUI. This is a full rewrite of every layer — tokenization, segment math, penalty construction, model patching, and the UI — fixing correctness bugs and adding what was missing.
+
+| Area | Kijai's original | Nougan Prompt Relay |
+|---|---|---|
+| **Token overflow** | Silent truncation; mask indices desync from real tokens | Detected, warned, clamped; ranges remapped to the live window |
+| **Segment midpoint** | Integer division, biases left on even-length segments | True float centre |
+| **Penalty cache** | Key omits `dtype` → redundant casts in mixed precision | Key includes `dtype` → zero casts after first build |
+| **Penalty math** | Per-segment Python loop | Vectorised broadcast, single pass |
+| **Full-coverage snap** | Hijacks intentionally partial timelines | Snaps only within ±1 temporal stride of full extent |
+| **Model patching** | Replaces attn2 forward, discarding prior patches | Wraps & chains after KJNodes NAG, custom CFG, etc. |
+| **CFG batching** | Mask can leak into the unconditional branch | Explicit `cond_or_uncond` guard, documented behaviour |
+| **Audio stream** | Not handled | LTXAV `audio_attn2` patched with independent knobs |
+| **Tokenizer extraction** | Pure reflection, breaks on refactors | Fast paths for known wrappers + reflective fallback |
+| **Options** | Raw `dict` — typos silently become defaults | Typed `RelayOptionsData` with validation |
+| **Per-segment epsilon** | Single global value | Optional per-segment override list |
+| **Zero-length segments** | Cursor stalls, segments overlap | Warned and cleanly skipped |
+| **Pipeline** | Monolithic function | Decomposed, unit-testable stages |
+| **Interface** | Two text fields | WYSIWYG timeline editor |
+| **Advanced tuning** | None | Dedicated options node |
+| **Suite isolation** | Standalone pack | `try/except` — never takes down sibling nodes |
+
+---
+
+## 📖 Table of Contents
+
+- [What it does](#what-it-does)
+- [Why this fork](#-why-this-fork)
+- [Installation](#-installation)
+- [Quick start](#-quick-start)
+- [The timeline editor](#-the-timeline-editor)
+- [Node reference](#-node-reference)
+- [Advanced options](#-advanced-options)
+- [Epsilon cheat sheet](#-epsilon-cheat-sheet)
+- [Technical deep dives](#-technical-deep-dives)
+- [Architecture](#-architecture)
+- [Troubleshooting](#-troubleshooting)
+- [Credits](#-credits)
+
+---
+
+## 📦 Installation
+
+Part of the Nougan suite. Drop the pack into `ComfyUI/custom_nodes/` and restart.
+
+```bash
+cd ComfyUI/custom_nodes
+git clone <your-repo-url>
+# restart ComfyUI
+```
+
+On success the console prints:
+
+```
+[Nougan] ✅ Prompt Relay loaded (3 nodes).
+```
+
+If the sub-package fails for any reason, the suite's isolation guarantees your other nodes keep working:
+
+```
+[Nougan] ⚠️  Prompt Relay NOT loaded (ImportError: …) — other nodes are fine.
+```
+
+---
+
+## 🚀 Quick start
+
+1. Add **Nougan Prompt Relay Encode** (or the Timeline variant) to your graph.
+2. Wire `model`, `clip`, and an **empty latent video**.
+3. Fill in:
+   - **global_prompt** — persistent anchors: `cinematic, a red fox, winter forest`
+   - **local_prompts** — pipe-separated, in time order:
+     ```
+     trots through snowfall | pauses at the lake edge | vanishes into mist
+     ```
+   - **segment_lengths** — comma-separated pixel-space frames, or leave empty for even split:
+     ```
+     49, 49, 31
+     ```
+4. Encode a negative prompt with a standard `CLIPTextEncode`.
+5. Sample as usual.
+
+> **Tip:** `segment_lengths` are in **pixel-space frames**, not latent frames. The node converts to latent space automatically using the model's temporal stride (8× for LTX).
+
+---
+
+## 🎞️ The timeline editor
+
+The original gives you two text fields. You type prompts blind, guess frame counts, and find out your boundaries were wrong after a 90-second render.
+
+The **Nougan Prompt Relay Timeline** node replaces that with a draggable, WYSIWYG editor rendered inside the node itself:
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ 0     20     40     60     80    100    120                    │
+├──────────────────────┬─────────────────┬───────────────────────┤
+│  A woman walks       │  She enters a   │  Close-up, her eyes   │
+│  through a misty     │  dimly lit cave │  widen in the dark    │
+│  forest at dawn      │                 │                       │
+│  0–52 (52f)          │  52–91 (39f)    │  91–129 (38f)         │
+├──────────────────────┴─────────────────┴───────────────────────┤
+│ Click a segment above to edit its prompt…        ~12 tokens    │
+│ ┌────────────────────────────────────────────────────────────┐ │
+│ │ A woman walks through a misty forest at dawn               │ │
+│ └────────────────────────────────────────────────────────────┘ │
+│ Length: [52]  Total: 129/129   ↩Undo ↪Redo +Add ⧉Dup Equalize ✕│
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Interactions**
+
+| Action | How |
+|---|---|
+| Select & edit a segment's prompt | Click the block, type in the textarea |
+| Resize a segment | Drag the boundary handle between blocks |
+| Reorder segments | Drag a block horizontally |
+| Set an exact length | Type in the Length input (seconds accepted in seconds mode) |
+| Add / Duplicate / Delete | Buttons, or `Ctrl+D` / `Del` |
+| Spread evenly | **Equalize** |
+| Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` (50 steps) |
+| Move selection | `←` / `→` |
+| Frames ⇄ seconds display | `time_units` combo + `fps` widget |
+
+**Under the hood:** the editor writes to three hidden widgets — `timeline_data` (JSON state), `local_prompts`, and `segment_lengths`. The backend pipeline is identical to the text-input node; the timeline is purely a UI layer.
+
+The **live token counter** under the textarea turns orange as a segment approaches the tokenizer's context limit, so you catch overflow *before* you render.
+
+---
+
+## 🧩 Node reference
+
+### Nougan Prompt Relay Encode 🎬
+
+| Input | Type | Description |
+|---|---|---|
+| `model` | MODEL | LTX model to patch (cloned, never mutated) |
+| `clip` | CLIP | Text encoder |
+| `latent` | LATENT | Empty latent video — dimensions read from shape |
+| `global_prompt` | STRING | Conditions the entire video |
+| `local_prompts` | STRING | Pipe-separated per-segment prompts |
+| `segment_lengths` | STRING | Comma-separated pixel-space frames (empty = even) |
+| `epsilon` | FLOAT | Penalty decay. `0.001` sharp → `0.5+` soft |
+| `relay_options` | RELAY_OPTIONS | Optional advanced tuning |
+
+| Output | Type |
+|---|---|
+| `model` | MODEL — patched, ready for KSampler |
+| `positive` | CONDITIONING — encoded global + local prompts |
+
+### Nougan Prompt Relay Timeline 🎞️
+
+Same pipeline plus the visual editor. Extra inputs: `max_frames` (editor scale), `timeline_data` (auto-managed), `fps`, `time_units`.
+
+> **Note:** `max_frames` only sets the editor's visual scale. The **latent is authoritative** — the node logs a hint if the two disagree.
+
+### Nougan Prompt Relay Options ⚙️
+
+See [Advanced options](#-advanced-options).
+
+---
+
+## ⚙️ Advanced options
+
+Connect **Nougan Prompt Relay Options** to any encoder's `relay_options` input for per-stream control.
+
+| Input | Range | Default | Effect |
+|---|---|---|---|
+| `video_strength` | 0–10 | 1.0 | Multiplier on the video penalty. `0` disables segmentation. Most useful 0–1. |
+| `video_window_scale` | 0–4 | 1.0 | Scales the flat anchor zone. `<1` earlier falloff, `>1` wider rigid zone, `0` point anchor. |
+| `audio_epsilon` | 0–0.99 | 0 (inherit) | Separate epsilon for the audio stream. |
+| `audio_strength` | 0–10 | 1.0 | Multiplier on the audio penalty. `0` lets audio bleed across cuts. |
+| `audio_window_scale` | 0–4 | 1.0 | Anchor zone scale for audio. |
+
+Audio knobs only affect architectures with a separate audio cross-attention stream (currently **LTXAV**).
+
+---
+
+## 🎚️ Epsilon cheat sheet
+
+Epsilon controls the Gaussian falloff width, σ = 1 / ln(1/ε).
+
+| Epsilon | σ | Behaviour |
+|---|---|---|
+| `0.001` *(default)* | 0.145 | Very sharp boundaries — segments nearly isolated |
+| `0.01` | 0.217 | Sharp with a thin soft edge |
+| `0.1` | 0.434 | Noticeable crossfade (~2–4 frames) |
+| `0.3` | 0.831 | Long, gradual transitions |
+| `0.5` | 1.443 | Very soft — the penalty is a hint, not a wall |
+| `0.9` | 9.491 | Nearly no segmentation |
+
+> Values below ~0.1 look similar because the softmax already zeroes distant tokens. To make `video_strength > 1` visibly meaningful, raise epsilon to ~0.1+ so the baseline penalty sits in a range where multiplication matters.
+
+---
+
+## 🔬 Technical deep dives
+
+<details>
+<summary><b>1 · Token overflow protection</b></summary>
+
+CLIP tokenizers have a hard window (77 for CLIP-L, 226 for T5-XXL). The original computes token ranges against the *untruncated* string, then `clip.tokenize()` silently truncates. Segments past the cap get mask indices pointing at tokens that don't exist — their temporal conditioning silently does nothing.
+
+We compare the total against `model_max_length`, log a `WARNING` with exact counts, drop ranges past the window, clamp straddling ranges, and decode the prompt back from truncated IDs so CLIP never sees dangling text. The video still generates; early segments still work; the user knows what happened.
+
+</details>
+
+<details>
+<summary><b>2 · Float midpoints</b></summary>
+
+The original computes `midpoint = (2*frame_cursor + L) // 2`. For a 4-frame segment that's `1`, but the true centre is `1.5` — a half-frame leftward bias, i.e. a 12–25% error on short segments. We use `frame_cursor + (L-1)/2.0`. The penalty matrix already works in float space, so this is free.
+
+</details>
+
+<details>
+<summary><b>3 · Dtype-aware caching</b></summary>
+
+The original cache key is `(Lq, Lk, mode, device)`. In mixed-precision pipelines, layers requesting a new dtype hit the cache, get the wrong dtype, and pay a full matrix cast every layer, every step. Our key includes `dtype`, so each dtype is cached once and never re-cast.
+
+</details>
+
+<details>
+<summary><b>4 · Vectorised penalty construction</b></summary>
+
+The original loops per segment, allocating temporaries and launching a kernel each time. We stack segment params into `[num_seg]` tensors and compute distance/cost in a single broadcast:
+
+```python
+d = (query_frames[None, :] - midpoints[:, None]).abs()          # [num_seg, Lq]
+costs = strengths[:, None] * (torch.relu(d - windows[:, None]) ** 2) / (2 * sigmas[:, None] ** 2)
+```
+
+The scatter into disjoint token columns still loops (no contention), but the expensive math is one pass.
+
+</details>
+
+<details>
+<summary><b>5 · Full-coverage snap heuristic</b></summary>
+
+The original snaps to full coverage when `target_total >= latent_frames - 1`, hijacking intentionally partial timelines. We only snap when the pixel total is within ±1 temporal stride of the full pixel extent — correctly distinguishing "rounding ate a frame" from "the user left a gap on purpose."
+
+</details>
+
+<details>
+<summary><b>6 · Non-destructive model patching</b></summary>
+
+The original replaces the attn2 forward, silently discarding any prior patch (KJNodes NAG, custom CFG, regional prompters). We use `set_model_attn2_patch`, which chains. If an existing patch is present we wrap it so it runs first, then apply our temporal penalty after. Both work; a log line confirms the chain.
+
+</details>
+
+<details>
+<summary><b>7 · CFG batch awareness</b></summary>
+
+ComfyUI can batch the conditional and unconditional passes (`cond_or_uncond = [0, 1]`). The original's guard only catches the isolated-unconditional case. Ours is explicit and documented: when batched, the mask applies to the full batch intentionally, so the negative prompt respects the same scene boundaries and can't "fill in" regions the positive branch suppresses.
+
+</details>
+
+<details>
+<summary><b>8 · LTXAV audio stream</b></summary>
+
+LTXAV has a separate `audio_attn2` cross-attention the original doesn't know about, so audio bleeds uniformly across all segments. When `detect_model_type` identifies LTXAV we patch `audio_attn2` too, driven by the independent `audio_epsilon` / `audio_strength` / `audio_window_scale` knobs.
+
+</details>
+
+<details>
+<summary><b>9 · Robust tokenizer extraction</b></summary>
+
+The original walks `dir(clip.tokenizer)` looking for anything with a `.tokenizer` attribute — slow and fragile. We try known ComfyUI wrapper attributes first (`t5xxl`, `clip_l`, `clip_g`, `llama`, `clip_h`), keep the reflective walk as fallback, and include the class name + available attributes in the error so future breakage is diagnosable in one log line.
+
+</details>
+
+<details>
+<summary><b>10 · Typed options with validation</b></summary>
+
+The original passes options as a raw `dict`, so a typo like `opts.get("video_strnegth", 1.0)` silently returns the default. `RelayOptionsData` uses `__slots__` — a typo is an immediate `AttributeError` — plus range validation at construction and a `.get()` shim for backward compatibility.
+
+</details>
+
+<details>
+<summary><b>11 · Per-segment epsilon</b></summary>
+
+A single global epsilon means every transition has the same sharpness. `RelayOptionsData.per_segment_epsilon` accepts an optional list; each segment checks for its own override before falling back to the global value — hard cut at 1→2, slow dissolve at 2→3, in one video.
+
+</details>
+
+<details>
+<summary><b>12 · Zero-length segment safety</b></summary>
+
+When `latent_frames < num_segments`, trailing segments get length 0. The original skips them without advancing the cursor, so the next segment overlaps the previous one. We keep the skip (cursor += 0 is correct) but log a `WARNING` so the user knows a prompt was ignored.
+
+</details>
+
+---
+
+## 🏗️ Architecture
+
+```
+prompt_relay/
+├── __init__.py            Node classes · pipeline orchestration · pixel→latent conversion
+├── relay_core.py          Tokenization · segment math · penalty matrices · mask closure
+├── patches.py             Model-type detection · chained attn2 patching
+└── advanced_options.py    RelayOptionsData type · Advanced Options node
+
+web/
+└── nougan-timeline_editor.js    WYSIWYG timeline UI (self-registering extension)
+```
+
+```mermaid
+flowchart TD
+    A["User input<br/>text or timeline"] --> B["_validate_inputs<br/>None checks, actionable errors"]
+    B --> C["_parse_local_prompts<br/>split on |"]
+    B --> D["_parse_pixel_lengths<br/>split on , · count check"]
+    C --> E["detect_model_type<br/>arch · patch_size · temporal_stride"]
+    D --> E
+    E --> F["_convert_to_latent_lengths<br/>largest-remainder · ±1 stride snap"]
+    F --> G["map_token_indices<br/>incremental tokenize · overflow guard"]
+    G --> H["clip.encode_from_tokens"]
+    H --> I["distribute_segment_lengths<br/>validate / auto-distribute"]
+    I --> J["build_segments<br/>midpoint · window · sigma · strength"]
+    J --> K["create_mask_fn<br/>cached additive penalty closure"]
+    K --> L["model.clone<br/>never mutate input"]
+    L --> M["apply_patches<br/>chain after existing attn2 patches"]
+    M --> N["patched model + conditioning<br/>→ KSampler"]
+```
+
+---
+
+## 🩺 Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Only the first transition works | Prompt exceeds tokenizer window | Shorten global prompt / fewer segments; check the `WARNING` log |
+| `segment_lengths has N entries but there are M local prompts` | Count mismatch | Make lengths match prompts 1:1, or leave empty |
+| Timeline editor blank | Web extension failed to load | Check browser console; hard-refresh ComfyUI |
+| `'global_prompt' arrived as None` | Stale workflow JSON or upstream node returning null | Re-save the workflow / fix the upstream connection |
+| Segments ignored, warning about 0 frames | Too few latent frames for the segment count | Reduce segments or increase video length |
+| Other attention patches lost | — | Can't happen here — we chain, not replace |
+
+---
+
+## 🙏 Credits
+
+- **Original Prompt Relay concept & ComfyUI implementation** — [Kijai / ComfyUI-LTXVideo](https://github.com/Kijai/ComfyUI-LTXVideo)
+- **This rewrite** — Nougan suite: tokenization safety, vectorised penalties, non-destructive patching, timeline editor, LTXAV audio support, typed options, suite-level fault isolation.
+
+---
+
+<div align="center">
+
+**Part of the [Nougan suite](#).** If Prompt Relay saves you a render, ⭐ the repo.
+
+</div>
