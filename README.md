@@ -1445,3 +1445,387 @@ flowchart TD
 **Part of the [Nougan suite](#).** If Prompt Relay saves you a render, ⭐ the repo.
 
 </div>
+
+---
+<img width="1536" height="1024" alt="LM-Studio" src="https://github.com/user-attachments/assets/a47f293d-0c84-400a-8139-7f06879cf7bf" />
+# Nougan LM Studio Bridge 🧠
+
+**Local LLMs, vision, audio and video — inside your ComfyUI graph, powered by LM Studio.**
+
+Part of the **Nougan Suite**. Two nodes that turn any model loaded in LM Studio's dev server into a live, streaming, multimodal ComfyUI node — with an on-node DOM console, a drag-and-drop image strip, and a resizable output reader.
+
+![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20nodes-2b3342?style=flat-square)
+![LM Studio](https://img.shields.io/badge/LM%20Studio-dev%20mode-ffb347?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.10+-39c2ff?style=flat-square)
+![Frontend](https://img.shields.io/badge/Frontend-live%20DOM%20console-43e08c?style=flat-square)
+![Nodes](https://img.shields.io/badge/Nodes-2-c9d3e0?style=flat-square)
+
+```text
+┌─ NOUGAN LM STUDIO 🧠 ────────────────────────────────────┐
+│ ● RENDERING · qwen2.5-vl · 🖼 1  🎞 0  🎧 0    ⟳ models ■│
+│ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░   128/512 tok    │
+│ "…a rain-slicked rooftop, neon bleeding into puddles…"   │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │          [ dropped image · live preview ]            │ │
+│ └──────────────────────────────────────────────────────┘ │
+│                      ─── grip ───                        │
+│ pasted.png                                     ⤢   ✕     │
+└──────────────────────────────────────────────────────────┘
+        │ RESPONSE                    │ PROMPT
+        ▼                             ▼
+┌─ NOUGAN LM STUDIO PROMPT BOX 💬 ─────────────────────────┐
+│ ● PROMPT BOX · output ready   LINKED   1 842 ch   ⧉ copy │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │  combined prompt text — scrolls, resizes, copies     │ │
+│ └──────────────────────────────────────────────────────┘ │
+│                      ─── grip ───                        │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Contents
+
+- [Nodes at a glance](#nodes-at-a-glance)
+- [Features](#features)
+- [Installation](#installation)
+- [LM Studio setup](#lm-studio-setup)
+- [Node reference — Nougan LM Studio 🧠](#node-reference--nougan-lm-studio-)
+- [Node reference — Prompt Box 💬](#node-reference--prompt-box-)
+- [Image strip gestures](#image-strip-gestures)
+- [Progress bar lifecycle](#progress-bar-lifecycle)
+- [Example workflows](#example-workflows)
+- [Krea 2 Prompt Director](#krea-2-prompt-director)
+- [Model compatibility](#model-compatibility)
+- [Troubleshooting](#troubleshooting)
+- [Technical notes](#technical-notes)
+- [Dependencies](#dependencies)
+
+---
+
+## Nodes at a glance
+
+| Node class | Display name | Role |
+|---|---|---|
+| `NouganLMStudio` | **Nougan LM Studio 🧠** | Streams chat completions from LM Studio. Text, vision, audio and video aware. Live DOM console with progress bar. |
+| `NouganLMStudioPromptBox` | **Nougan LM Studio Prompt Box 💬** | Editable text box fed by the main node's `PROMPT` output. Renders results live on the node. |
+
+Both are **output nodes** — either one can terminate a graph on its own.
+
+---
+
+## Features
+
+- 🔌 Connects to **LM Studio's OpenAI-compatible dev server** (`/v1/chat/completions`)
+- 🌊 **Token streaming** with an animated on-node progress bar
+- 🚦 Status LED: idle → queued → rendering → streaming → done / error
+- ⚡ **First-token latency** + tokens/sec readout
+- 🖼️ **Built-in image strip** — click, drag-drop, or Ctrl+V an image straight onto the node
+- 🔍 Resizable preview (drag grip), fit toggle, full-size **lightbox**
+- 🎞️ **Video input** — IMAGE batches, VHS dicts, or file paths (evenly sampled frames)
+- 🎧 **Audio input** — WAV-encoded for audio-capable models
+- ⟳ **Model auto-detect** button (cycles loaded models) · ■ **interrupt** button
+- 💬 Prompt Box with **live output pane**, LINKED/LOCAL chip, char count, one-click copy
+- 📐 Both panes drag-resizable, sizes **persist with the workflow**
+- 🛡️ Hardened: INT-field sanitizer, prompt-build injection, `urllib` fallback, isolated `try/except` registration
+
+---
+
+## Installation
+
+### 1 · Files
+
+Drop these into your Nougan Suite custom-node folder:
+
+```text
+ComfyUI/custom_nodes/YourNouganSuite/
+├── __init__.py
+├── lm_studio.py
+└── web/
+    └── nougan-lmstudio.js
+```
+
+### 2 · Register the nodes
+
+Add this block to `__init__.py` alongside the other optional loaders (its own `try/except`, so it can never take down the rest of the suite):
+
+```python
+# ── Optional: LM Studio Bridge (LLM · vision · audio via LM Studio dev mode) ─
+# Pairs with web/nougan-lmstudio.js (live DOM console + progress bar on node).
+try:
+    from .lm_studio import NouganLMStudio, NouganLMStudioPromptBox
+    NODE_CLASS_MAPPINGS.update({
+        "NouganLMStudio":          NouganLMStudio,
+        "NouganLMStudioPromptBox": NouganLMStudioPromptBox,
+    })
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "NouganLMStudio":          "Nougan LM Studio 🧠",
+        "NouganLMStudioPromptBox": "Nougan LM Studio Prompt Box 💬",
+    })
+    print("[Nougan] ✅ LM Studio Bridge loaded (2 nodes).")
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  LM Studio Bridge NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
+    traceback.print_exc()
+```
+
+### 3 · Restart & refresh
+
+Restart ComfyUI (web files are scanned at boot), then hard-refresh the browser (**Ctrl + Shift + R**). The nodes appear under **Nougan Suite**.
+
+---
+
+## LM Studio setup
+
+1. Open **LM Studio** and load a model.
+2. Go to the **Developer** tab and start the local server (default port `1234`, CORS on by default).
+3. Add **Nougan LM Studio 🧠** to your graph.
+4. Click **⟳ models** on the node — it auto-fills `model_name` (click again to cycle through multiple loaded models).
+
+Sanity check — this URL should return JSON listing your model:
+
+```text
+http://127.0.0.1:1234/v1/models
+```
+
+---
+
+## Node reference — Nougan LM Studio 🧠
+
+### Widgets
+
+| Widget | Type | Notes |
+|---|---|---|
+| `server_url` | STRING | LM Studio dev server. Default `http://127.0.0.1:1234` |
+| `model_name` | STRING | Auto-filled by the ⟳ button |
+| `system_prompt` | STRING | Assistant instructions (system role) |
+| `generate_prompt` | STRING | The main prompt box |
+| `max_tokens` | INT | `-1` lets the model decide (bar goes indeterminate) |
+| `temperature` | FLOAT | 0.0 – 2.0 |
+| `top_p` | FLOAT | 0.0 – 1.0 |
+| `stream` | BOOLEAN | Drives the live progress bar |
+| `seed` | INT | Optional |
+| `image_size` | COMBO | `1024 / 768 / 512` — longest side before encoding |
+| `video_frames` | INT | Evenly-spaced frames sampled from video |
+
+### Inputs
+
+| Input | Type | Notes |
+|---|---|---|
+| `image` | IMAGE | Single image or batch → vision content parts |
+| `audio` | AUDIO | → base64 WAV `input_audio` part (audio-capable model required) |
+| `video` | `*` | IMAGE batch, VHS video dict, or file path string |
+| `prompt_override` | STRING | Wired string replaces `generate_prompt` (feed the Prompt Box back in) |
+| *(embedded image)* | — | Set invisibly by the on-node drop zone |
+
+### Outputs
+
+| Output | Type | Notes |
+|---|---|---|
+| `RESPONSE` | STRING | The model's answer |
+| `PROMPT` | STRING | The final prompt that was sent — wire it into the Prompt Box |
+
+---
+
+## Node reference — Prompt Box 💬
+
+### Widgets
+
+| Widget | Type | Notes |
+|---|---|---|
+| `text` | STRING | Local editable text |
+| `mode` | COMBO | How local text combines with the incoming prompt |
+| `separator` | STRING | Inserted between texts in APPEND / PREPEND |
+
+### Input & output
+
+| Socket | Type | Notes |
+|---|---|---|
+| `prompt_in` | STRING | Wire from the main node's `PROMPT` (or any STRING) |
+| `PROMPT_OUT` | STRING | Combined result — route anywhere, including back into `prompt_override` |
+
+### Modes
+
+| Mode | Behavior |
+|---|---|
+| `APPEND` | Incoming first, then local text |
+| `PREPEND` | Local text first, then incoming |
+| `REPLACE (local wins)` | Local text if present, else incoming |
+| `PASSTHROUGH (incoming wins)` | Incoming if present, else local |
+
+> 💡 **Live reader trick:** wire `RESPONSE → prompt_in` and set mode to `PASSTHROUGH` — the box becomes an on-node reader for whatever the LLM says.
+
+---
+
+## Image strip gestures
+
+| Gesture | Effect |
+|---|---|
+| Click the dashed strip | Open file picker |
+| Drag a file onto the panel | Load / replace the image |
+| Hover the node + **Ctrl+V** | Paste a clipboard image |
+| Click the preview | Toggle cover ↔ contain fit |
+| Double-click the preview | Replace via picker |
+| **Drag the grip** | Resize preview (48–480 px) — node grows live |
+| Double-click the grip | Reset to default height |
+| **⤢** | Full-size lightbox (click or Esc to close) |
+| **✕** | Remove the image |
+
+Dropped images upload to `ComfyUI/input/nougan_lms/` and the reference **survives save/reload** — the preview restores with the workflow, at your chosen height.
+
+---
+
+## Progress bar lifecycle
+
+| Phase | LED | Bar | Readout |
+|---|---|---|---|
+| **QUEUED** | 🟠 amber pulse | indeterminate slide | — |
+| **RENDERING** | 🟠 amber pulse | indeterminate (until first token) | media counts `🖼 🎞 🎧` |
+| **STREAMING** | 🟢 green pulse | fills toward `max_tokens` (slides if `-1`) | `tok/s · ⚡ first-token time` |
+| **DONE** | 🔵 cyan | 100% | total tokens · elapsed |
+| **ERROR** | 🔴 red | — | error excerpt |
+
+---
+
+## Example workflows
+
+### Basic LLM text generation
+
+```text
+[Nougan LM Studio 🧠]
+  system_prompt:  You are a helpful assistant.
+  generate_prompt: Write a short poetic description of a neon city at night.
+  RESPONSE ──▶ any STRING consumer
+```
+
+### Vision — describe an image
+
+```text
+[Load Image] ──▶ image  [Nougan LM Studio 🧠]
+  generate_prompt: Describe subject, lighting, composition, colors, mood and camera style.
+```
+
+…or skip the Load Image node entirely and **drop the image onto the node itself**.
+
+### Two-stage prompt pipeline
+
+```text
+[Nougan LM Studio 🧠]
+  PROMPT ──────────────▶ prompt_in  [Prompt Box 💬]
+  prompt_override ◀───── PROMPT_OUT        (mode: APPEND your refinements)
+```
+
+### Video understanding
+
+```text
+[VHS Load Video] ──▶ video  [Nougan LM Studio 🧠]
+  generate_prompt: Summarize what happens in this clip, frame by frame.
+```
+
+### Audio understanding
+
+```text
+[Load Audio] ──▶ audio  [Nougan LM Studio 🧠]
+  generate_prompt: Transcribe and summarize this recording.
+```
+
+---
+
+## Krea 2 Prompt Director
+
+Use the bridge as a prompt writer for **Krea 2** (or any image model). Paste this into `system_prompt`:
+
+<details>
+<summary><b>Krea 2 system prompt (click to expand)</b></summary>
+
+```text
+You are an expert Krea 2 image prompt writer. Output only one final plain-text prompt. No explanations, no markdown, no labels.
+
+If the user gives only text, expand it into a richly detailed Krea 2 prompt. Include subject, pose, expression, wardrobe, environment, composition, camera, lens, lighting, color palette, mood, materials, skin texture, hair detail, surface detail, atmosphere, and finish.
+
+If the user provides an image, silently analyze it and write a Krea 2 prompt that replicates it faithfully. Preserve subject, pose, expression, composition, framing, style, lighting, color grade, background, wardrobe, props, textures, mood, aspect ratio, and legible text. Apply any user-requested changes while keeping the source image structure unless told otherwise.
+
+Use vivid, precise, natural language. Avoid keyword spam. Avoid mentioning Krea, AI, model, prompt, or instructions. For realistic humans, include natural skin texture, pores, subsurface scattering, realistic eyes, hair strands, and lifelike lighting. For stylized art, match the exact medium and rendering style. Final answer must be only the prompt.
+```
+
+</details>
+
+**Generate from text:**
+
+```text
+generate_prompt: A tired cyberpunk courier resting on a rainy rooftop at night,
+                 neon signs reflecting in puddles, cinematic mood.
+RESPONSE ──▶ Krea 2 prompt input
+```
+
+**Replicate an image:** drop a reference onto the node's strip, then:
+
+```text
+generate_prompt: Replicate this image as closely as possible for Krea 2.
+RESPONSE ──▶ Krea 2 prompt input
+```
+
+---
+
+## Model compatibility
+
+| Capability | Requirement | Payload format |
+|---|---|---|
+| Text chat | Any instruct/chat model | OpenAI chat messages |
+| Images / video frames | A **vision** model (e.g. `-vision` GGUF) | `image_url` parts with base64 data URIs |
+| Audio | An **audio-capable** model | `input_audio` parts (base64 WAV) |
+
+Video is understood by sampling still frames (`video_frames` widget), so **any vision model handles video** — no special video model needed.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Node exists but no console / progress bar | Restart ComfyUI, then **Ctrl+Shift+R**. Verify the file is served at `http://127.0.0.1:8188/extensions/<your_folder>/nougan-lmstudio.js`. Check F12 console for `[Nougan LMS] frontend extension loaded`. |
+| `Prompt has no outputs` | Fixed in current version — both nodes are `OUTPUT_NODE`s. Re-copy `lm_studio.py` if you see this. |
+| `Failed to convert an input value to a INT value` | A number field was emptied. Current version auto-restores defaults at queue time; just type a value back in. |
+| Model says *"no image was provided"* | Check the **RENDERING** line — it must read `🖼 1`. If it reads `🖼 0`, update to the current `lm_studio.py` + JS (fixed upload-metadata key + prompt-build injection). |
+| ⟳ shows `NO MODELS` | Dev server not running, or CORS disabled (the node auto-falls back to the `/nougan/lmstudio/models` proxy route). |
+| Progress bar never moves | Set `stream = True`. |
+| Video file input fails | `pip install opencv-python` — or wire an IMAGE batch of frames instead. |
+| Audio input ignored | Load an audio-capable model in LM Studio. |
+
+---
+
+## Technical notes
+
+- **Endpoints** — `POST {server}/v1/chat/completions` · `GET {server}/v1/models` · proxy `GET /nougan/lmstudio/models?base=…`
+- **Websocket event** — `nougan_lmstudio_progress` (states: `start` / `stream` / `done` / `error`), keyed by node id
+- **Drop-zone uploads** — ComfyUI `/upload/image` → `input/nougan_lms/`, referenced by a hidden widget; the value is also injected at `graphToPrompt` time so it reaches the backend on every frontend version
+- **Persistence** — embedded image + preview height ride in the hidden widget JSON; Prompt Box pane height lives in `node.properties.lms_box_h`
+- **Always re-runs** — `IS_CHANGED` returns `NaN` (the model is remote state)
+- **HTTP fallback** — uses `requests` when available, plain `urllib` otherwise
+
+---
+
+## Dependencies
+
+| Dependency | Status | Needed for |
+|---|---|---|
+| `torch`, `numpy`, `Pillow` | ships with ComfyUI | image encoding |
+| `soundfile` | ships with ComfyUI | audio encoding |
+| `requests` | optional | cleaner streaming (falls back to `urllib`) |
+| `opencv-python` | optional | decoding video **files** (IMAGE batches need nothing) |
+
+---
+
+## File structure
+
+```text
+YourNouganSuite/
+├── __init__.py            ← registration block (isolated try/except)
+├── lm_studio.py           ← both nodes + media converters + proxy route
+└── web/
+    └── nougan-lmstudio.js ← DOM console, image strip, lightbox, box panel
+```
+
+---
+
+Part of the **Nougan Suite** for ComfyUI · built for local LLM workflows with **LM Studio** 🧠
