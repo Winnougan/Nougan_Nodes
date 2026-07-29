@@ -1059,7 +1059,7 @@ Returns the full payload (`model_name`, `base_model`, `trigger_words`, `images[]
 <div align="center">
 
 # 🎬 Nougan Prompt Relay
-<img width="1536" height="1024" alt="Prompt_Replay_Revamp_02" src="https://github.com/user-attachments/assets/f10ccabf-8b2a-4926-938b-8c52e8029642" />
+<img width="1086" height="1448" alt="Prompt_Replay_Revamp_03" src="https://github.com/user-attachments/assets/30e675a0-8920-45b6-851d-b87012d13db2" />
 
 **Temporal local-prompt control for LTX Video · LTX2 · LTXAV**
 
