@@ -9,9 +9,9 @@
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-nodes-006064?style=for-the-badge)](https://github.com/comfyanonymous/ComfyUI)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Nodes](https://img.shields.io/badge/nodes-17-ff4081?style=for-the-badge)]#-node-index)
+[![Nodes](https://img.shields.io/badge/nodes-17-ff4081?style=for-the-badge)](#node-index)
 [![Docs](https://img.shields.io/badge/docs-per--node-69f0ae?style=for-the-badge)](docs/)
-[![License](https://img.shields.io/badge/license-MIT-69f0ae?style=for-the-badge)](#-license)
+[![License](https://img.shields.io/badge/license-MIT-69f0ae?style=for-the-badge)](#license)
 
 </div>
 
