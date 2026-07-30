@@ -1,6 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to overview](../README.md) · [All docs](./)
 
 # 🎬 Nougan Prompt Relay
+<img width="1086" height="1448" alt="Prompt_Replay_Revamp_03" src="https://github.com/user-attachments/assets/53420daa-ff67-4ce9-99a0-65e57b9ae107" />
 
 **Temporal local-prompt control for LTX Video · LTX2 · LTXAV**
 
