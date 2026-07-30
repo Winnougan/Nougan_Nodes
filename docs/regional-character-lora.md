@@ -1,6 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to overview](../README.md) · [All docs](./)
 
 # Nougan Regional Character LoRA 🎭
+<img width="1536" height="1024" alt="Regional_Prompter" src="https://github.com/user-attachments/assets/966c9b41-b1b1-4f8e-a78b-3e73d64c865a" />
 
 > Place two trained character LoRAs into **one** coherent image, each concentrated
 > in its own spatial region, **without identity blend** — no compositing, no
