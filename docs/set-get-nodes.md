@@ -1,4 +1,4 @@
-> 🌀 **Nougan Suite** · ← Back to overview
+> 🌀 **Nougan Suite** · [← Back to overview](../README.md) · [All docs](./)
 
 # 📚 Nougan Docs
 
