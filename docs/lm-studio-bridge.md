@@ -1,6 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to overview](../README.md) · [All docs](./)
 
 # Nougan LM Studio Bridge 🧠
+<img width="1536" height="1024" alt="LM-Studio" src="https://github.com/user-attachments/assets/f2ce0170-0141-4c14-be66-f442793be903" />
 
 **Local LLMs, vision, audio and video — inside your ComfyUI graph, powered by LM Studio.**
 
