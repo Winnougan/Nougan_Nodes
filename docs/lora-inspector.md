@@ -1,6 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to overview](../README.md) · [All docs](./)
 
 # Nougan Lora Inspector 🔍
+<img width="1536" height="1024" alt="Nougan Lora Inspector" src="https://github.com/user-attachments/assets/1b5a3df6-f78b-4060-bc0c-edf4744b95e3" />
 
 ```text
 ┌ NOUGAN · LORA INSPECTOR ──────────── hashing ▓▓▓▓▓░░ 62% ┐
