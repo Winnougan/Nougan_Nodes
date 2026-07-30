@@ -1,5 +1,6 @@
 # __init__.py
 import os
+
 from .diffusers_loader    import NouganDiffusersLoader
 from .get_image           import NouganGetImage
 from .krea2_loader        import NouganKrea2Loader, get_krea2_lora_status
@@ -9,7 +10,7 @@ from .title_font          import NouganTitleFont
 
 WEB_DIRECTORY = "./web"
 
-# ── Core nodes: always registered (never wrapped — these must always load) ──
+# ── Core nodes: always registered ───────────────────────────────────────────
 NODE_CLASS_MAPPINGS = {
     "NouganDiffusersLoader":   NouganDiffusersLoader,
     "NouganGetImage":          NouganGetImage,
@@ -18,6 +19,7 @@ NODE_CLASS_MAPPINGS = {
     "NouganTextBox":           NouganTextBox,
     "NouganTitleFont":         NouganTitleFont,
 }
+
 NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganDiffusersLoader":   "Nougan Diffusers Loader 🚀",
     "NouganGetImage":          "Nougan Get Image 🖼️",
@@ -26,6 +28,28 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganTextBox":           "Nougan Text Box 📝",
     "NouganTitleFont":         "Nougan Title Font 🌈",
 }
+
+# ── Optional: Remote Set / Get ──────────────────────────────────────────────
+# Wrapped safely so a missing or broken nougan_set_get.py cannot kill the suite.
+try:
+    from .nougan_set_get import NouganSet, NouganGet
+
+    NODE_CLASS_MAPPINGS.update({
+        "NouganSet": NouganSet,
+        "NouganGet": NouganGet,
+    })
+
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "NouganSet": "Nougan Set (Remote) 📡",
+        "NouganGet": "Nougan Get (Remote) 📥",
+    })
+
+    print("[Nougan] ✅ Remote Set/Get loaded (2 nodes).")
+
+except Exception as _e:
+    import traceback
+    print(f"[Nougan] ⚠️  Remote Set/Get NOT loaded ({type(_e).__name__}: {_e}) — core nodes are fine.")
+    traceback.print_exc()
 
 # ── Optional: Lora Loader (from-scratch build) ─────────────────────────────
 try:
@@ -41,7 +65,7 @@ try:
     print("[Nougan] ✅ Lora Loader loaded (2 nodes).")
 except Exception as _e:
     import traceback
-    print(f"[Nougan] ⚠️  Lora Loader NOT loaded ({type(_e).__name__}: {_e}) — core 6 nodes are fine.")
+    print(f"[Nougan] ⚠️  Lora Loader NOT loaded ({type(_e).__name__}: {_e}) — core nodes are fine.")
     traceback.print_exc()
 
 # ── Optional: Lora Inspector (Civitai metadata browser) ────────────────────
@@ -93,10 +117,6 @@ except Exception as _e:
     traceback.print_exc()
 
 # ── Optional: Prompt Relay (temporal local-prompt control for LTX Video) ───
-# Its OWN try, so a problem here can never affect the core suite, the lora
-# nodes, the mask nodes, or regional LoRA.  The sub-package contains three
-# modules (relay_core, patches, advanced_options) and pairs with
-# web/nougan-timeline_editor.js (the draggable-block timeline UI).
 try:
     from .prompt_relay import (
         PromptRelayEncode,
@@ -120,7 +140,6 @@ except Exception as _e:
     traceback.print_exc()
 
 # ── Optional: LM Studio Bridge (LLM · vision · audio via LM Studio dev mode) ─
-# Pairs with web/nougan-lmstudio.js (live DOM console + progress bar on node).
 try:
     from .lm_studio import NouganLMStudio, NouganLMStudioPromptBox
     NODE_CLASS_MAPPINGS.update({
@@ -137,27 +156,46 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  LM Studio Bridge NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
     traceback.print_exc()
 
+
+_NOUGAN_ROUTES_REGISTERED = False
+
 def _register_routes():
+    global _NOUGAN_ROUTES_REGISTERED
+    if _NOUGAN_ROUTES_REGISTERED:
+        return
+
     try:
         from server import PromptServer
         from aiohttp import web
     except Exception:
         return
 
-    @PromptServer.instance.routes.get("/nougan/krea2_loras")
-    async def _krea2_loras(_request):
-        return web.json_response({"loras": get_krea2_lora_status()})
+    try:
+        routes = PromptServer.instance.routes
+    except Exception:
+        return
 
-    @PromptServer.instance.routes.get("/nougan/loras")
-    async def _nougan_loras(_request):
-        try:
-            import os as _os
-            import folder_paths as _fp
-            names = [str(x).replace(_os.sep, "/") for x in _fp.get_filename_list("loras")]
-        except Exception:
-            names = []
-        return web.json_response(names)
+    try:
+        @routes.get("/nougan/krea2_loras")
+        async def _krea2_loras(_request):
+            return web.json_response({"loras": get_krea2_lora_status()})
+
+        @routes.get("/nougan/loras")
+        async def _nougan_loras(_request):
+            try:
+                import os as _os
+                import folder_paths as _fp
+                names = [str(x).replace(_os.sep, "/") for x in _fp.get_filename_list("loras")]
+            except Exception:
+                names = []
+            return web.json_response(names)
+
+        _NOUGAN_ROUTES_REGISTERED = True
+
+    except Exception as _e:
+        print(f"[Nougan] ⚠️  Could not register routes: {_e}")
 
 
 _register_routes()
+
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
