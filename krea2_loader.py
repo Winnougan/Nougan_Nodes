@@ -1,60 +1,47 @@
 # krea2_loader.py
+# ─────────────────────────────────────────────────────────────────────────────
+# PYTHON ONLY. The frontend lives in web/nougan-krea2-loader.js (separate file).
+# A stray "// ..." line here is a SyntaxError that kills the whole suite.
+# Architecture mirrors nougan_lora_loader.py 1:1 — only the path layer differs:
+# this loader reads the BUNDLED nougan/loras/ folder, not models/loras/.
+# ─────────────────────────────────────────────────────────────────────────────
 import os
+import json
+import glob
 import comfy.sd
 import comfy.utils
 
-
-# ===========================================================================
-#  BAKED-IN LORA CONFIG  —  edit this list to match your files.
-#  Drop the .safetensors files into  nougan/loras/  and set "filename"
-#  to the exact name. The node reads them from its OWN folder, so they
-#  ship with the pack (no need to copy anything into models/loras/).
-# ===========================================================================
-KREA2_LORAS = [
-    {
-        "key": "a",
-        "display_name": "Uncensor A",          # shown in the node UI
-        "filename": "krea2_uncensor_a.safetensors",  # file in nougan/loras/
-        "default_enable": False,               # start OFF (opt-in preload)
-        "default_strength": 1.0,
-    },
-    {
-        "key": "b",
-        "display_name": "Uncensor B",
-        "filename": "krea2_uncensor_b.safetensors",
-        "default_enable": False,
-        "default_strength": 1.0,
-    },
-    {
-        "key": "c",
-        "display_name": "Uncensor C",
-        "filename": "krea2_uncensor_c.safetensors",
-        "default_enable": False,
-        "default_strength": 1.0,
-    },
-]
-
-# ---------------------------------------------------------------------------
 NODE_DIR  = os.path.dirname(os.path.abspath(__file__))
 LORAS_DIR = os.path.join(NODE_DIR, "loras")
+_LORA_SD_CACHE = {}
 
-_SD_CACHE: dict = {}
+
+# ── path layer (bundled folder) ──────────────────────────────────────────────
+def _scan_loras():
+    """Every .safetensors in nougan/loras/, sorted case-insensitive."""
+    if not os.path.isdir(LORAS_DIR):
+        os.makedirs(LORAS_DIR, exist_ok=True)
+        return []
+    names = [os.path.basename(f) for f in glob.glob(os.path.join(LORAS_DIR, "*.safetensors"))]
+    names.sort(key=str.lower)
+    return names
 
 
-def _baked_lora_path(filename: str):
-    """Resolve a bundled lora inside nougan/loras/. basename() guards traversal."""
-    if not filename:
+def _resolve(name):
+    """Map a stored name to its bundled file. basename() blocks traversal."""
+    if not name:
         return None
-    return os.path.join(LORAS_DIR, os.path.basename(str(filename)))
+    p = os.path.join(LORAS_DIR, os.path.basename(str(name)))
+    return p if os.path.isfile(p) else None
 
 
-def _load_lora_sd(path: str):
-    """Cached state dict. Returns a SHALLOW COPY — comfy.lora may mutate the
-    dict it's handed, so the cached original must stay pristine for re-runs."""
-    sd = _SD_CACHE.get(path)
+def _load_lora_sd(path):
+    # Shallow copy: comfy.sd.load_lora_for_models may mutate the dict it is
+    # handed; returning the cached original would drain it on a second apply.
+    sd = _LORA_SD_CACHE.get(path)
     if sd is None:
         sd = comfy.utils.load_torch_file(path, safe_load=True)
-        _SD_CACHE[path] = sd
+        _LORA_SD_CACHE[path] = sd
     return dict(sd)
 
 
@@ -67,17 +54,15 @@ def _human_size(n: int) -> str:
 
 
 def get_krea2_lora_status():
-    """For the frontend: present/size of every baked lora, by widget index."""
+    """Frontend payload for /nougan/krea2_loras (the chooser list)."""
     out = []
-    for i, spec in enumerate(KREA2_LORAS, start=1):
-        p = _baked_lora_path(spec["filename"])
-        present = bool(p and os.path.isfile(p))
+    for i, name in enumerate(_scan_loras(), start=1):
+        p = _resolve(name)
+        present = bool(p)
         size = os.path.getsize(p) if present else 0
         out.append({
             "index": i,
-            "key": spec["key"],
-            "display_name": spec["display_name"],
-            "filename": spec["filename"],
+            "filename": name,
             "present": present,
             "size": size,
             "size_str": _human_size(size) if present else "—",
@@ -85,72 +70,116 @@ def get_krea2_lora_status():
     return out
 
 
-def _build_input_types():
-    opt = {"clip": ("CLIP",)}
-    for i, spec in enumerate(KREA2_LORAS, start=1):
-        dn = spec["display_name"]
-        opt[f"enable_{i}"] = ("BOOLEAN", {
-            "default": bool(spec.get("default_enable", False)),
-            "label_on": f"{dn}: ON", "label_off": f"{dn}: OFF",
-            "tooltip": f"Preload {dn} into the model.",
-        })
-        opt[f"strength_{i}"] = ("FLOAT", {
-            "default": float(spec.get("default_strength", 1.0)),
-            "min": 0.0, "step": 0.05, "max": 1000.0,   # effectively uncapped
-            "tooltip": f"Strength for {dn}. 0 = off. No practical upper limit.",
-        })
-    return {"required": {"model": ("MODEL",)}, "optional": opt}
+# ── shared parse / apply (copied from the proven Power Lora Loader) ──────────
+def _parse(lora_data):
+    if not lora_data:
+        return []
+    try:
+        data = json.loads(lora_data)
+    except Exception:
+        return []
+    if isinstance(data, list):
+        raw = data
+    elif isinstance(data, dict):
+        raw = data.get("loras", [])
+    else:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for e in raw:
+        if not isinstance(e, dict):
+            continue
+        name = e.get("name") or e.get("lora") or ""
+        if not name or name in ("None", "NONE"):
+            continue
+        if e.get("strength") is not None:
+            ms = cs = float(e["strength"])
+        else:
+            ms = float(e.get("model", 1.0))
+            cs = float(e.get("clip", ms))
+        out.append({"on": bool(e.get("on", True)), "name": name, "model": ms, "clip": cs})
+    return out
 
 
-# ---------------------------------------------------------------------------
+def _apply(model, clip, lora_data):
+    entries = _parse(lora_data)
+    seen, stack = set(), []
+    for e in entries:
+        if not e["on"]:
+            continue
+        name = e["name"]
+        if not name or name in ("None", "NONE"):
+            continue
+        ms = max(-10.0, min(10.0, float(e["model"])))
+        cs = max(-10.0, min(10.0, float(e["clip"])))
+        if ms == 0 and (clip is None or cs == 0):
+            continue
+        path = _resolve(name)
+        if path is None:
+            print(f"[Nougan Krea2] lora not found, skipping: {name}")
+            continue
+        if path in seen:
+            print(f"[Nougan Krea2] duplicate lora skipped: {name}")
+            continue
+        seen.add(path)
+        print(f"[Nougan Krea2] applying {name}  M={ms} C={cs}")
+        model, clip = comfy.sd.load_lora_for_models(model, clip, _load_lora_sd(path), ms, cs)
+        stack.append((name, ms, cs))
+    return model, clip, stack
+
+
+# REQUIRED STRING widget — identical trick to the Power Lora Loader.
+# The JS hides it visually but ComfyUI MUST create it, or the ➕/✕ buttons
+# never appear. This was the root cause of every earlier breakage.
+_LORA_DATA = ("STRING", {"default": "{}", "multiline": False,
+                         "tooltip": "Managed by the Nougan Krea 2 LoRA UI."})
+
+
 class NouganKrea2Loader:
-    """Applies 1–3 bundled 'uncensored' LoRAs to MODEL (+ optional CLIP) and
-    passes them straight through, so it slots between your model loader and
-    your regular LoRA loader."""
-
     @classmethod
     def INPUT_TYPES(cls):
-        return _build_input_types()
+        return {"required": {"model": ("MODEL",), "lora_data": _LORA_DATA},
+                "optional": {"clip": ("CLIP",)}}
 
     RETURN_TYPES = ("MODEL", "CLIP", "STRING")
     RETURN_NAMES = ("MODEL", "CLIP", "applied")
     FUNCTION = "load"
     CATEGORY = "loaders"
-    TITLE = "Nougan Krea 2 · Uncensored"
-    DESCRIPTION = ("Bakes in bundled uncensored LoRAs (stored in nougan/loras/). "
-                   "Toggle 1, 2 or all 3 and set each strength. Sits after the "
-                   "model and before your LoRA loader.")
+    TITLE = "Nougan Krea 2 · LoRA"
 
     @classmethod
-    def IS_CHANGED(cls, **kw):
-        parts = [f"{kw.get(f'enable_{i}')}:{kw.get(f'strength_{i}')}"
-                 for i in range(1, len(KREA2_LORAS) + 1)]
-        return "|".join(parts)
+    def IS_CHANGED(cls, lora_data="{}", **kw):
+        return lora_data
 
-    def load(self, model, clip=None, **kw):
-        applied = []
-        for i, spec in enumerate(KREA2_LORAS, start=1):
-            en = bool(kw.get(f"enable_{i}", spec.get("default_enable", False)))
-            try:
-                s = float(kw.get(f"strength_{i}", spec.get("default_strength", 1.0)))
-            except (TypeError, ValueError):
-                s = 1.0
-            s = max(-1000.0, min(1000.0, s))   # NaN/inf guard only
+    def load(self, model, lora_data, clip=None):
+        m, c, stack = _apply(model, clip, lora_data)
+        summary = ", ".join(f"{n}@{ms:g}" for n, ms, _cs in stack) if stack else "(none)"
+        return (m, c, summary)
 
-            if not en or s == 0.0:
-                continue
 
-            path = _baked_lora_path(spec["filename"])
-            if not path or not os.path.isfile(path):
-                print(f"[Nougan Krea2] ⚠️ '{spec['display_name']}' is ON but the "
-                      f"file is missing (nougan/loras/{spec['filename']}) — skipped.")
-                continue
+class NouganKrea2LoaderMulti:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"model": ("MODEL",), "lora_data": _LORA_DATA},
+                "optional": {"clip": ("CLIP",), "model_2": ("MODEL",), "model_3": ("MODEL",),
+                             "model_4": ("MODEL",), "model_5": ("MODEL",)}}
 
-            sd = _load_lora_sd(path)
-            model, clip = comfy.sd.load_lora_for_models(model, clip, sd, s, s)
-            applied.append(f"{spec['display_name']}@{s:g}")
-            print(f"[Nougan Krea2] ✅ {spec['display_name']}  strength={s:g}")
+    RETURN_TYPES = ("MODEL", "CLIP", "STRING", "MODEL", "MODEL", "MODEL", "MODEL")
+    RETURN_NAMES = ("MODEL", "CLIP", "applied", "MODEL 2", "MODEL 3", "MODEL 4", "MODEL 5")
+    FUNCTION = "load"
+    CATEGORY = "loaders"
+    TITLE = "Nougan Krea 2 · LoRA (Multi-Model)"
 
-        summary = ", ".join(applied) if applied else "(none)"
-        print(f"[Nougan Krea2] baked loras applied: {summary}")
-        return (model, clip, summary)
+    @classmethod
+    def IS_CHANGED(cls, lora_data="{}", **kw):
+        return lora_data
+
+    def load(self, model, lora_data, clip=None,
+             model_2=None, model_3=None, model_4=None, model_5=None):
+        m, c, stack = _apply(model, clip, lora_data)
+        summary = ", ".join(f"{n}@{ms:g}" for n, ms, _cs in stack) if stack else "(none)"
+        extras = []
+        for em in (model_2, model_3, model_4, model_5):
+            extras.append(_apply(em, None, lora_data)[0] if em is not None else None)
+        return (m, c, summary, *extras)
