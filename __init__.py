@@ -179,6 +179,46 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  LM Studio Bridge NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
+# ── Optional: Match Image Size ──────────────────────────────────────────────
+try:
+    from .nougan_match_size import NouganMatchImageSize
+    NODE_CLASS_MAPPINGS["NouganMatchImageSize"] = NouganMatchImageSize
+    NODE_DISPLAY_NAME_MAPPINGS["NouganMatchImageSize"] = "Nougan Match Image Size 📐"
+    print("[Nougan] ✅ Match Image Size loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Match Image Size NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: Before / After Compare ────────────────────────────────────────
+try:
+    from .nougan_before_after import NouganBeforeAfterCompare
+    NODE_CLASS_MAPPINGS["NouganBeforeAfterCompare"] = NouganBeforeAfterCompare
+    NODE_DISPLAY_NAME_MAPPINGS["NouganBeforeAfterCompare"] = "Nougan Before / After 🔀"
+    print("[Nougan] ✅ Before/After Compare loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Before/After Compare NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: Edit Prompt Template ──────────────────────────────────────────
+try:
+    from .nougan_edit_prompt import NouganEditPromptTemplate
+    NODE_CLASS_MAPPINGS["NouganEditPromptTemplate"] = NouganEditPromptTemplate
+    NODE_DISPLAY_NAME_MAPPINGS["NouganEditPromptTemplate"] = "Nougan Edit Prompt Template 🧩"
+    print("[Nougan] ✅ Edit Prompt Template loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Edit Prompt Template NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: MiniMax H3 Image Edit (one-shot) ─────────────────────────────
+try:
+    from .nougan_h3_edit import NouganH3ImageEdit
+    NODE_CLASS_MAPPINGS["NouganH3ImageEdit"] = NouganH3ImageEdit
+    NODE_DISPLAY_NAME_MAPPINGS["NouganH3ImageEdit"] = "Nougan MiniMax H3 · Image Edit 🎬"
+    print("[Nougan] ✅ MiniMax H3 Image Edit loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  MiniMax H3 Image Edit NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
 # ── Routes — always attempted, fully guarded ────────────────────────────────
 _NOUGAN_ROUTES_REGISTERED = False
 

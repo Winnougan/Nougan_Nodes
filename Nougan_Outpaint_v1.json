@@ -1,0 +1,349 @@
+{
+  "id": "b7c41e9a-6f2d-4a8b-9e35-n0ug4n0p01",
+  "revision": 0,
+  "last_node_id": 170,
+  "last_link_id": 325,
+  "nodes": [
+    {
+      "id": 136, "type": "MarkdownNote",
+      "pos": [-2530, 4830], "size": [440, 500],
+      "flags": {}, "order": 0, "mode": 0,
+      "inputs": [], "outputs": [],
+      "title": "Note: Model Links",
+      "properties": {},
+      "widgets_values": ["## Model Links\n\n**vae**\n\n- [minimax_h3_video_vae_fp16.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors)\n\n**diffusion_models**\n\n- [minimax_h3_fl2va_pruned_int8_convrot.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors)\n\n**text_encoders**\n\n- [qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors)\n\n## Model Storage Location\n\n`📂 ComfyUI/\n├── 📂 models/\n│   ├── 📂 vae/\n│   │   └── minimax_h3_video_vae_fp16.safetensors\n│   ├── 📂 diffusion_models/\n│   │   └── minimax_h3_fl2va_pruned_int8_convrot.safetensors\n│   └── 📂 text_encoders/\n│       └── qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`\n\n## Required custom nodes\n\n- Nougan Edit Prompt Template, Nougan Before / After (Nougan pack)\n- PathchSageAttentionKJ (comfyui-kjnodes)\n\nNote: update ComfyUI first — MiniMax H3 needs a recent build."],
+      "color": "#432", "bgcolor": "#653"
+    },
+    {
+      "id": 138, "type": "MarkdownNote",
+      "pos": [-2060, 4830], "size": [440, 520],
+      "flags": {}, "order": 1, "mode": 0,
+      "inputs": [], "outputs": [],
+      "title": "Note: Nougan Outpaint v1",
+      "properties": {},
+      "widgets_values": ["## Nougan Outpaint v1\n\nH3 has no native outpaint mode, so this workflow runs the **pad → condition → generate** trick:\n\n1. **Scale down** the original (Image Scale To Total Pixels, ~0.6 MP) to leave headroom inside H3's ~1MP native canvas\n2. **Pad** the scaled image onto a larger canvas (Image Pad For Outpaint). Keep pad amounts as **multiples of 32**\n3. **Condition** H3 on the padded canvas as `first_frame`, with width/height read from the PADDED size — not the original\n4. **Prompt** what should appear in the new area. The preservation suffix is baked into the Nougan Edit Prompt Template\n5. **No resize-back** — the output stays at the extended size\n\n## Tips\n\n- Input + extension must fit the megapixel budget together. See the Size Settings note.\n- Need more extension than one pass allows? Feed the result back in and extend again. Two small passes beat one giant pass.\n- Visible seam at the pad boundary? Switch pad method to `linear ramp`, or re-run a pass over the boundary region.\n- Want more final resolution? Add `RTXVideoSuperResolution` (2×, ULTRA) after Image From Batch.\n- Found a good result? Set Random Noise to `fixed` to lock the seed while you refine the prompt.\n\n— Winnougan"],
+      "color": "#432", "bgcolor": "#653"
+    },
+    {
+      "id": 137, "type": "MarkdownNote",
+      "pos": [-1600, 4830], "size": [280, 460],
+      "flags": {}, "order": 2, "mode": 0,
+      "inputs": [], "outputs": [],
+      "title": "Note: Size Budget Reference",
+      "properties": {},
+      "widgets_values": ["| megapixels | Aspect | Output (multiple=32) |\n|---|---|---|\n| 0.2 | 16:9 | 608 x 352 |\n| 0.3 | 16:9 | 736 x 416 |\n| 0.4 | 16:9 | 864 x 480 |\n| 0.5 | 16:9 | 960 x 544 |\n| 0.6 | 16:9 | 1056 x 608 |\n| 0.7 | 16:9 | 1152 x 640 |\n| 0.8 | 16:9 | 1216 x 672 |\n| 0.9 | 16:9 | 1280 x 736 |\n| 0.98 | 16:9 | 1344 x 768 |\n| 1.0 | 16:9 | 1376 x 768 |\n\n## Default padding math\n\n1. Original: 1024 x 1024\n2. Scale to 0.6 MP → 768 x 768\n3. Pad +256 left/right → **1280 x 768** (~0.98 MP ✅)\n4. Generate → extended still at 1280 x 768\n\nKeep all pad values as multiples of 32."],
+      "color": "#432", "bgcolor": "#653"
+    },
+    {
+      "id": 129, "type": "UNETLoader",
+      "pos": [-1310, 4890], "size": [640, 90],
+      "flags": {}, "order": 3, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [311]}],
+      "properties": {
+        "cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "UNETLoader",
+        "models": [{"name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors", "directory": "diffusion_models"}]
+      },
+      "widgets_values": ["minimax_h3_fl2va_pruned_int8_convrot.safetensors", "default"],
+      "color": "#223", "bgcolor": "#335"
+    },
+    {
+      "id": 130, "type": "CLIPLoader",
+      "pos": [-1310, 5050], "size": [640, 110],
+      "flags": {}, "order": 8, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "CLIP", "type": "CLIP", "links": [308]}],
+      "properties": {
+        "cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "CLIPLoader",
+        "models": [{"name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "directory": "text_encoders"}]
+      },
+      "widgets_values": ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "minimax", "default"],
+      "color": "#223", "bgcolor": "#335"
+    },
+    {
+      "id": 121, "type": "VAELoader",
+      "pos": [-1310, 5240], "size": [640, 60],
+      "flags": {}, "order": 4, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "VAE", "type": "VAE", "links": [309, 310]}],
+      "properties": {
+        "cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "VAELoader",
+        "models": [{"name": "minimax_h3_video_vae_fp16.safetensors", "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors", "directory": "vae"}]
+      },
+      "widgets_values": ["minimax_h3_video_vae_fp16.safetensors"],
+      "color": "#223", "bgcolor": "#335"
+    },
+    {
+      "id": 114, "type": "LoadImage",
+      "pos": [-830, 4870], "size": [420, 510],
+      "flags": {}, "order": 9, "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [300, 324]},
+        {"name": "MASK", "type": "MASK", "links": null}
+      ],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "LoadImage"},
+      "widgets_values": ["your_image.png", "image"],
+      "color": "#232", "bgcolor": "#353"
+    },
+    {
+      "id": 141, "type": "ImageScaleToTotalPixels",
+      "pos": [-380, 4870], "size": [300, 130],
+      "flags": {}, "order": 11, "mode": 0, "showAdvanced": true,
+      "inputs": [{"name": "image", "type": "IMAGE", "link": 300}],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [301]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "ImageScaleToTotalPixels"},
+      "widgets_values": ["nearest-exact", 0.6, 32],
+      "color": "#232", "bgcolor": "#353"
+    },
+    {
+      "id": 167, "type": "ImagePadForOutpaint",
+      "pos": [-380, 5050], "size": [300, 200],
+      "flags": {}, "order": 12, "mode": 0,
+      "inputs": [{"name": "image", "type": "IMAGE", "link": 301}],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [302, 303]},
+        {"name": "MASK", "type": "MASK", "links": null}
+      ],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "ImagePadForOutpaint"},
+      "widgets_values": [256, 0, 256, 0, 0, "edge pad"],
+      "color": "#232", "bgcolor": "#353"
+    },
+    {
+      "id": 140, "type": "GetImageSize",
+      "pos": [-950, 6100], "size": [230, 130],
+      "flags": {}, "order": 13, "mode": 0,
+      "inputs": [{"name": "image", "type": "IMAGE", "link": 303}],
+      "outputs": [
+        {"name": "width", "type": "INT", "links": [304]},
+        {"name": "height", "type": "INT", "links": [305]},
+        {"name": "batch_size", "type": "INT", "links": null}
+      ],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "GetImageSize"},
+      "widgets_values": [],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 168, "type": "NouganEditPromptTemplate",
+      "pos": [-40, 5300], "size": [450, 300],
+      "flags": {}, "order": 10, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "prompt", "type": "STRING", "links": [307]}],
+      "properties": {"cnr_id": "nougan", "ver": "1.0.0", "Node name for S&R": "NouganEditPromptTemplate"},
+      "widgets_values": [
+        "Extend the scene to the left and right to reveal a rocky coastline with crashing waves under a dramatic sunset sky. Blend the new content seamlessly with the existing lighting and color palette.",
+        true,
+        "Preserve the composition, lighting, style, facial expressions and existing content exactly.",
+        "newline"
+      ],
+      "color": "#323", "bgcolor": "#535"
+    },
+    {
+      "id": 133, "type": "MiniMaxH3ImageToVideo",
+      "pos": [-40, 4870], "size": [600, 380],
+      "flags": {}, "order": 15, "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 308},
+        {"name": "vae", "type": "VAE", "link": 309},
+        {"name": "first_frame", "shape": 7, "type": "IMAGE", "link": 302},
+        {"name": "last_frame", "shape": 7, "type": "IMAGE", "link": null},
+        {"name": "prompt", "type": "STRING", "widget": {"name": "prompt"}, "link": 307},
+        {"name": "width", "type": "INT", "widget": {"name": "width"}, "link": 304},
+        {"name": "height", "type": "INT", "widget": {"name": "height"}, "link": 305},
+        {"name": "length", "type": "INT", "widget": {"name": "length"}, "link": 306}
+      ],
+      "outputs": [
+        {"name": "positive", "type": "CONDITIONING", "links": [314]},
+        {"name": "LATENT", "type": "LATENT", "links": [315]}
+      ],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "MiniMaxH3ImageToVideo"},
+      "widgets_values": [" ", 1344, 768, 1],
+      "color": "#232", "bgcolor": "#353"
+    },
+    {
+      "id": 139, "type": "PrimitiveInt",
+      "pos": [-1300, 5860], "size": [270, 90],
+      "flags": {}, "order": 6, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "INT", "type": "INT", "links": [306]}],
+      "title": "Frame Length",
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "PrimitiveInt"},
+      "widgets_values": [1, "fixed"],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 170, "type": "PathchSageAttentionKJ",
+      "pos": [-1310, 5700], "size": [300, 100],
+      "flags": {}, "order": 14, "mode": 0,
+      "inputs": [{"name": "model", "type": "MODEL", "link": 311}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [312, 313]}],
+      "properties": {"cnr_id": "comfyui-kjnodes", "ver": "1.0.0", "Node name for S&R": "PathchSageAttentionKJ"},
+      "widgets_values": ["sageattn_qk_int8_pv_fp16_triton", true],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 128, "type": "BasicGuider",
+      "pos": [-950, 5700], "size": [300, 50],
+      "flags": {}, "order": 16, "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 312},
+        {"name": "conditioning", "type": "CONDITIONING", "link": 314}
+      ],
+      "outputs": [{"name": "GUIDER", "type": "GUIDER", "links": [317]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "BasicGuider"},
+      "widgets_values": [],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 125, "type": "KSamplerSelect",
+      "pos": [-950, 5820], "size": [300, 60],
+      "flags": {}, "order": 5, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "SAMPLER", "type": "SAMPLER", "links": [318]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "KSamplerSelect"},
+      "widgets_values": ["res_multistep"],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 126, "type": "BasicScheduler",
+      "pos": [-950, 5940], "size": [290, 110],
+      "flags": {}, "order": 17, "mode": 0,
+      "inputs": [{"name": "model", "type": "MODEL", "link": 313}],
+      "outputs": [{"name": "SIGMAS", "type": "SIGMAS", "links": [319]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "BasicScheduler"},
+      "widgets_values": ["simple", 20, 1],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 131, "type": "RandomNoise",
+      "pos": [-180, 5700], "size": [300, 90],
+      "flags": {}, "order": 7, "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "NOISE", "type": "NOISE", "links": [316]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "RandomNoise"},
+      "widgets_values": [133700777, "randomize"],
+      "color": "#232", "bgcolor": "#353"
+    },
+    {
+      "id": 127, "type": "SamplerCustomAdvanced",
+      "pos": [-520, 5700], "size": [280, 180],
+      "flags": {}, "order": 18, "mode": 0,
+      "inputs": [
+        {"name": "noise", "type": "NOISE", "link": 316},
+        {"name": "guider", "type": "GUIDER", "link": 317},
+        {"name": "sampler", "type": "SAMPLER", "link": 318},
+        {"name": "sigmas", "type": "SIGMAS", "link": 319},
+        {"name": "latent_image", "type": "LATENT", "link": 315}
+      ],
+      "outputs": [
+        {"name": "output", "type": "LATENT", "links": [320]},
+        {"name": "denoised_output", "type": "LATENT", "links": []}
+      ],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "SamplerCustomAdvanced"},
+      "widgets_values": [],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 124, "type": "VAEDecode",
+      "pos": [-530, 5940], "size": [280, 60],
+      "flags": {"collapsed": false}, "order": 19, "mode": 0,
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 320},
+        {"name": "vae", "type": "VAE", "link": 310}
+      ],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [321]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "VAEDecode"},
+      "widgets_values": [],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 144, "type": "ImageFromBatch",
+      "pos": [-530, 6050], "size": [280, 90],
+      "flags": {}, "order": 20, "mode": 0,
+      "inputs": [{"name": "image", "type": "IMAGE", "link": 321}],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [322, 323]}],
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "ImageFromBatch"},
+      "widgets_values": [0, 1],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 169, "type": "NouganBeforeAfterCompare",
+      "pos": [150, 5940], "size": [300, 350],
+      "flags": {}, "order": 21, "mode": 0,
+      "inputs": [
+        {"name": "image1", "type": "IMAGE", "link": 324},
+        {"name": "image2", "type": "IMAGE", "link": 323},
+        {"name": "image3", "shape": 7, "type": "IMAGE", "link": null}
+      ],
+      "outputs": [{"name": "image", "type": "IMAGE", "links": [325]}],
+      "properties": {"cnr_id": "nougan", "ver": "1.0.0", "Node name for S&R": "NouganBeforeAfterCompare"},
+      "widgets_values": ["Original", "Outpainted", "Image 3", 16, 48, "#000000", "#FFFFFF"],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 165, "type": "SaveImage",
+      "pos": [500, 5940], "size": [350, 290],
+      "flags": {}, "order": 22, "mode": 0,
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 322}],
+      "outputs": [],
+      "title": "Save Output Image",
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "SaveImage"},
+      "widgets_values": ["Images/Outpaint/%date:yyyy-MM-dd%/Extended"],
+      "color": "#233", "bgcolor": "#355"
+    },
+    {
+      "id": 166, "type": "SaveImage",
+      "pos": [900, 4880], "size": [1340, 1040],
+      "flags": {}, "order": 23, "mode": 0,
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 325}],
+      "outputs": [],
+      "title": "Save Comparison Image",
+      "properties": {"cnr_id": "comfy-core", "ver": "0.30.1", "Node name for S&R": "SaveImage"},
+      "widgets_values": ["Images/Outpaint/%date:yyyy-MM-dd%/Compare"],
+      "color": "#323", "bgcolor": "#535"
+    }
+  ],
+  "links": [
+    [300, 114, 0, 141, 0, "IMAGE"],
+    [301, 141, 0, 167, 0, "IMAGE"],
+    [302, 167, 0, 133, 2, "IMAGE"],
+    [303, 167, 0, 140, 0, "IMAGE"],
+    [304, 140, 0, 133, 5, "INT"],
+    [305, 140, 1, 133, 6, "INT"],
+    [306, 139, 0, 133, 7, "INT"],
+    [307, 168, 0, 133, 4, "STRING"],
+    [308, 130, 0, 133, 0, "CLIP"],
+    [309, 121, 0, 133, 1, "VAE"],
+    [310, 121, 0, 124, 1, "VAE"],
+    [311, 129, 0, 170, 0, "MODEL"],
+    [312, 170, 0, 128, 0, "MODEL"],
+    [313, 170, 0, 126, 0, "MODEL"],
+    [314, 133, 0, 128, 1, "CONDITIONING"],
+    [315, 133, 1, 127, 4, "LATENT"],
+    [316, 131, 0, 127, 0, "NOISE"],
+    [317, 128, 0, 127, 1, "GUIDER"],
+    [318, 125, 0, 127, 2, "SAMPLER"],
+    [319, 126, 0, 127, 3, "SIGMAS"],
+    [320, 127, 0, 124, 0, "LATENT"],
+    [321, 124, 0, 144, 0, "IMAGE"],
+    [322, 144, 0, 165, 0, "IMAGE"],
+    [323, 144, 0, 169, 1, "IMAGE"],
+    [324, 114, 0, 169, 0, "IMAGE"],
+    [325, 169, 0, 166, 0, "IMAGE"]
+  ],
+  "groups": [
+    {"id": 1, "title": "Models", "bounding": [-1330, 4830, 690, 490], "color": "#88A", "flags": {}},
+    {"id": 5, "title": "Inputs", "bounding": [-850, 4800, 1480, 840], "color": "#8A8", "flags": {}},
+    {"id": 6, "title": "Backend", "bounding": [-1330, 5650, 2250, 680], "color": "#8AA", "flags": {}}
+  ],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 0.6, "offset": [600, -4500]},
+    "frontendVersion": "1.48.6",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

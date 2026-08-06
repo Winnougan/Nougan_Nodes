@@ -15,18 +15,23 @@ class NouganTextEncodeZeroNeg:
                 "clip": ("CLIP",),
                 "positive": (
                     "STRING",
-                    {"multiline": True, "default": "",
-                     "tooltip": "Positive prompt. Encoded normally via CLIP."},
+                    {
+                        "multiline": True,
+                        "default": "",
+                        "tooltip": "Positive prompt. Encoded normally via CLIP.",
+                    },
                 ),
                 "negative_mode": (
                     ["Zero Out", "Empty String"],
-                    {"default": "Zero Out",
-                     "tooltip": (
-                         "Zero Out: zeros the conditioning tensors (standard for "
-                         "Flux/Krea2/Ideogram-style flow models with CFG > 1).\n"
-                         "Empty String: encodes \"\" through CLIP (use when the "
-                         "model expects a real empty-text embedding)."
-                     )},
+                    {
+                        "default": "Zero Out",
+                        "tooltip": (
+                            "Zero Out: zeros the conditioning tensors (standard for "
+                            "Flux/Krea2/Ideogram-style flow models with CFG > 1).\n"
+                            "Empty String: encodes \"\" through CLIP (use when the "
+                            "model expects a real empty-text embedding)."
+                        ),
+                    },
                 ),
             },
         }
