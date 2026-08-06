@@ -11,12 +11,17 @@ const NODE_NAME = "NouganTextEncodeZeroNeg";
 function hideWidget(w) {
     if (!w) return;
     const el = w.element || w.inputEl;
-    if (el) { el.style.display = "none"; el.style.height = "0"; el.style.pointerEvents = "none"; }
+    if (el) {
+        el.style.display = "none";
+        el.style.height = "0";
+        el.style.pointerEvents = "none";
+    }
     if (w._ndlHidden) return;
     w._ndlHidden = true;
     w.computeSize = () => [0, -4];
     w.draw = () => {};
 }
+
 function recompute(node) {
     requestAnimationFrame(() => {
         node.setDirtyCanvas(true, true);
@@ -35,6 +40,7 @@ function originIdOf(graph, linkId) {
     if (Array.isArray(entry)) return entry[1];             // [id, origin, ...]
     return null;
 }
+
 // Best-effort: read the first string widget a node exposes (the Text Box's
 // `text`, a primitive's value, etc.). Returns null for computed / file sources.
 function readStringWidget(n) {
@@ -115,6 +121,34 @@ function injectStyles() {
         }
         .nte-status .dot.ok { background: #50c878; box-shadow: 0 0 4px #50c878; }
         .nte-status .dot.link { background: #ff9ec6; box-shadow: 0 0 4px #ff9ec6; }
+
+        .nte-paste-btn {
+            margin-left: auto;
+            padding: 3px 10px;
+            border-radius: 6px;
+            border: 1px solid #2e4f72;
+            background: rgba(255,255,255,.05);
+            color: #7a9ab8;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .15s;
+            white-space: nowrap;
+            line-height: 1;
+        }
+        .nte-paste-btn:hover:not(:disabled) {
+            border-color: #5a9fd4;
+            color: #a8d0f0;
+            background: rgba(90,159,212,.12);
+        }
+        .nte-paste-btn:active:not(:disabled) {
+            transform: scale(.95);
+        }
+        .nte-paste-btn:disabled {
+            opacity: .35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
     `;
     document.head.appendChild(s);
 }
@@ -144,6 +178,8 @@ app.registerExtension({
                     <div class="nte-label">
                         <span data-n="poslabel">✍️ Positive Prompt</span>
                         <span class="nte-linked-tag" data-n="linkedtag" hidden></span>
+                        <button type="button" class="nte-paste-btn" data-n="pastebtn"
+                                title="Wipe box & paste clipboard">📋 Paste</button>
                     </div>
                     <textarea class="nte-textarea" data-n="pos"
                         placeholder="Describe what you want to generate…"
@@ -175,21 +211,27 @@ app.registerExtension({
             const pillE     = $("pill-empty");
             const countEl   = $("count");
             const statusEl  = $("status");
+            const pasteBtn  = $("pastebtn");
 
             function updateCount(text) {
                 const v = text || "";
                 const words = v.trim() ? v.trim().split(/\s+/).length : 0;
                 countEl.textContent = `${v.length} chars · ${words} words`;
             }
+
             function setMode(mode) {
                 const zero = mode === "Zero Out";
                 pillZ.classList.toggle("active", zero);
                 pillE.classList.toggle("active", !zero);
                 if (wMode) wMode.value = mode;
             }
+
             function markOk() {
                 const d = statusEl.querySelector(".dot");
-                if (d) { d.classList.add("ok"); setTimeout(() => d.classList.remove("ok"), 1200); }
+                if (d) {
+                    d.classList.add("ok");
+                    setTimeout(() => d.classList.remove("ok"), 1200);
+                }
             }
 
             // Is the positive input currently driven by a link? If so, who from,
@@ -207,15 +249,29 @@ app.registerExtension({
             // Light poll so the greyed preview tracks the upstream text live
             // (only runs while connected; only re-renders on actual change).
             let pollTimer = null, lastPreview = null;
+
             function startPoll() {
                 if (pollTimer) return;
                 pollTimer = setInterval(() => {
                     const cs = connectedState();
-                    if (!cs.connected) { render(); return; }
-                    if (cs.preview !== lastPreview) { lastPreview = cs.preview; render(); }
+                    if (!cs.connected) {
+                        render();
+                        return;
+                    }
+                    if (cs.preview !== lastPreview) {
+                        lastPreview = cs.preview;
+                        render();
+                    }
                 }, 250);
             }
-            function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } lastPreview = null; }
+
+            function stopPoll() {
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+                lastPreview = null;
+            }
 
             // ── The single render path: branch on connection state ──
             function render() {
@@ -230,25 +286,37 @@ app.registerExtension({
                     const display = (incoming != null && incoming !== "")
                         ? incoming
                         : `🔗  linked from “${cs.originTitle}”  — text is provided by the connected node at run time`;
+
                     if (ta.value !== display) ta.value = display;
+
                     ta.readOnly = true;
                     ta.classList.add("linked");
+                    pasteBtn.disabled = true;
+
                     linkedTag.hidden = false;
                     linkedTag.textContent = `🔗 FROM ${cs.originTitle}`;
+
                     updateCount(incoming || "");          // count the *incoming* text
                     statusEl.innerHTML = `<span class="dot link"></span> linked ← ${cs.originTitle}`;
+
                     lastPreview = incoming;
                     startPoll();
                 } else {
                     ta.readOnly = false;
                     ta.classList.remove("linked");
+                    pasteBtn.disabled = false;
+
                     linkedTag.hidden = true;
+
                     const own = wPos ? (wPos.value || "") : "";
                     if (ta.value !== own) ta.value = own;  // restore own (non-destructive)
+
                     updateCount(ta.value);
                     statusEl.innerHTML = `<span class="dot"></span> ready`;
+
                     stopPoll();
                 }
+
                 // reflect negative mode + (only when editable) keep widget synced
                 if (wMode) setMode(wMode.value || "Zero Out");
             }
@@ -260,8 +328,50 @@ app.registerExtension({
                 updateCount(ta.value);
                 markOk();
             });
-            pillZ.addEventListener("click", () => { if (wMode) wMode.value = "Zero Out"; setMode("Zero Out"); markOk(); });
-            pillE.addEventListener("click", () => { if (wMode) wMode.value = "Empty String"; setMode("Empty String"); markOk(); });
+
+            pillZ.addEventListener("click", () => {
+                if (wMode) wMode.value = "Zero Out";
+                setMode("Zero Out");
+                markOk();
+            });
+
+            pillE.addEventListener("click", () => {
+                if (wMode) wMode.value = "Empty String";
+                setMode("Empty String");
+                markOk();
+            });
+
+            pasteBtn.addEventListener("click", async () => {
+                if (ta.readOnly) return;
+
+                try {
+                    if (!navigator.clipboard || !navigator.clipboard.readText) {
+                        throw new Error("Clipboard API unavailable");
+                    }
+
+                    const text = await navigator.clipboard.readText();
+
+                    // Wipe and paste.
+                    ta.value = text;
+
+                    // Keep the actual ComfyUI widget synced.
+                    if (wPos) wPos.value = text;
+
+                    updateCount(text);
+                    markOk();
+
+                    // Put caret at the end after paste.
+                    ta.focus();
+                    const end = ta.value.length;
+                    ta.setSelectionRange(end, end);
+                } catch (err) {
+                    console.warn("Clipboard paste failed:", err);
+                    statusEl.innerHTML = `<span class="dot" style="background:#e05a5a; box-shadow:0 0 4px #e05a5a"></span> paste blocked`;
+                    setTimeout(() => {
+                        statusEl.innerHTML = `<span class="dot"></span> ready`;
+                    }, 1600);
+                }
+            });
 
             this._nte = { refreshDOM: render, stopPoll };
 
