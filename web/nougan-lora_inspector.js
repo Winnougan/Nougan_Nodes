@@ -1,4 +1,4 @@
-// Nougan Lora Inspector — progress bar + sample strip (click = copy prompt) +
+// Nougan Lora Inspector — progress bar + sample strip (images + videos, click = copy prompt) +
 // one-click inspect via /nougan/lora_inspector/inspect. No Queue needed.
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
@@ -100,13 +100,18 @@ const CSS = `
 .nli-frame{flex:0 0 auto;width:86px;height:112px;margin:0;position:relative;cursor:pointer;
   border:2px solid #2b303c;border-radius:5px;overflow:hidden;scroll-snap-align:start;
   background:#1b1e26;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}
-.nli-frame img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s ease}
+.nli-frame img,.nli-frame video{width:100%;height:100%;object-fit:cover;display:block;
+  transition:transform .35s ease;background:#1b1e26}
 .nli-frame:hover{transform:translateY(-3px);border-color:#4a5262}
-.nli-frame:hover img{transform:scale(1.07)}
+.nli-frame:hover img,.nli-frame:hover video{transform:scale(1.07)}
 .nli-frame.nli-broken{display:none}
 .nli-frame-flag{position:absolute;left:0;right:0;bottom:0;font-size:7.5px;font-weight:700;
   letter-spacing:.12em;text-transform:uppercase;text-align:center;
   background:rgba(248,115,115,.85);color:#fff;padding:1.5px 0}
+.nli-vid-badge{position:absolute;top:4px;left:4px;font-size:8px;font-weight:700;line-height:1;
+  letter-spacing:.1em;color:#fff;background:rgba(13,14,18,.78);border:1px solid rgba(255,255,255,.18);
+  border-radius:3px;padding:2px 5px;pointer-events:none;transition:opacity .2s}
+.nli-frame.nli-playing .nli-vid-badge{opacity:0}
 .nli-toast{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   text-align:center;padding:4px;font-size:9px;font-weight:700;letter-spacing:.05em;
   background:rgba(13,14,18,.84);color:#5ee08a;pointer-events:none;
@@ -173,6 +178,9 @@ function flashCopied(el, label = "copied ✓") {
 }
 function copyText(t) { try { navigator.clipboard?.writeText(t); } catch (_) {} }
 
+const VIDEO_RE = /\.(mp4|webm|mov|m4v)(\?|#|$)/i;
+const isVideo = (im) => im?.type === "video" || VIDEO_RE.test(im?.url || "");
+
 class InspectorPanel {
   constructor(node) {
     this.node = node;
@@ -204,7 +212,7 @@ class InspectorPanel {
       if (e.target.closest(".nli-run")) { this.inspect(false); return; }
       if (e.target.closest(".nli-again")) { this.inspect(true); return; }
 
-      // frame click → copy THAT image's positive prompt (nothing else)
+      // frame click → copy THAT sample's positive prompt (nothing else)
       const frame = e.target.closest(".nli-frame");
       if (frame) {
         const im = (this.lastMeta?.images || [])[Number(frame.dataset.idx)];
@@ -229,6 +237,20 @@ class InspectorPanel {
 
       const a = e.target.closest("a.nli-link");
       if (a) { e.preventDefault(); window.open(a.href, "_blank"); }
+    });
+
+    // hover a video frame → play; leave → pause + rewind to the poster frame
+    root.addEventListener("mouseover", (e) => {
+      const f = e.target.closest?.(".nli-frame");
+      if (!f || f.contains(e.relatedTarget)) return;
+      const v = f.querySelector("video");
+      if (v) { f.classList.add("nli-playing"); v.play().catch(() => {}); }
+    });
+    root.addEventListener("mouseout", (e) => {
+      const f = e.target.closest?.(".nli-frame");
+      if (!f || f.contains(e.relatedTarget)) return;
+      const v = f.querySelector("video");
+      if (v) { f.classList.remove("nli-playing"); v.pause(); v.currentTime = 0.1; }
     });
 
     // vertical wheel → horizontal strip scroll (capture: scroll doesn't bubble)
@@ -329,6 +351,29 @@ class InspectorPanel {
 
   // ---------------- full card ----------------
 
+  frameHTML(im, i) {
+    const nsfwFlag = im.nsfw && im.nsfw !== "None"
+      ? `<span class="nli-frame-flag">${esc(im.nsfw)}</span>` : "";
+    const broken = `this.closest('.nli-frame').classList.add('nli-broken')`;
+
+    if (isVideo(im)) {
+      // #t=0.1 makes browsers paint a real first frame as the "thumbnail"
+      return `
+        <figure class="nli-frame nli-video" data-idx="${i}" title="video — hover to play, click to copy this sample's prompt">
+          <video src="${esc(im.url)}#t=0.1" muted loop playsinline preload="metadata"
+                 referrerpolicy="no-referrer" onerror="${broken}"></video>
+          <span class="nli-vid-badge">▶ VID</span>
+          ${nsfwFlag}
+        </figure>`;
+    }
+    return `
+      <figure class="nli-frame" data-idx="${i}" title="click to copy this image's prompt">
+        <img loading="lazy" src="${esc(im.url)}" alt="" referrerpolicy="no-referrer"
+             onerror="${broken}">
+        ${nsfwFlag}
+      </figure>`;
+  }
+
   render(meta) {
     this.lastMeta = meta;
     this.node.properties = this.node.properties || {};
@@ -355,16 +400,11 @@ class InspectorPanel {
     const strip = imgs.length
       ? `<div class="nli-strip-wrap">
            <button class="nli-nav nli-nav-l" data-dir="-1" title="scroll left">‹</button>
-           <div class="nli-strip">${imgs.map((im, i) => `
-             <figure class="nli-frame" data-idx="${i}" title="click to copy this image's prompt">
-               <img loading="lazy" src="${esc(im.url)}" alt="" referrerpolicy="no-referrer"
-                    onerror="this.closest('.nli-frame').classList.add('nli-broken')">
-               ${im.nsfw && im.nsfw !== "None" ? `<span class="nli-frame-flag">${esc(im.nsfw)}</span>` : ""}
-             </figure>`).join("")}
+           <div class="nli-strip">${imgs.map((im, i) => this.frameHTML(im, i)).join("")}
            </div>
            <button class="nli-nav nli-nav-r" data-dir="1" title="scroll right">›</button>
          </div>`
-      : `<div class="nli-noimg-note">no sample images on this record</div>`;
+      : `<div class="nli-noimg-note">no sample images or videos on this record</div>`;
 
     card.innerHTML = `
       <div class="nli-name">${esc(meta.model_name || meta.lora_file)}</div>
