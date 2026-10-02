@@ -35,6 +35,9 @@ SOURCES = {
     "red.civitai.com": "https://red.civitai.com/api/v1",
 }
 
+VIDEO_EXT_RE = re.compile(r"\.(mp4|webm|mov|m4v|gif)(\?|#|$)", re.I)
+VIDEO_ONLY_EXT_RE = re.compile(r"\.(mp4|webm|mov|m4v)(\?|#|$)", re.I)
+
 # ------------------------------------------------------------------ cache
 
 _lock = threading.Lock()
@@ -217,6 +220,16 @@ def strip_html(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+def media_kind(item):
+    """'video' or 'image' for a Civitai sample entry (type field, else extension)."""
+    t = str(item.get("type") or "").lower()
+    if t == "video":
+        return "video"
+    if t == "image":
+        return "image"
+    return "video" if VIDEO_ONLY_EXT_RE.search(item.get("url") or "") else "image"
+
+
 def build_payload(sha, source, civ, local_meta, lora_name):
     payload = {
         "found": civ is not None,
@@ -248,9 +261,20 @@ def build_payload(sha, source, civ, local_meta, lora_name):
         files = civ.get("files") or [{}]
         primary = next((f for f in files if f.get("primary")), files[0])
 
-        # Every sample image + its generation metadata (prompt, seed, …)
-        imgs = [i for i in (civ.get("images") or [])
-                if i.get("type") == "image" and i.get("url")]
+        # Every sample (images AND videos) + its generation metadata (prompt, seed, …)
+        samples = [i for i in (civ.get("images") or []) if i.get("url")]
+        media = [{
+            "url": i.get("url"),
+            "type": media_kind(i),
+            "width": i.get("width"),
+            "height": i.get("height"),
+            "nsfw": i.get("nsfw") or "None",
+            "meta": i.get("meta") or {},
+        } for i in samples]
+
+        # legacy single "image" field: first still image, else first item
+        first_still = next((m for m in media if m["type"] == "image"), None)
+        first_any = first_still or (media[0] if media else {})
 
         payload.update(
             model_name=model.get("name"),
@@ -261,14 +285,8 @@ def build_payload(sha, source, civ, local_meta, lora_name):
             description=strip_html(civ.get("description"))[:600],
             url=(f"https://civitai.com/models/{model.get('id')}?modelVersionId={civ.get('id')}"
                  if model.get("id") else None),
-            image=(imgs[0] if imgs else {}).get("url"),
-            images=[{
-                "url": i.get("url"),
-                "width": i.get("width"),
-                "height": i.get("height"),
-                "nsfw": i.get("nsfw") or "None",
-                "meta": i.get("meta") or {},
-            } for i in imgs],
+            image=first_any.get("url"),
+            images=media,
             downloads=stats.get("downloadCount"),
             rating=stats.get("rating"),
             nsfw=bool(model.get("nsfw")),
@@ -321,8 +339,8 @@ class NouganLoraInspector:
     """
     Standalone inspector — no model/clip plumbing. Pick a LoRA and it looks
     itself up (button / auto on selection), or queue the prompt to use the
-    string outputs. Shows thumbnail strip, base model, trigger words, stats.
-    Click a sample image to copy its positive prompt.
+    string outputs. Shows thumbnail strip (images + videos), base model,
+    trigger words, stats. Click a sample to copy its positive prompt.
     """
 
     @classmethod
@@ -347,8 +365,8 @@ class NouganLoraInspector:
     OUTPUT_NODE = True
     CATEGORY = "nougan"
     DESCRIPTION = ("Pick a LoRA and it looks itself up on Civitai (civitai.com / "
-                   "red.civitai.com): thumbnail strip, base model, trigger words and "
-                   "stats right on the node. Click a sample image to copy its prompt.")
+                   "red.civitai.com): image + video thumbnail strip, base model, trigger "
+                   "words and stats right on the node. Click a sample to copy its prompt.")
 
     @classmethod
     def IS_CHANGED(cls, lora_name, source="auto", refresh="use cache",
