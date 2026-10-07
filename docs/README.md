@@ -12,3 +12,4 @@ One page per node family.
 | [Regional Character LoRA 🎭](regional-character-lora.md) | Token-space masking, regions, recon tool, debugging |
 | [Prompt Relay 🎬](prompt-relay.md) | Timeline editor, epsilon tuning, technical deep dives |
 | [LM Studio Bridge 🧠](lm-studio-bridge.md) | Dev-server setup, vision/audio/video, Krea 2 prompt director |
+| [Dataset Captioning 📂](dataset-captioning.md) | Folder Batch Loader · Save Caption (Match Image Name) · whole-folder auto-run · LoRA dataset prep |
