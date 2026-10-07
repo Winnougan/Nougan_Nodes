@@ -204,6 +204,62 @@ class SaveCaptionMatchImage:
         return {"ui": {"text": [out_path]}, "result": (out_path,)}
 
 
+_ROUTE_REGISTERED = False
+
+
+def _register_routes():
+    """/nougan/folder_batch/scan powers the 'Refresh folder' button."""
+    global _ROUTE_REGISTERED
+    if _ROUTE_REGISTERED:
+        return
+    try:
+        from server import PromptServer
+        from aiohttp import web
+        routes = PromptServer.instance.routes
+    except Exception:
+        return
+
+    @routes.get("/nougan/folder_batch/scan")
+    async def _scan(request):
+        try:
+            folder = _clean_path(request.query.get("folder", ""))
+            sort_mode = request.query.get("sort", SORT_NUMERIC)
+            try:
+                index = int(request.query.get("index", "0"))
+            except ValueError:
+                index = 0
+
+            files = list_images(folder, sort_mode)
+            total = len(files)
+            if total == 0:
+                return web.json_response(
+                    {"ok": False, "error": f"No images found in: {folder}"}
+                )
+
+            idx = index if 0 <= index < total else 0
+            full = os.path.join(folder, files[idx])
+            with Image.open(full) as raw:
+                img = ImageOps.exif_transpose(raw)
+                preview = _make_preview(img, f"{full}|{os.stat(full).st_mtime_ns}")
+
+            return web.json_response({
+                "ok": True,
+                "total": total,
+                "index": idx,
+                "name": files[idx],
+                "first": files[0],
+                "last": files[-1],
+                "preview": preview,
+            })
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)})
+
+    _ROUTE_REGISTERED = True
+
+
+_register_routes()
+
+
 NODE_CLASS_MAPPINGS = {
     "FolderImageBatchLoader": FolderImageBatchLoader,
     "SaveCaptionMatchImage": SaveCaptionMatchImage,
