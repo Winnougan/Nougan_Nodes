@@ -219,6 +219,24 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  MiniMax H3 Image Edit NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
+# ── Optional: Folder Batch Loader + Save Caption (dataset captioning) ──────
+# Node IDs are kept as FolderImageBatchLoader / SaveCaptionMatchImage so
+# existing captioning workflows keep working. Only the display names are new.
+try:
+    from .nougan_folder_batch import FolderImageBatchLoader, SaveCaptionMatchImage
+    NODE_CLASS_MAPPINGS.update({
+        "FolderImageBatchLoader": FolderImageBatchLoader,
+        "SaveCaptionMatchImage": SaveCaptionMatchImage,
+    })
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "FolderImageBatchLoader": "Nougan Load Image Batch From Folder 📂",
+        "SaveCaptionMatchImage": "Nougan Save Caption (Match Image Name) 💾",
+    })
+    print("[Nougan] ✅ Folder Batch Loader + Save Caption loaded (2 nodes).")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Folder Batch Loader NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
 # ── Routes — always attempted, fully guarded ────────────────────────────────
 _NOUGAN_ROUTES_REGISTERED = False
 
