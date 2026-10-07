@@ -1,0 +1,344 @@
+{
+  "id": "54d81526-cb50-4273-8ec8-09dc96de8f8f",
+  "revision": 0,
+  "last_node_id": 18,
+  "last_link_id": 19,
+  "nodes": [
+    {
+      "id": 3,
+      "type": "TextGenerate",
+      "pos": [
+        -2871.891513176073,
+        4793.714506310303
+      ],
+      "size": [
+        419.36824768635415,
+        708.7556323069193
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2
+        },
+        {
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 17
+        },
+        {
+          "name": "video",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "system_prompt",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "generated_text",
+          "type": "STRING",
+          "links": [
+            18
+          ]
+        },
+        {
+          "name": "thinking",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.39.0",
+        "Node name for S&R": "TextGenerate",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "You are a captioning assistant preparing images for LoRA training on Krea 2.\nYour captions teach the model which words map to which visible content, so\naccuracy matters more than eloquence.\n\nMODE: CHARACTER   (change to STYLE for style datasets)\nTRIGGER: K2Mara   (replace with your identifier)\n\nOUTPUT FORMAT\n- One or two natural sentences. Plain prose, no lists, no tags, no line breaks.\n- Output only the caption. No preamble, no quotes, no explanation.\n- Start with the trigger phrase.\n\nWHAT TO INCLUDE\nCHARACTER mode:\n1. The trigger, followed by a brief subject description (e.g. \"a woman with short black hair\").\n2. Clothing and accessories, named explicitly, so they stay changeable at inference.\n3. Pose or action (standing, seated, side view, looking over shoulder).\n4. Camera framing (close-up portrait, waist-up, full-body view, low angle).\n5. Setting or background (city pavement, wooden bench, plain studio backdrop).\n6. Lighting (soft side lighting, overcast daylight, warm evening light).\n\nSTYLE mode:\n1. Name the visual treatment in a short readable phrase (e.g. \"violet retro anime print style\").\n2. Then describe the scene or subject, so the style is separated from the content.\n3. Include framing and lighting where visible.\n\nRULES\n- Describe only what is visible in this image. Never guess at anything outside\n  the crop: no tattoos, outfits, or features that are cropped, hidden, or obscured.\n- If a feature is partially hidden, describe the visible pose only. Do not\n  invent hidden facial details.\n- Be careful with left and right. Use the subject's own left/right only when\n  it is unambiguous; otherwise describe by position in frame or omit it.\n- Name materials and colors only when clearly identifiable (wool coat, leather\n  boots, denim jacket). If unsure, use a simpler word.\n- Use the trigger consistently and exactly as written, once per caption.\n- Do not repeat a full character biography. Do not restate permanent identity\n  traits (hair color, eye color) in every caption unless they are the visible\n  focus; brief mention is fine.\n- Describe things that vary between images (clothing, background, lighting,\n  pose, framing) rather than leaving them implicit.\n- Do not use subjective or quality words (beautiful, stunning, masterpiece,\n  high quality, 8k).\n- Do not mention the image itself (\"this image shows\", \"a photo of\") unless\n  the medium is part of the intended style.\n\nEXAMPLES (structure only)\nK2Mara, a woman with short black hair, close-up portrait beside a window, soft side lighting.\nK2Mara wearing a blue coat and boots, standing on a city pavement, full-body view, overcast daylight.\nK2Mara seated on a wooden bench, side view, warm evening light.\nviolet retro anime print style, a train crossing a river at sunset.\n\nNow caption the provided image.",
+        512,
+        "on",
+        0.7,
+        64,
+        0.95,
+        0.05,
+        1.05,
+        0,
+        0,
+        false,
+        true,
+        "auto"
+      ],
+      "widgets_values_named": {
+        "prompt": "You are a captioning assistant preparing images for LoRA training on Krea 2.\nYour captions teach the model which words map to which visible content, so\naccuracy matters more than eloquence.\n\nMODE: CHARACTER   (change to STYLE for style datasets)\nTRIGGER: K2Mara   (replace with your identifier)\n\nOUTPUT FORMAT\n- One or two natural sentences. Plain prose, no lists, no tags, no line breaks.\n- Output only the caption. No preamble, no quotes, no explanation.\n- Start with the trigger phrase.\n\nWHAT TO INCLUDE\nCHARACTER mode:\n1. The trigger, followed by a brief subject description (e.g. \"a woman with short black hair\").\n2. Clothing and accessories, named explicitly, so they stay changeable at inference.\n3. Pose or action (standing, seated, side view, looking over shoulder).\n4. Camera framing (close-up portrait, waist-up, full-body view, low angle).\n5. Setting or background (city pavement, wooden bench, plain studio backdrop).\n6. Lighting (soft side lighting, overcast daylight, warm evening light).\n\nSTYLE mode:\n1. Name the visual treatment in a short readable phrase (e.g. \"violet retro anime print style\").\n2. Then describe the scene or subject, so the style is separated from the content.\n3. Include framing and lighting where visible.\n\nRULES\n- Describe only what is visible in this image. Never guess at anything outside\n  the crop: no tattoos, outfits, or features that are cropped, hidden, or obscured.\n- If a feature is partially hidden, describe the visible pose only. Do not\n  invent hidden facial details.\n- Be careful with left and right. Use the subject's own left/right only when\n  it is unambiguous; otherwise describe by position in frame or omit it.\n- Name materials and colors only when clearly identifiable (wool coat, leather\n  boots, denim jacket). If unsure, use a simpler word.\n- Use the trigger consistently and exactly as written, once per caption.\n- Do not repeat a full character biography. Do not restate permanent identity\n  traits (hair color, eye color) in every caption unless they are the visible\n  focus; brief mention is fine.\n- Describe things that vary between images (clothing, background, lighting,\n  pose, framing) rather than leaving them implicit.\n- Do not use subjective or quality words (beautiful, stunning, masterpiece,\n  high quality, 8k).\n- Do not mention the image itself (\"this image shows\", \"a photo of\") unless\n  the medium is part of the intended style.\n\nEXAMPLES (structure only)\nK2Mara, a woman with short black hair, close-up portrait beside a window, soft side lighting.\nK2Mara wearing a blue coat and boots, standing on a city pavement, full-body view, overcast daylight.\nK2Mara seated on a wooden bench, side view, warm evening light.\nviolet retro anime print style, a train crossing a river at sunset.\n\nNow caption the provided image.",
+        "max_length": 512,
+        "sampling_mode": "on",
+        "sampling_mode.temperature": 0.7,
+        "sampling_mode.top_k": 64,
+        "sampling_mode.top_p": 0.95,
+        "sampling_mode.min_p": 0.05,
+        "sampling_mode.repetition_penalty": 1.05,
+        "sampling_mode.seed": 0,
+        "sampling_mode.presence_penalty": 0,
+        "thinking": false,
+        "use_default_template": true,
+        "mtp": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "CLIPLoader",
+      "pos": [
+        -3446.8708717665577,
+        4752.3323083036385
+      ],
+      "size": [
+        374.58853750631124,
+        124.39983530203608
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.39.0",
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "qwen3.5_4b-w6a8_convrot.safetensors",
+        "stable_diffusion",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen3.5_4b-w6a8_convrot.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      }
+    },
+    {
+      "id": 17,
+      "type": "FolderImageBatchLoader",
+      "pos": [
+        -3457.4808820313783,
+        4992.13735539044
+      ],
+      "size": [
+        377.49692752078136,
+        532.7300543260981
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        },
+        {
+          "name": "filename",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "path",
+          "type": "STRING",
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "index",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "total",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "FolderImageBatchLoader",
+        "cnr_id": "comfyui_fearnworksnodes",
+        "ver": "0.1.2",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "C:\\Users\\uthma\\Downloads\\September 23, 2026\\Sep 21 - 16_16\\New folder",
+        "numeric (001, 002, 10...)",
+        0,
+        true
+      ],
+      "widgets_values_named": {
+        "folder_path": "C:\\Users\\uthma\\Downloads\\September 23, 2026\\Sep 21 - 16_16\\New folder",
+        "sort_mode": "numeric (001, 002, 10...)",
+        "index": 0,
+        "auto_run_folder": true
+      }
+    },
+    {
+      "id": 18,
+      "type": "SaveCaptionMatchImage",
+      "pos": [
+        -2154.4626506842324,
+        4900.738594558534
+      ],
+      "size": [
+        349.13046875,
+        150
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 18
+        },
+        {
+          "name": "image_path",
+          "type": "STRING",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "saved_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveCaptionMatchImage",
+        "cnr_id": "comfyui_fearnworksnodes",
+        "ver": "0.1.2",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "next to image",
+        "",
+        "txt",
+        true
+      ],
+      "widgets_values_named": {
+        "save_location": "next to image",
+        "custom_folder": "",
+        "extension": "txt",
+        "overwrite": true
+      }
+    }
+  ],
+  "links": [
+    [
+      18,
+      3,
+      0,
+      18,
+      0,
+      "STRING"
+    ],
+    [
+      19,
+      17,
+      3,
+      18,
+      1,
+      "STRING"
+    ],
+    [
+      2,
+      4,
+      0,
+      3,
+      0,
+      "CLIP"
+    ],
+    [
+      17,
+      17,
+      0,
+      3,
+      1,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "ds": {
+      "scale": 0.7758211409397886,
+      "offset": [
+        3781.0090597966214,
+        -4539.010421881497
+      ]
+    },
+    "anomalous_hashes": {
+      "4_qwen3.5_4b-w6a8_convrot.safetensors": {
+        "hash": "",
+        "size": 4943110704,
+        "url": ""
+      }
+    },
+    "links_added_by_ue": [],
+    "frontendVersion": "1.55.14",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4,
+  "seed_widgets": {}
+}
