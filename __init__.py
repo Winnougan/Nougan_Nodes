@@ -223,16 +223,18 @@ except Exception as _e:
 # Node IDs are kept as FolderImageBatchLoader / SaveCaptionMatchImage so
 # existing captioning workflows keep working. Only the display names are new.
 try:
-    from .nougan_folder_batch import FolderImageBatchLoader, SaveCaptionMatchImage
+    from .nougan_folder_batch import FolderImageBatchLoader, FolderVideoBatchLoader, SaveCaptionMatchImage
     NODE_CLASS_MAPPINGS.update({
         "FolderImageBatchLoader": FolderImageBatchLoader,
+        "FolderVideoBatchLoader": FolderVideoBatchLoader,
         "SaveCaptionMatchImage": SaveCaptionMatchImage,
     })
     NODE_DISPLAY_NAME_MAPPINGS.update({
         "FolderImageBatchLoader": "Nougan Load Image Batch From Folder 📂",
-        "SaveCaptionMatchImage": "Nougan Save Caption (Match Image Name) 💾",
+        "FolderVideoBatchLoader": "Nougan Load Video Batch From Folder 🎞️",
+        "SaveCaptionMatchImage": "Nougan Save Caption (Match Image/Video Name) 💾",
     })
-    print("[Nougan] ✅ Folder Batch Loader + Save Caption loaded (2 nodes).")
+    print("[Nougan] ✅ Folder Batch Loaders (image + video) + Save Caption loaded (3 nodes).")
 except Exception as _e:
     print(f"[Nougan] ⚠️  Folder Batch Loader NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
