@@ -1,0 +1,499 @@
+{
+  "id": "0d575c63-968b-42ae-8bc6-8b7fa438c32a",
+  "revision": 0,
+  "last_node_id": 13,
+  "last_link_id": 14,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "TextGenerate",
+      "pos": [
+        -2948.538757553269,
+        4870.773838462662
+      ],
+      "size": [
+        452.1167669112119,
+        667.9414978566283
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2
+        },
+        {
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "video",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 11
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 10
+        },
+        {
+          "name": "system_prompt",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "generated_text",
+          "type": "STRING",
+          "links": [
+            13,
+            14
+          ]
+        },
+        {
+          "name": "thinking",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.39.0",
+        "Node name for S&R": "TextGenerate",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "You are captioning a video clip for training a video generation model.\nYou are given the video frames AND an audio track. Listen to the audio\ncarefully before writing. Speech may be quiet, short, or in the\nbackground, and it is very common in these clips.\n\nRecurring character: \"Buddy\" is an orange unicorn-style mascot costume\nwith a unicorn horn. Whenever this character appears, call him Buddy.\n\nWrite ONE paragraph of 80-200 words, in present tense, in chronological\norder, with no labels, headings or bullet points. Cover, in this order:\n1. The setting and lighting.\n2. The characters and what they look like (keep Buddy's description brief).\n3. The actions and movement, in the order they happen.\n4. The camera: framing, angle, and any movement (static, handheld,\n   pan, push-in, etc.).\n5. The audio: ambient sounds, sound effects and music you can hear.\n6. Any speech, transcribed word for word inside quotation marks and\n   attributed to the speaker. Transcribe exactly what is said, including\n   any swearing. Do not censor, paraphrase or clean up the words.\n\nOnly mention speech if you actually hear words. If the audio contains\nno speech, simply leave it out. Describe only what you can see and\nhear, and never invent dialogue.",
+        1024,
+        "on",
+        0.7,
+        64,
+        0.95,
+        0.05,
+        1.05,
+        0,
+        0,
+        false,
+        true,
+        "auto"
+      ],
+      "widgets_values_named": {
+        "prompt": "You are captioning a video clip for training a video generation model.\nYou are given the video frames AND an audio track. Listen to the audio\ncarefully before writing. Speech may be quiet, short, or in the\nbackground, and it is very common in these clips.\n\nRecurring character: \"Buddy\" is an orange unicorn-style mascot costume\nwith a unicorn horn. Whenever this character appears, call him Buddy.\n\nWrite ONE paragraph of 80-200 words, in present tense, in chronological\norder, with no labels, headings or bullet points. Cover, in this order:\n1. The setting and lighting.\n2. The characters and what they look like (keep Buddy's description brief).\n3. The actions and movement, in the order they happen.\n4. The camera: framing, angle, and any movement (static, handheld,\n   pan, push-in, etc.).\n5. The audio: ambient sounds, sound effects and music you can hear.\n6. Any speech, transcribed word for word inside quotation marks and\n   attributed to the speaker. Transcribe exactly what is said, including\n   any swearing. Do not censor, paraphrase or clean up the words.\n\nOnly mention speech if you actually hear words. If the audio contains\nno speech, simply leave it out. Describe only what you can see and\nhear, and never invent dialogue.",
+        "max_length": 1024,
+        "sampling_mode": "on",
+        "sampling_mode.temperature": 0.7,
+        "sampling_mode.top_k": 64,
+        "sampling_mode.top_p": 0.95,
+        "sampling_mode.min_p": 0.05,
+        "sampling_mode.repetition_penalty": 1.05,
+        "sampling_mode.seed": 0,
+        "sampling_mode.presence_penalty": 0,
+        "thinking": false,
+        "use_default_template": true,
+        "mtp": "auto"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 4,
+      "type": "CLIPLoader",
+      "pos": [
+        -3552.4596623417356,
+        4660.792337043347
+      ],
+      "size": [
+        354.27330379607156,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.39.0",
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "LLMs\\gemma4_e4b_it_int8_convrot.safetensors",
+        "stable_diffusion",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "LLMs\\gemma4_e4b_it_int8_convrot.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 9,
+      "type": "MarkdownNote",
+      "pos": [
+        -3971.036066734263,
+        4885.902028189468
+      ],
+      "size": [
+        405.0378099804252,
+        360.25879596921186
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Copy and paste this to caption videos",
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "You are captioning a video clip. You are given the video frames and a\ntranscript of the audio.\n\nTranscript:\n\"\"\"\n{transcript}\n\"\"\"\n\nWrite a caption with two parts:\n\n1. SCENE: Describe what is visible in 2-4 sentences. Cover the setting,\nthe people or objects present (appearance, clothing, positions), their\nactions and movement in order, camera framing or motion, lighting, and\noverall mood. Describe only what you can see. Do not guess at things\nthat are not visible.\n\n2. SPEECH: Using the transcript, say who is speaking (match speakers to\npeople on screen where it is clear, otherwise use \"Speaker 1\", etc.) and\ngive what they say verbatim in quotation marks. If the transcript is\nempty, write \"No speech.\"\n\nOutput format:\nScene: <description>\nSpeech: <dialogue>"
+      ],
+      "widgets_values_named": {
+        "text": "You are captioning a video clip. You are given the video frames and a\ntranscript of the audio.\n\nTranscript:\n\"\"\"\n{transcript}\n\"\"\"\n\nWrite a caption with two parts:\n\n1. SCENE: Describe what is visible in 2-4 sentences. Cover the setting,\nthe people or objects present (appearance, clothing, positions), their\nactions and movement in order, camera framing or motion, lighting, and\noverall mood. Describe only what you can see. Do not guess at things\nthat are not visible.\n\n2. SPEECH: Using the transcript, say who is speaking (match speakers to\npeople on screen where it is clear, otherwise use \"Speaker 1\", etc.) and\ngive what they say verbatim in quotation marks. If the transcript is\nempty, write \"No speech.\"\n\nOutput format:\nScene: <description>\nSpeech: <dialogue>"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 10,
+      "type": "Note",
+      "pos": [
+        -3803.925514572304,
+        4655.969009811325
+      ],
+      "size": [
+        210,
+        164.35154131830768
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "Use Gemma 4 LLMs as they can \"listen\" to the sounds and \"watch\" the video\n"
+      ],
+      "widgets_values_named": {
+        "text": "Use Gemma 4 LLMs as they can \"listen\" to the sounds and \"watch\" the video\n"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 11,
+      "type": "FolderVideoBatchLoader",
+      "pos": [
+        -3505.81397658006,
+        4870.996397700014
+      ],
+      "size": [
+        378.5396484375,
+        626
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "frames",
+          "type": "IMAGE",
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "filename",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "path",
+          "type": "STRING",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "index",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "total",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "fps",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "FolderVideoBatchLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "C:\\Users\\uthma\\Downloads\\Buddyyy",
+        "numeric (001, 002, 10...)",
+        0,
+        true,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "widgets_values_named": {
+        "folder_path": "C:\\Users\\uthma\\Downloads\\Buddyyy",
+        "sort_mode": "numeric (001, 002, 10...)",
+        "index": 0,
+        "auto_run_folder": true,
+        "force_rate": 0,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1,
+        "resize_longest_side": 0
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 12,
+      "type": "SaveCaptionMatchImage",
+      "pos": [
+        -2391.2691813526703,
+        4875.730141453214
+      ],
+      "size": [
+        452.3541015625,
+        150
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 13
+        },
+        {
+          "name": "image_path",
+          "type": "STRING",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "saved_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveCaptionMatchImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "next to image",
+        "",
+        "txt",
+        true
+      ],
+      "widgets_values_named": {
+        "save_location": "next to image",
+        "custom_folder": "",
+        "extension": "txt",
+        "overwrite": true
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 13,
+      "type": "PreviewAny",
+      "pos": [
+        -2383.76112712541,
+        5080.482315344711
+      ],
+      "size": [
+        394.14921018517975,
+        295.70795632905174
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.39.0",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        },
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#232",
+      "bgcolor": "#353"
+    }
+  ],
+  "links": [
+    [
+      2,
+      4,
+      0,
+      1,
+      0,
+      "CLIP"
+    ],
+    [
+      10,
+      11,
+      1,
+      1,
+      3,
+      "AUDIO"
+    ],
+    [
+      11,
+      11,
+      0,
+      1,
+      2,
+      "IMAGE"
+    ],
+    [
+      12,
+      11,
+      3,
+      12,
+      1,
+      "STRING"
+    ],
+    [
+      13,
+      1,
+      0,
+      12,
+      0,
+      "STRING"
+    ],
+    [
+      14,
+      1,
+      0,
+      13,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "links_added_by_ue": [],
+    "ds": {
+      "scale": 0.6619155141832258,
+      "offset": [
+        4160.679825028453,
+        -4504.0199408247245
+      ]
+    },
+    "anomalous_hashes": {
+      "4_LLMs\\gemma4_e4b_it_int8_convrot.safetensors": {
+        "hash": "",
+        "size": 8090965702,
+        "url": ""
+      },
+      "4_LLMs/gemma4_e4b_it_int8_convrot.safetensors": {
+        "hash": "",
+        "size": 8090965702,
+        "url": ""
+      }
+    },
+    "frontendVersion": "1.55.17",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4,
+  "seed_widgets": {}
+}
