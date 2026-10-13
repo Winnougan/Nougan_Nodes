@@ -1,7 +1,8 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_CLASS = "FolderImageBatchLoader";
+const NODE_CLASSES = new Set(["FolderImageBatchLoader", "FolderVideoBatchLoader"]);
+const VIDEO_CLASS = "FolderVideoBatchLoader";
 const BTN_LABEL = "🔄 Refresh folder";
 
 function getWidget(node, name) {
@@ -30,6 +31,7 @@ async function refreshFolder(node, btn) {
         folder,
         sort,
         index: String(oldIndex),
+        kind: nodeClassOf(node) === VIDEO_CLASS ? "video" : "image",
     });
 
     btn.label = "⏳ Scanning...";
@@ -47,7 +49,7 @@ async function refreshFolder(node, btn) {
         }
 
         if (idxWidget) idxWidget.value = data.index;
-        btn.label = `${BTN_LABEL} (${data.total} images)`;
+        btn.label = `${BTN_LABEL} (${data.total} files)`;
 
         // best-effort: show the current image in the node preview without running the graph
         const p = data.preview;
@@ -65,7 +67,7 @@ async function refreshFolder(node, btn) {
             img.src = url;
         }
 
-        let detail = `${data.total} images (${data.first} → ${data.last})`;
+        let detail = `${data.total} files (${data.first} → ${data.last})`;
         if (oldIndex !== data.index) {
             detail += ` · index was past the end, reset to ${data.index}`;
         }
@@ -80,10 +82,10 @@ async function refreshFolder(node, btn) {
 }
 
 app.registerExtension({
-    name: "Winnougan.FolderImageBatchLoader",
+    name: "Winnougan.FolderBatchLoaders",
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== NODE_CLASS) return;
+        if (!NODE_CLASSES.has(nodeData.name)) return;
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -112,7 +114,7 @@ app.registerExtension({
             const info = detail?.output?.batch_info;
             if (!info) return;
             const node = app.graph.getNodeById(Number(detail.node));
-            if (!node || nodeClassOf(node) !== NODE_CLASS) return;
+            if (!node || !NODE_CLASSES.has(nodeClassOf(node))) return;
             pending = { node, index: info[0], total: info[1] };
         });
 
