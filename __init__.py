@@ -83,16 +83,10 @@ except Exception as _e:
 
 # ── Optional: Power Lora Loader ─────────────────────────────────────────────
 try:
-    from .nougan_lora_loader import NouganLoraLoader, NouganLoraLoaderMulti
-    NODE_CLASS_MAPPINGS.update({
-        "NouganLoraLoader": NouganLoraLoader,
-        "NouganLoraLoaderMulti": NouganLoraLoaderMulti,
-    })
-    NODE_DISPLAY_NAME_MAPPINGS.update({
-        "NouganLoraLoader": "Nougan Lora Loader 📁",
-        "NouganLoraLoaderMulti": "Nougan Lora Loader (Multi-Model) 📁",
-    })
-    print("[Nougan] ✅ Power Lora Loader loaded (2 nodes).")
+    from .nougan_lora_loader import NouganLoraLoader
+    NODE_CLASS_MAPPINGS["NouganLoraLoader"] = NouganLoraLoader
+    NODE_DISPLAY_NAME_MAPPINGS["NouganLoraLoader"] = "Nougan Lora Loader 📁"
+    print("[Nougan] ✅ Power Lora Loader loaded.")
 except Exception as _e:
     print(f"[Nougan] ⚠️  Power Lora Loader NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
