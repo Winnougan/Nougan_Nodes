@@ -1,308 +1,875 @@
-// nougan-lora-loader-ui.js  — clean from-scratch frontend for the Nougan Lora Loader
+// nougan-lora-loader-ui.js — Nougan Lora Loader frontend (from scratch)
+//
+//  • drag a bar to set strength · double-click to type · Alt+click resets to 1.00
+//  • ‹ › nudge ±0.05 (Shift = ±0.01) · ⇄ splits a LoRA into separate model / clip strength
+//  • grab the ⠿ handle to reorder
+//  • picker: search, folder chips, favourites, click to add / remove, ↑↓ Enter, stays open for multi-add
+
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_NAME  = "NouganLoraLoader";
-const MULTI_NAME = "NouganLoraLoaderMulti";
-const ALL = [NODE_NAME, MULTI_NAME];
+const NODE_NAME = "NouganLoraLoader";
 const DATA = "lora_data";
-const COLOR = "#1a2a3a", BGCOLOR = "#0f1923", WIDTH = 460;
-const PROP = "Nougan Lora Folders";     // node property: null | {folders:[...]}
+const WIDTH = 430;
+
+const S_MIN = -2;      // visual range of the strength bars
+const S_MAX = 2;       // (typing a value allows ±10)
+const HARD = 10;
+const STEP = 0.05;
 const FAV_KEY = "nougan_lora_favorites";
 const ROOT = "(root)";
 
-// ── favourites ────────────────────────────────────────────────────────────
-const loadFav = () => { try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")); } catch { return new Set(); } };
-const saveFav = (s) => { try { localStorage.setItem(FAV_KEY, JSON.stringify([...s])); } catch {} };
 
-// ── lora list + folder helpers ─────────────────────────────────────────────
-let _cache = null;
+// ── helpers ────────────────────────────────────────────────────────────────
+
+const norm = (f) => String(f ?? "").replaceAll("\\", "/");
+const folderOf = (f) => { const n = norm(f), i = n.lastIndexOf("/"); return i < 0 ? ROOT : n.slice(0, i); };
+const baseOf = (f) => { const n = norm(f); return n.slice(n.lastIndexOf("/") + 1); };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const r2 = (v) => Math.round(v * 100) / 100;
+const fmt = (v) => (v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
+const alpha = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
+
+const loadFav = () => { try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")); } catch { return new Set(); } };
+const saveFav = (s) => { try { localStorage.setItem(FAV_KEY, JSON.stringify([...s])); } catch { } };
+
+let _files = null;   // null until the first successful fetch
+
 async function loras(force = false) {
-    if (_cache == null || force) {
+    if (_files == null || force) {
         try {
             const r = await api.fetchApi("/nougan/loras");
             const j = await r.json();
-            _cache = (j || []).map(e => typeof e === "string" ? e : e?.name).filter(Boolean);
-        } catch (e) { console.warn("[Nougan Lora] list fetch failed", e); _cache = _cache || []; }
+            _files = (j || []).map(e => typeof e === "string" ? e : e?.name).filter(Boolean);
+        } catch (e) {
+            console.warn("[Nougan Lora] list fetch failed", e);
+        }
     }
-    return _cache;
+    return _files || [];
 }
-const folderOf = (f) => { const n = String(f).replaceAll("\\", "/"); const i = n.lastIndexOf("/"); return i < 0 ? ROOT : n.slice(0, i); };
-const baseOf   = (f) => { const n = String(f).replaceAll("\\", "/"); return n.slice(n.lastIndexOf("/") + 1); };
-const foldersOf = (files) => [...new Set(files.map(folderOf))].sort((a, b) => a === ROOT ? -1 : b === ROOT ? 1 : a.localeCompare(b, undefined, { sensitivity: "base" }));
 
-// ── enabled-folder resolution ──────────────────────────────────────────────
-function enabledSet(node) {
-    const v = node.properties?.[PROP];
-    if (v == null) return null;                       // null = all folders
-    return Array.isArray(v?.folders) ? new Set(v.folders) : null;
-}
-function setEnabled(node, setOrNull) {
-    node.properties = node.properties || {};
-    node.properties[PROP] = setOrNull == null ? null : { folders: [...setOrNull].sort() };
-    sync(node); node.__nllBtn?.(); node.setDirtyCanvas(true, true);
-}
+const isMissing = (name) => _files != null && !_files.some(f => norm(f) === norm(name));
+
 
 // ── styles ─────────────────────────────────────────────────────────────────
+
 let _styled = false;
+
 function styles() {
-    if (_styled) return; _styled = true;
+    if (_styled) return;
+    _styled = true;
+
     const s = document.createElement("style");
     s.textContent = `
-     .nll-pop{position:fixed;z-index:10020;display:flex;flex-direction:column;max-height:70vh;
-       background:var(--comfy-menu-bg,#202020);color:var(--fg-color,#ddd);
-       border:1px solid var(--border-color,#4e4e4e);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.6);
-       font:12px 'Inter',Arial,sans-serif;user-select:none;min-width:300px;max-width:92vw}
-     .nll-pop *{box-sizing:border-box}
-     .nll-hd{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border-color,#444);font-weight:700}
-     .nll-hd .t{flex:1}.nll-x{cursor:pointer;opacity:.7;padding:0 4px}.nll-x:hover{opacity:1}
-     .nll-search{padding:6px 8px;border-bottom:1px solid var(--border-color,#333)}
-     .nll-search input{width:100%;padding:5px 8px;background:var(--comfy-input-bg,#2a2a2a);color:inherit;
-       border:1px solid var(--border-color,#555);border-radius:4px;font:inherit;outline:none}
-     .nll-search input:focus{border-color:#7eb8ff}
-     .nll-list{overflow:auto;flex:1;padding:3px 0}
-     .nll-item{display:flex;align-items:center;gap:6px;padding:4px 9px;cursor:pointer;border-radius:4px;margin:0 4px}
-     .nll-item:hover{background:rgba(255,255,255,.08)}
-     .nll-star{flex:none;width:20px;text-align:center;font-size:15px;line-height:1;cursor:pointer;transition:transform .12s}
-     .nll-star.off{opacity:.3}.nll-star.off:hover{opacity:.7}.nll-star.on{color:#f5c518}.nll-star.on:hover{transform:scale(1.25)}
-     .nll-nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-     .nll-dir{opacity:.45;font-size:11px}
-     .nll-sep{margin:5px 10px;border:none;border-top:1px solid var(--border-color,#3a3a3a)}
-     .nll-empty{padding:12px;opacity:.6}
-     .nll-acts{display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-color,#444)}
-     .nll-btn{cursor:pointer;padding:3px 10px;border-radius:4px;border:1px solid var(--border-color,#555);
-       background:var(--comfy-input-bg,#2a2a2a);color:inherit;font:inherit}.nll-btn:hover{filter:brightness(1.3)}
-     .nll-tree{overflow:auto;padding:4px 8px 8px}
-     .nll-frow{display:flex;align-items:center;gap:6px;padding:2px;border-radius:3px}.nll-frow:hover{background:rgba(255,255,255,.06)}
-     .nll-frow input{margin:0;cursor:pointer}.nll-frow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.nll-frow .ct{opacity:.5}
-     .nll-row{display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.04);border-radius:5px;padding:3px 6px}
-     .nll-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-     .nll-row .nm.off{opacity:.45;text-decoration:line-through}
-     .nll-row .ph{opacity:.5;font-style:italic}.nll-row .dir{opacity:.45;font-size:11px}.nll-row .fn{font-weight:700}
-     .nll-ic{flex:none;cursor:pointer;opacity:.75;min-width:20px;text-align:center;font-size:14px;line-height:1}.nll-ic:hover{opacity:1}
-     .nll-num{width:52px;flex:none;background:var(--comfy-input-bg,#2a2a2a);color:inherit;
-       border:1px solid var(--border-color,#555);border-radius:3px;font:inherit;text-align:center;padding:1px 3px}.nll-num:disabled{opacity:.35}
-    `;
+.lz{--bg:#12141a;--card:#1a1d26;--card2:#20242f;--line:#2a2f3c;--fg:#e8ebf2;--dim:#8a93a6;
+  --acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;--ok:#5ee08a;
+  font:12px/1.3 'Inter','Segoe UI',system-ui,sans-serif;color:var(--fg);user-select:none;box-sizing:border-box;
+  width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);
+  background:radial-gradient(120% 80% at 0% 0%,rgba(245,165,36,.07),transparent 55%),var(--bg);
+  box-shadow:0 8px 26px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04)}
+.lz *{box-sizing:border-box}
+.lz button{font:inherit;color:inherit}
+
+.lz-head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.lz-logo{width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--acc),var(--acc2));
+  box-shadow:0 0 10px rgba(245,165,36,.6)}
+.lz-title{font-weight:800;letter-spacing:.16em;font-size:11px}
+.lz-chip{font-size:10px;font-weight:700;color:var(--dim);background:var(--card);border:1px solid var(--line);
+  padding:2px 8px;border-radius:99px}
+.lz-chip b{color:var(--acc)}
+.lz-sp{flex:1}
+.lz-ib{width:26px;height:24px;display:grid;place-items:center;cursor:pointer;border-radius:7px;
+  background:var(--card);border:1px solid var(--line);color:var(--dim);font-size:12px;
+  transition:color .15s,border-color .15s,background .15s}
+.lz-ib:hover{color:var(--acc);border-color:#4a3b1e;background:var(--card2)}
+.lz-ib.warn{color:#fff;background:var(--neg);border-color:var(--neg)}
+
+.lz-list{display:flex;flex-direction:column;gap:6px}
+
+.lz-row{position:relative;background:var(--card);border:1px solid var(--line);border-radius:9px;
+  padding:6px 8px 7px 6px;transition:border-color .15s,box-shadow .15s,opacity .15s,background .15s}
+.lz-row:hover{border-color:#3b4254;background:#1d212b}
+.lz-row.off{opacity:.5}
+.lz-row.drag{opacity:.55;box-shadow:0 6px 18px rgba(0,0,0,.5);border-color:var(--acc)}
+.lz-row.over-t::before,.lz-row.over-b::after{content:"";position:absolute;left:4px;right:4px;height:3px;
+  border-radius:2px;background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.lz-row.over-t::before{top:-5px}.lz-row.over-b::after{bottom:-5px}
+
+.lz-top{display:flex;align-items:center;gap:7px;min-height:22px}
+.lz-grip{width:14px;flex:none;text-align:center;color:#4b5266;cursor:grab;font-size:13px;letter-spacing:-2px;touch-action:none}
+.lz-grip:hover{color:var(--acc)}.lz-grip:active{cursor:grabbing}
+.lz-sw{flex:none;width:28px;height:16px;border-radius:99px;background:#2b3040;border:1px solid #3a4054;cursor:pointer;
+  position:relative;transition:background .18s,border-color .18s}
+.lz-sw::after{content:"";position:absolute;top:1px;left:1px;width:12px;height:12px;border-radius:50%;
+  background:#9aa3b8;transition:transform .18s,background .18s}
+.lz-sw.on{background:linear-gradient(90deg,var(--acc),var(--acc2));border-color:var(--acc)}
+.lz-sw.on::after{transform:translateX(12px);background:#fff}
+.lz-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-size:12.5px}
+.lz-nm:hover .fn{color:var(--acc)}
+.lz-nm .dir{color:var(--dim);font-size:10.5px}.lz-nm .fn{font-weight:700;transition:color .12s}
+.lz-row.off .fn{text-decoration:line-through}
+.lz-miss{flex:none;font-size:9px;font-weight:800;letter-spacing:.1em;color:#fff;background:var(--neg);
+  border-radius:4px;padding:1px 5px}
+.lz-mini{flex:none;width:22px;height:20px;display:grid;place-items:center;cursor:pointer;border-radius:6px;
+  color:#69718a;font-size:12px;transition:color .12s,background .12s}
+.lz-mini:hover{color:var(--fg);background:var(--card2)}
+.lz-mini.on{color:var(--acc);background:rgba(245,165,36,.12)}
+.lz-mini.x:hover{color:#fff;background:var(--neg)}
+
+.lz-bars{display:flex;gap:6px;margin-top:6px;padding-left:21px}
+.lz-sc{position:relative;flex:1;height:22px;border-radius:6px;background:#10121a;border:1px solid var(--line);
+  overflow:hidden;cursor:ew-resize;touch-action:none;transition:border-color .15s}
+.lz-sc:hover{border-color:#4a3b1e}
+.lz-fill{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,rgba(245,165,36,.35),rgba(255,122,24,.75));
+  pointer-events:none}
+.lz-fill.neg{background:linear-gradient(90deg,rgba(240,97,109,.8),rgba(240,97,109,.3))}
+.lz-tick{position:absolute;top:3px;bottom:3px;width:1px;background:rgba(255,255,255,.14);pointer-events:none}
+.lz-tick.z{background:rgba(255,255,255,.3)}
+.lz-lbl{position:absolute;left:8px;top:0;bottom:0;display:flex;align-items:center;font-size:9px;font-weight:800;
+  letter-spacing:.12em;color:#8a93a6;pointer-events:none}
+.lz-val{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;
+  font-weight:700;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.7);pointer-events:none}
+.lz-val.hard{color:var(--acc)}
+.lz-ar{position:absolute;top:0;bottom:0;width:20px;display:grid;place-items:center;font-size:14px;color:#8a93a6;
+  opacity:0;cursor:pointer;transition:opacity .12s,color .12s;z-index:2}
+.lz-sc:hover .lz-ar{opacity:1}.lz-ar:hover{color:var(--acc)}
+.lz-ar.l{left:0}.lz-ar.r{right:0}
+.lz-in{position:absolute;inset:0;width:100%;height:100%;background:#0b0c11;color:var(--fg);border:0;outline:2px solid var(--acc);
+  border-radius:6px;text-align:center;font:700 12px 'Inter',sans-serif;z-index:3}
+
+.lz-empty{border:1.5px dashed #343a4b;border-radius:10px;padding:18px 10px;text-align:center;color:var(--dim);
+  cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+.lz-empty:hover{border-color:var(--acc);color:var(--acc);background:rgba(245,165,36,.05)}
+.lz-empty .big{font-size:20px;line-height:1;margin-bottom:5px}
+
+.lz-add{margin-top:9px;width:100%;padding:8px 10px;border-radius:9px;cursor:pointer;font-weight:800;letter-spacing:.14em;
+  font-size:11px;text-transform:uppercase;color:#1a1206;border:1px solid #c9821a;
+  background:linear-gradient(180deg,#ffc35c,var(--acc));transition:transform .12s,box-shadow .12s,filter .12s}
+.lz-add:hover{transform:translateY(-1px);box-shadow:0 5px 16px rgba(245,165,36,.35);filter:brightness(1.05)}
+.lz-add:active{transform:none}
+
+/* ---------- picker ---------- */
+.lzp{position:fixed;z-index:10020;width:430px;max-width:94vw;max-height:72vh;display:flex;flex-direction:column;
+  background:#15171e;color:#e8ebf2;border:1px solid #333948;border-radius:12px;
+  box-shadow:0 18px 50px rgba(0,0,0,.7);font:12px 'Inter','Segoe UI',system-ui,sans-serif;user-select:none;overflow:hidden}
+.lzp *{box-sizing:border-box}
+.lzp button{font:inherit;color:inherit}
+.lzp-h{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
+.lzp-h .t{font-weight:800;letter-spacing:.14em;font-size:11px}
+.lzp-h .c{font-size:10px;color:#8a93a6}
+.lzp-h .sp{flex:1}
+.lzp-x{cursor:pointer;color:#8a93a6;padding:0 4px;font-size:14px}.lzp-x:hover{color:#fff}
+.lzp-s{padding:0 12px 8px}
+.lzp-s input{width:100%;padding:8px 10px;border-radius:8px;background:#0f1117;color:inherit;border:1px solid #2d3342;
+  font:inherit;outline:none}
+.lzp-s input:focus{border-color:#f5a524;box-shadow:0 0 0 3px rgba(245,165,36,.15)}
+.lzp-f{display:flex;flex-wrap:wrap;gap:5px;padding:0 12px 8px;max-height:64px;overflow:auto}
+.lzp-fc{cursor:pointer;font-size:10.5px;padding:2px 9px;border-radius:99px;background:#1c202a;border:1px solid #2d3342;color:#a9b1c4;
+  transition:all .12s}
+.lzp-fc:hover{border-color:#4a3b1e;color:#ffd58a}
+.lzp-fc.on{background:linear-gradient(180deg,#ffc35c,#f5a524);color:#1a1206;border-color:#c9821a;font-weight:700}
+.lzp-l{flex:1;overflow:auto;padding:2px 6px 6px;border-top:1px solid #232834}
+.lzp-it{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;cursor:pointer}
+.lzp-it:hover,.lzp-it.hi{background:rgba(255,255,255,.07)}
+.lzp-it.in{background:rgba(245,165,36,.09)}
+.lzp-st{width:18px;text-align:center;font-size:15px;line-height:1;cursor:pointer;color:#555d72;transition:transform .12s,color .12s}
+.lzp-st:hover{color:#ffd58a;transform:scale(1.2)}.lzp-st.on{color:#f5c518}
+.lzp-ck{flex:none;width:16px;height:16px;border-radius:5px;border:1.5px solid #3b4254;display:grid;place-items:center;
+  font-size:11px;color:transparent;transition:all .12s}
+.lzp-it.in .lzp-ck{background:linear-gradient(180deg,#ffc35c,#f5a524);border-color:#c9821a;color:#1a1206;font-weight:900}
+.lzp-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lzp-nm .dir{color:#7d8595;font-size:10.5px}
+.lzp-nm .fn{font-weight:600}
+.lzp-sep{border:none;border-top:1px solid #232834;margin:5px 8px}
+.lzp-em{padding:18px;text-align:center;color:#7d8595}
+.lzp-ft{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #232834;background:#12141a}
+.lzp-ft .h{flex:1;font-size:10px;color:#6c7488}
+.lzp-done{cursor:pointer;padding:5px 16px;border-radius:7px;font-weight:800;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:#1a1206;background:linear-gradient(180deg,#ffc35c,#f5a524);border:1px solid #c9821a}
+.lzp-done:hover{filter:brightness(1.07)}
+`;
     document.head.appendChild(s);
 }
 
-// ── popup placement ────────────────────────────────────────────────────────
-let _open = null;
-function closePop() { if (_open) { _open.dispose(); _open = null; } }
-function place(el, ev) {
-    document.body.appendChild(el);
-    const x = ev?.clientX ?? innerWidth / 2, y = ev?.clientY ?? innerHeight / 3;
-    const r = el.getBoundingClientRect();
-    el.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
-    el.style.top  = Math.max(8, Math.min(y + 6, innerHeight - r.height - 8)) + "px";
-    const pd = e => { if (!el.contains(e.target)) closePop(); };
-    const kd = e => { if (e.key === "Escape") closePop(); };
-    setTimeout(() => { addEventListener("pointerdown", pd, true); addEventListener("keydown", kd, true); }, 0);
-    _open = { dispose() { removeEventListener("pointerdown", pd, true); removeEventListener("keydown", kd, true); el.remove(); } };
+
+// ── picker popup ───────────────────────────────────────────────────────────
+
+let _pop = null;
+
+function closePicker() {
+    _pop?.dispose();
+    _pop = null;
 }
 
-// ── chooser (search + favourites + folder filter) ──────────────────────────
-async function chooser(node, ev, onPick) {
-    closePop(); styles();
+// replaceIdx: null = multi-add / toggle mode, number = swap that row's LoRA and close
+async function openPicker(node, ev, replaceIdx = null) {
+    closePicker();
+    styles();
+
     const files = await loras(true);
-    const es = enabledSet(node);
-    const pool = es == null ? files : files.filter(f => es.has(folderOf(f)));
     const favs = loadFav();
-    const el = document.createElement("div"); el.className = "nll-pop"; el.style.width = "420px";
-    el.innerHTML = `<div class="nll-hd"><span class="t">Choose a LoRA</span><span class="nll-x">✕</span></div>
-      <div class="nll-search"><input placeholder="Filter LoRAs…" spellcheck="false"></div><div class="nll-list"></div>`;
-    el.querySelector(".nll-x").onclick = closePop;
-    const input = el.querySelector("input"), list = el.querySelector(".nll-list");
-    input.addEventListener("pointerdown", e => e.stopPropagation());
-    const alph = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
-    function render(q = "") {
+    const folders = [...new Set(files.map(folderOf))].sort((a, b) =>
+        a === ROOT ? -1 : b === ROOT ? 1 : alpha(a, b));
+
+    let query = "", folder = null, hi = 0, visible = [];
+
+    const el = document.createElement("div");
+    el.className = "lzp";
+    el.innerHTML = `
+        <div class="lzp-h"><span class="t">${replaceIdx == null ? "ADD LORAS" : "SWAP LORA"}</span>
+            <span class="c"></span><span class="sp"></span><span class="lzp-x">✕</span></div>
+        <div class="lzp-s"><input placeholder="Search ${files.length} LoRAs…" spellcheck="false"></div>
+        <div class="lzp-f"></div>
+        <div class="lzp-l"></div>
+        <div class="lzp-ft"><span class="h">${replaceIdx == null ? "click to add / remove · ↑↓ Enter · Esc" : "click a LoRA to swap it in"}</span>
+            <button class="lzp-done">Done</button></div>`;
+
+    const $ = (s) => el.querySelector(s);
+    const list = $(".lzp-l"), input = $("input"), chips = $(".lzp-f");
+
+    $(".lzp-x").onclick = closePicker;
+    $(".lzp-done").onclick = closePicker;
+    el.addEventListener("pointerdown", e => e.stopPropagation());
+
+    const inStack = (f) => (node.__stack || []).some(e => norm(e.name) === norm(f));
+
+    function drawChips() {
+        chips.textContent = "";
+        if (folders.length < 2) { chips.style.display = "none"; return; }
+
+        const mk = (label, val) => {
+            const c = document.createElement("span");
+            c.className = "lzp-fc" + (folder === val ? " on" : "");
+            c.textContent = label;
+            c.onclick = () => { folder = val; hi = 0; drawChips(); draw(); };
+            chips.appendChild(c);
+        };
+
+        mk("All", null);
+        folders.forEach(f => mk(f === ROOT ? "root" : f, f));
+    }
+
+    function toggle(f) {
+        if (replaceIdx != null) {
+            const en = node.__stack[replaceIdx];
+            if (en) en.name = f;
+            node.__lzCommit();
+            closePicker();
+            return;
+        }
+
+        if (inStack(f)) {
+            node.__stack = node.__stack.filter(e => norm(e.name) !== norm(f));
+        } else {
+            node.__stack.push(newEntry({ name: f }));
+        }
+
+        node.__lzCommit();
+
+        const top = list.scrollTop;
+        draw();
+        list.scrollTop = top;
+    }
+
+    function draw() {
         list.textContent = "";
-        const ql = q.trim().toLowerCase();
-        const vis = ql ? pool.filter(f => f.toLowerCase().includes(ql)) : pool.slice();
-        if (!vis.length) { const e = document.createElement("div"); e.className = "nll-empty";
-            e.textContent = pool.length ? "No matches." : "No LoRAs in enabled folders — use 📁 Folders."; list.appendChild(e); return; }
-        const fav = vis.filter(f => favs.has(f)).sort(alph), rest = vis.filter(f => !favs.has(f)).sort(alph);
-        const item = (p) => {
-            const row = document.createElement("div"); row.className = "nll-item";
-            const on = favs.has(p); const star = document.createElement("span");
-            star.className = "nll-star " + (on ? "on" : "off"); star.textContent = on ? "★" : "☆";
-            star.onclick = (e) => { e.stopPropagation(); on ? favs.delete(p) : favs.add(p); saveFav(favs); render(input.value); };
+
+        const q = query.trim().toLowerCase();
+        let pool = files.filter(f => (folder == null || folderOf(f) === folder) && (!q || f.toLowerCase().includes(q)));
+
+        const fav = pool.filter(f => favs.has(f)).sort(alpha);
+        const rest = pool.filter(f => !favs.has(f)).sort(alpha);
+        visible = [...fav, ...rest];
+        hi = clamp(hi, 0, Math.max(0, visible.length - 1));
+
+        $(".c").textContent = `${(node.__stack || []).length} in stack`;
+
+        if (!visible.length) {
+            const e = document.createElement("div");
+            e.className = "lzp-em";
+            e.textContent = files.length ? "No matches." : "No LoRAs found in models/loras.";
+            list.appendChild(e);
+            return;
+        }
+
+        const item = (f, i) => {
+            const row = document.createElement("div");
+            row.className = "lzp-it" + (inStack(f) ? " in" : "") + (i === hi ? " hi" : "");
+            row.dataset.i = i;
+
+            const star = document.createElement("span");
+            star.className = "lzp-st" + (favs.has(f) ? " on" : "");
+            star.textContent = favs.has(f) ? "★" : "☆";
+            star.onclick = (e) => {
+                e.stopPropagation();
+                favs.has(f) ? favs.delete(f) : favs.add(f);
+                saveFav(favs);
+                const top = list.scrollTop;
+                draw();
+                list.scrollTop = top;
+            };
             row.appendChild(star);
-            const nm = document.createElement("span"); nm.className = "nll-nm";
-            const d = folderOf(p); if (d !== ROOT) { const ds = document.createElement("span"); ds.className = "nll-dir"; ds.textContent = d + "/"; nm.appendChild(ds); }
-            const fs = document.createElement("span"); fs.textContent = baseOf(p); nm.appendChild(fs); nm.title = p; row.appendChild(nm);
-            row.onclick = () => { onPick(p); node.setDirtyCanvas(true, true); closePop(); };
+
+            if (replaceIdx == null) {
+                const ck = document.createElement("span");
+                ck.className = "lzp-ck";
+                ck.textContent = "✓";
+                row.appendChild(ck);
+            }
+
+            const nm = document.createElement("span");
+            nm.className = "lzp-nm";
+            nm.title = f;
+            const d = folderOf(f);
+            nm.innerHTML = (d !== ROOT ? `<span class="dir"></span>` : "") + `<span class="fn"></span>`;
+            if (d !== ROOT) nm.querySelector(".dir").textContent = d + "/";
+            nm.querySelector(".fn").textContent = baseOf(f);
+            row.appendChild(nm);
+
+            row.onclick = () => toggle(f);
             return row;
         };
-        fav.forEach(p => list.appendChild(item(p)));
-        if (fav.length && rest.length) { const hr = document.createElement("hr"); hr.className = "nll-sep"; list.appendChild(hr); }
-        rest.forEach(p => list.appendChild(item(p)));
+
+        fav.forEach((f, i) => list.appendChild(item(f, i)));
+        if (fav.length && rest.length) {
+            const hr = document.createElement("hr");
+            hr.className = "lzp-sep";
+            list.appendChild(hr);
+        }
+        rest.forEach((f, i) => list.appendChild(item(f, fav.length + i)));
     }
-    render(); input.oninput = () => render(input.value);
-    place(el, ev); setTimeout(() => input.focus(), 30);
+
+    input.addEventListener("input", () => { query = input.value; hi = 0; draw(); });
+
+    const kd = (e) => {
+        if (e.key === "Escape") { closePicker(); return; }
+        if (!el.contains(document.activeElement) && document.activeElement !== document.body) return;
+
+        const move = (d) => {
+            e.preventDefault();
+            hi = clamp(hi + d, 0, visible.length - 1);
+            list.querySelectorAll(".lzp-it").forEach(r => r.classList.toggle("hi", Number(r.dataset.i) === hi));
+            list.querySelector(".lzp-it.hi")?.scrollIntoView({ block: "nearest" });
+        };
+
+        if (e.key === "ArrowDown") move(1);
+        else if (e.key === "ArrowUp") move(-1);
+        else if (e.key === "Enter" && visible[hi]) { e.preventDefault(); toggle(visible[hi]); }
+    };
+
+    const pd = (e) => { if (!el.contains(e.target)) closePicker(); };
+
+    drawChips();
+    draw();
+
+    document.body.appendChild(el);
+
+    const x = ev?.clientX ?? innerWidth / 2;
+    const y = ev?.clientY ?? innerHeight / 3;
+    const r = el.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(x - 40, innerWidth - r.width - 8)) + "px";
+    el.style.top = Math.max(8, Math.min(y + 8, innerHeight - r.height - 8)) + "px";
+
+    setTimeout(() => {
+        addEventListener("pointerdown", pd, true);
+        addEventListener("keydown", kd, true);
+        input.focus();
+    }, 0);
+
+    _pop = {
+        dispose() {
+            removeEventListener("pointerdown", pd, true);
+            removeEventListener("keydown", kd, true);
+            el.remove();
+        },
+    };
 }
 
-// ── folder filter panel (flat multi-select) ────────────────────────────────
-async function folderPanel(node, ev) {
-    closePop(); styles();
-    const files = await loras(true);
-    const all = foldersOf(files);
-    const counts = {}; files.forEach(f => { const d = folderOf(f); counts[d] = (counts[d] || 0) + 1; });
-    const el = document.createElement("div"); el.className = "nll-pop";
-    el.innerHTML = `<div class="nll-hd"><span class="t">LoRA folder filter</span><span class="nll-x">✕</span></div>
-      <div class="nll-acts"></div><div class="nll-tree"></div>`;
-    el.querySelector(".nll-x").onclick = closePop;
-    const acts = el.querySelector(".nll-acts"), tree = el.querySelector(".nll-tree");
-    const mk = (t, fn) => { const b = document.createElement("button"); b.className = "nll-btn"; b.textContent = t; b.onclick = fn; acts.appendChild(b); };
-    const cur = () => enabledSet(node);
-    mk("All", () => { setEnabled(node, null); draw(); });
-    mk("None", () => { setEnabled(node, new Set()); draw(); });
-    function draw() {
-        tree.textContent = "";
-        if (!all.length) { const e = document.createElement("div"); e.className = "nll-empty"; e.textContent = "No LoRAs in models/loras."; tree.appendChild(e); return; }
-        const set = cur(), allOn = set == null;
-        all.forEach(f => {
-            const row = document.createElement("div"); row.className = "nll-frow";
-            const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = allOn || set.has(f);
-            const toggle = () => { const s = cur() ?? new Set(all); cb.checked ? s.delete(f) : s.add(f); setEnabled(node, s.size === all.length ? null : s); draw(); };
-            cb.onclick = (e) => { e.preventDefault(); toggle(); }; row.appendChild(cb);
-            const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = f; nm.title = f; nm.onclick = toggle; row.appendChild(nm);
-            const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = `(${counts[f] || 0})`; row.appendChild(ct);
-            tree.appendChild(row);
-        });
-    }
-    draw(); place(el, ev);
-}
 
-// ── data sync + widget hiding ──────────────────────────────────────────────
+// ── data ───────────────────────────────────────────────────────────────────
+
 const dataW = (n) => n.widgets?.find(w => w.name === DATA);
+
 function hideWidget(w) {
-    if (!w) return;
+    if (!w || w._lzHidden) return;
+    w._lzHidden = true;
+
     const el = w.element || w.inputEl;
     if (el) { el.style.display = "none"; el.style.height = "0"; el.style.pointerEvents = "none"; }
-    if (w._nllHidden) return; w._nllHidden = true;
-    w.computeSize = () => [0, -4]; w.draw = () => {};
+
+    w.computeSize = () => [0, 0];
+    w.draw = () => { };
 }
+
+const newEntry = (extra) => ({ on: true, name: "", model: 1, clip: 1, split: false, ...extra });
+
 function sync(node) {
-    const w = dataW(node); if (!w) return;
-    const v = node.properties?.[PROP];
-    w.value = JSON.stringify({ loras: node.__stack || [], enabledFolders: (v && Array.isArray(v.folders)) ? v.folders : null });
+    const w = dataW(node);
+    if (!w) return;
+
+    w.value = JSON.stringify({
+        loras: (node.__stack || []).map(e => ({
+            on: e.on, name: e.name, model: e.model, clip: e.split ? e.clip : e.model, split: e.split,
+        })),
+    });
 }
+
 function loadStack(node) {
-    const w = dataW(node); let stack = [];
+    let stack = [];
+
     try {
-        const p = JSON.parse(w?.value || "{}");
-        const entries = Array.isArray(p) ? p : (p.loras || []);
-        stack = entries.filter(e => e && (e.name || e.lora || e.random)).map(e => {
-            const s = e.strength != null ? Number(e.strength) : Number(e.model ?? 1);
-            const o = { on: e.on !== false, name: e.name || e.lora || "", model: s, clip: e.clip != null && e.strength == null ? Number(e.clip) : s };
-            if (e.random) { o.random = true; o.locked = !!e.locked; o.autoRoll = !!e.autoRoll; o.folders = Array.isArray(e.folders) ? e.folders : null; }
-            return o;
+        const p = JSON.parse(dataW(node)?.value || "{}");
+        const raw = Array.isArray(p) ? p : (p.loras || []);
+        const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+
+        stack = raw.filter(e => e && (e.name || e.lora)).map(e => {
+            const m = e.strength != null ? num(e.strength, 1) : num(e.model, 1);
+            const c = e.strength != null ? m : num(e.clip, m);
+
+            return newEntry({
+                on: e.on !== false,
+                name: e.name || e.lora,
+                model: m,
+                clip: c,
+                split: e.split != null ? !!e.split : Math.abs(c - m) > 1e-6,
+            });
         });
     } catch { stack = []; }
+
     node.__stack = stack;
 }
 
-// ── randomizer ─────────────────────────────────────────────────────────────
-async function pickRandom(node, entry) {
-    const files = await loras(true);
-    const es = enabledSet(node);
-    let allowed = es == null ? new Set(foldersOf(files)) : es;
-    if (Array.isArray(entry.folders)) allowed = new Set(entry.folders.filter(f => allowed.has(f)));
-    const pool = files.filter(f => allowed.has(folderOf(f)));
-    if (!pool.length) return null;
-    if (entry.name && pool.length > 1) { const o = pool.filter(f => f !== entry.name); return o[Math.floor(Math.random() * o.length)]; }
-    return pool[Math.floor(Math.random() * pool.length)];
-}
 
-// ── stack row editor ───────────────────────────────────────────────────────
-function rows(node) {
-    styles();
-    const root = document.createElement("div");
-    root.style.cssText = "display:flex;flex-direction:column;gap:3px;width:100%;box-sizing:border-box;padding:2px 0;font:12px 'Inter',Arial,sans-serif;color:var(--fg-color,#ddd)";
-    const num = (v, fn) => { const i = document.createElement("input"); i.type = "number"; i.step = "0.05"; i.value = String(v); i.className = "nll-num";
-        i.onchange = () => fn(parseFloat(i.value)); i.addEventListener("pointerdown", e => e.stopPropagation()); return i; };
-    const ic = (t, tip, col, fn) => { const b = document.createElement("span"); b.className = "nll-ic"; b.textContent = t; if (col) b.style.color = col; b.title = tip;
-        b.onclick = () => fn(); b.addEventListener("pointerdown", e => e.stopPropagation()); return b; };
-    const commit = () => { sync(node); render(); snap(node); node.setDirtyCanvas(true, true); };
-    function render() {
-        root.textContent = "";
-        const st = node.__stack || [];
-        if (!st.length) { const e = document.createElement("div"); e.style.cssText = "opacity:.55;padding:4px 2px"; e.textContent = "No LoRAs yet — click ➕ Add LoRA."; root.appendChild(e); return; }
-        st.forEach((en, idx) => {
-            const row = document.createElement("div"); row.className = "nll-row";
-            const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = en.on; cb.title = "Enable / disable"; cb.style.flex = "none";
-            cb.onchange = () => { en.on = cb.checked; commit(); }; cb.addEventListener("pointerdown", e => e.stopPropagation()); row.appendChild(cb);
-            if (en.random) {
-                const dice = ic("🎲", "Roll a random LoRA", null, async () => { if (en.locked) return; const p = await pickRandom(node, en); if (p != null) { en.name = p; commit(); } });
-                if (en.locked) dice.style.opacity = ".3"; row.appendChild(dice);
-                const lock = ic(en.locked ? "🔒" : "🔓", en.locked ? "Unlock this line" : "Lock this line", null, () => { en.locked = !en.locked; if (en.locked) en.autoRoll = false; commit(); });
-                if (en.locked) { lock.style.background = "rgba(239,83,80,.22)"; lock.style.borderRadius = "4px"; lock.style.opacity = "1"; } else lock.style.opacity = ".4";
-                row.appendChild(lock);
-                const ar = ic("🔄", "Auto-roll every queue", null, () => { if (en.locked) return; en.autoRoll = !en.autoRoll; commit(); });
-                ar.style.opacity = (en.autoRoll && !en.locked) ? "1" : ".3"; row.appendChild(ar);
+// ── strength bar ───────────────────────────────────────────────────────────
+
+function scrub(label, get, set) {
+    const el = document.createElement("div");
+    el.className = "lz-sc";
+    el.title = "Drag to set · double-click to type · Alt+click = 1.00 · Shift = fine";
+    el.innerHTML = `
+        <div class="lz-fill"></div>
+        <div class="lz-tick" style="left:${((1 - S_MIN) / (S_MAX - S_MIN)) * 100}%"></div>
+        <div class="lz-tick z" style="left:50%"></div>
+        ${label ? `<span class="lz-lbl">${label}</span>` : ""}
+        <span class="lz-val"></span>
+        <span class="lz-ar l">‹</span><span class="lz-ar r">›</span>`;
+
+    const fill = el.querySelector(".lz-fill"), val = el.querySelector(".lz-val");
+
+    const paint = () => {
+        const v = get();
+        const pos = clamp((v - S_MIN) / (S_MAX - S_MIN), 0, 1);
+
+        fill.className = "lz-fill" + (v < 0 ? " neg" : "");
+        fill.style.left = (Math.min(pos, 0.5) * 100) + "%";
+        fill.style.width = (Math.abs(pos - 0.5) * 100) + "%";
+
+        val.textContent = fmt(v);
+        val.classList.toggle("hard", v > S_MAX || v < S_MIN);
+    };
+
+    const put = (v, fine) => {
+        v = clamp(fine ? Math.round(v * 100) / 100 : Math.round(v / STEP) * STEP, -HARD, HARD);
+        set(r2(v));
+        paint();
+    };
+
+    paint();
+
+    el.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".lz-ar") || e.target.closest(".lz-in")) return;
+
+        if (e.altKey) { put(1); return; }
+
+        el.setPointerCapture(e.pointerId);
+
+        const fromX = (ev) => {
+            const b = el.getBoundingClientRect();
+            put(S_MIN + clamp((ev.clientX - b.left) / b.width, 0, 1) * (S_MAX - S_MIN), ev.shiftKey);
+        };
+
+        fromX(e);
+
+        const mv = (ev) => fromX(ev);
+        const up = () => {
+            el.removeEventListener("pointermove", mv);
+            el.removeEventListener("pointerup", up);
+            el.removeEventListener("pointercancel", up);
+        };
+
+        el.addEventListener("pointermove", mv);
+        el.addEventListener("pointerup", up);
+        el.addEventListener("pointercancel", up);
+    });
+
+    el.querySelector(".lz-ar.l").onclick = (e) => { e.stopPropagation(); put(get() - (e.shiftKey ? 0.01 : STEP), e.shiftKey); };
+    el.querySelector(".lz-ar.r").onclick = (e) => { e.stopPropagation(); put(get() + (e.shiftKey ? 0.01 : STEP), e.shiftKey); };
+
+    el.addEventListener("dblclick", (e) => {
+        if (e.target.closest(".lz-ar")) return;
+
+        const inp = document.createElement("input");
+        inp.className = "lz-in";
+        inp.value = String(get());
+        el.appendChild(inp);
+        inp.focus();
+        inp.select();
+
+        let done = false;
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
+
+            if (ok) {
+                const n = parseFloat(inp.value.replace("−", "-"));
+                if (Number.isFinite(n)) put(n, true);
             }
-            const nameEl = document.createElement("span"); nameEl.className = "nm" + (en.on ? "" : " off");
-            if (!en.name) { const ph = document.createElement("span"); ph.className = "ph"; ph.textContent = "(randomizer — roll 🎲)"; nameEl.appendChild(ph); }
-            else { const d = folderOf(en.name); if (d !== ROOT) { const ds = document.createElement("span"); ds.className = "dir"; ds.textContent = d + "/"; nameEl.appendChild(ds); }
-                const fs = document.createElement("span"); fs.className = "fn"; fs.textContent = baseOf(en.name); nameEl.appendChild(fs); }
-            nameEl.title = en.name ? en.name + " (click to change)" : "Randomizer line";
-            nameEl.onclick = () => chooser(node, event, v => { en.name = v; commit(); }); nameEl.addEventListener("pointerdown", e => e.stopPropagation()); row.appendChild(nameEl);
-            const sl = document.createElement("span"); sl.textContent = "S"; sl.style.cssText = "opacity:.6;flex:none;font-size:11px"; sl.title = "Strength (model + clip)"; row.appendChild(sl);
-            row.appendChild(num(en.model, v => { const x = isNaN(v) ? 0 : v; en.model = x; en.clip = x; sync(node); }));
-            row.appendChild(ic("▲", "Move up", null, () => { if (idx > 0) { [st[idx], st[idx - 1]] = [st[idx - 1], st[idx]]; commit(); } }));
-            row.appendChild(ic("▼", "Move down", null, () => { if (idx < st.length - 1) { [st[idx], st[idx + 1]] = [st[idx + 1], st[idx]]; commit(); } }));
-            row.appendChild(ic("✕", "Remove", "#e57373", () => { st.splice(idx, 1); commit(); }));
-            root.appendChild(row);
-        });
-    }
-    node.__nllRender = render; node.__nllCommit = commit; render(); return root;
-}
-function snap(node) { const [, h] = node.computeSize(); node.size[1] = h; }
 
-// ── core UI build ──────────────────────────────────────────────────────────
-function buildUI(node) {
-    if (node.__nllBuilt) return; node.__nllBuilt = true;
-    hideWidget(dataW(node)); loadStack(node);
-    const fbtn = node.addWidget("button", "nll_folders", null, (_v, _c, _n, _p, ev) => folderPanel(node, ev));
-    fbtn.serialize = false; if (fbtn.options) fbtn.options.serialize = false; fbtn.serializeValue = () => undefined;
-    node.__nllBtn = () => { const es = enabledSet(node); fbtn.label = es == null ? "📁 Folders: All" : `📁 Folders: ${es.size} on`; node.setDirtyCanvas(true, false); };
-    node.__nllBtn(); loras().then(() => node.__nllBtn());
-    const dom = rows(node);
-    const dw = node.addDOMWidget("nll_rows", "div", dom, { serialize: false }); dw.serializeValue = () => undefined;
-    dw.computeSize = function (w) { const n = node.__stack?.length || 0; return [w, n ? n * 27 + 6 : 28]; };
-    const add = node.addWidget("button", "nll_add", null, (_v, _c, _n, _p, ev) => chooser(node, ev, v => { node.__stack.push({ on: true, name: v, model: 1, clip: 1 }); node.__nllCommit(); }));
-    add.label = "➕ Add LoRA"; add.serialize = false; if (add.options) add.options.serialize = false; add.serializeValue = () => undefined;
-    const rnd = node.addWidget("button", "nll_rand", null, async () => { const en = { on: true, name: "", model: 1, clip: 1, random: true, locked: false, autoRoll: false, folders: null }; const p = await pickRandom(node, en); if (p != null) en.name = p; node.__stack.push(en); node.__nllCommit(); });
-    rnd.label = "🎲 Add Randomizer"; rnd.serialize = false; if (rnd.options) rnd.options.serialize = false; rnd.serializeValue = () => undefined;
-    snap(node);
+            inp.remove();
+        };
+
+        inp.onkeydown = (ev) => {
+            ev.stopPropagation();
+            if (ev.key === "Enter") finish(true);
+            if (ev.key === "Escape") finish(false);
+        };
+        inp.onblur = () => finish(true);
+    });
+
+    return el;
 }
+
+
+// ── panel ──────────────────────────────────────────────────────────────────
+
+// Size the node to its real content: widget top (below the slots) + measured panel height.
+// Doesn't rely on node.computeSize(), which can't see how tall the DOM panel actually is.
+function fit(node) {
+    requestAnimationFrame(() => {
+        if (!node.graph) return;
+
+        const ph = node.__lzPanel?.offsetHeight || 0;
+        const dw = node.__lzDW;
+        const slots = Math.max(node.inputs?.length || 0, node.outputs?.length || 0);
+        const wy = (dw?.last_y > 0 ? dw.last_y : null) ?? (dw?.y > 0 ? dw.y : null) ?? (slots * 20 + 24);
+
+        const h = ph > 0 ? wy + ph + 16 : node.computeSize()[1];
+
+        if (Math.abs(h - node.size[1]) > 1) {
+            node.setSize([Math.max(node.size[0], 340), h]);
+        }
+
+        node.setDirtyCanvas(true, true);
+    });
+}
+
+function buildPanel(node) {
+    styles();
+
+    const root = document.createElement("div");
+    root.className = "lz";
+    root.innerHTML = `
+        <div class="lz-head">
+            <span class="lz-logo"></span><span class="lz-title">LORA&nbsp;STACK</span>
+            <span class="lz-chip"></span><span class="lz-sp"></span>
+            <span class="lz-ib lz-all" title="Toggle all on / off">⏻</span>
+            <span class="lz-ib lz-clear" title="Remove all LoRAs">🗑</span>
+        </div>
+        <div class="lz-list"></div>
+        <button class="lz-add">＋ Add LoRA</button>`;
+
+    const $ = (s) => root.querySelector(s);
+    const list = $(".lz-list");
+
+    root.addEventListener("pointerdown", e => e.stopPropagation());
+
+    const touch = () => { sync(node); node.setDirtyCanvas(true, true); };
+
+    const commit = () => { sync(node); render(); node.setDirtyCanvas(true, true); };
+
+    function chip() {
+        const st = node.__stack;
+        $(".lz-chip").innerHTML = `<b>${st.filter(e => e.on).length}</b> / ${st.length} active`;
+    }
+
+    function startDrag(e, row, idx) {
+        e.preventDefault();
+
+        const grip = e.currentTarget;
+        grip.setPointerCapture(e.pointerId);
+        row.classList.add("drag");
+
+        const rows = [...list.querySelectorAll(".lz-row")];
+        let target = idx, after = false;
+
+        const clear = () => rows.forEach(r => r.classList.remove("over-t", "over-b"));
+
+        const mv = (ev) => {
+            clear();
+
+            const first = rows[0].getBoundingClientRect();
+            const last = rows[rows.length - 1].getBoundingClientRect();
+
+            if (ev.clientY < first.top) { target = 0; after = false; }
+            else if (ev.clientY > last.bottom) { target = rows.length - 1; after = true; }
+            else {
+                for (let i = 0; i < rows.length; i++) {
+                    const b = rows[i].getBoundingClientRect();
+                    if (ev.clientY >= b.top - 3 && ev.clientY <= b.bottom + 3) {
+                        target = i;
+                        after = ev.clientY > b.top + b.height / 2;
+                        break;
+                    }
+                }
+            }
+
+            rows[target].classList.add(after ? "over-b" : "over-t");
+        };
+
+        const up = () => {
+            grip.removeEventListener("pointermove", mv);
+            grip.removeEventListener("pointerup", up);
+            grip.removeEventListener("pointercancel", up);
+
+            clear();
+            row.classList.remove("drag");
+
+            let to = target + (after ? 1 : 0);
+            if (to > idx) to--;
+
+            if (to !== idx) {
+                const [m] = node.__stack.splice(idx, 1);
+                node.__stack.splice(to, 0, m);
+                commit();
+            }
+        };
+
+        grip.addEventListener("pointermove", mv);
+        grip.addEventListener("pointerup", up);
+        grip.addEventListener("pointercancel", up);
+    }
+
+    function renderRow(en, idx) {
+        const row = document.createElement("div");
+        row.className = "lz-row" + (en.on ? "" : " off");
+
+        const top = document.createElement("div");
+        top.className = "lz-top";
+
+        const grip = document.createElement("span");
+        grip.className = "lz-grip";
+        grip.textContent = "⠿";
+        grip.title = "Drag to reorder";
+        grip.addEventListener("pointerdown", (e) => startDrag(e, row, idx));
+        top.appendChild(grip);
+
+        const sw = document.createElement("span");
+        sw.className = "lz-sw" + (en.on ? " on" : "");
+        sw.title = en.on ? "Enabled" : "Disabled";
+        sw.onclick = () => { en.on = !en.on; commit(); };
+        top.appendChild(sw);
+
+        const nm = document.createElement("span");
+        nm.className = "lz-nm";
+        nm.title = en.name + "\n(click to swap)";
+
+        const d = folderOf(en.name);
+        if (d !== ROOT) {
+            const ds = document.createElement("span");
+            ds.className = "dir";
+            ds.textContent = d + "/";
+            nm.appendChild(ds);
+        }
+        const fs = document.createElement("span");
+        fs.className = "fn";
+        fs.textContent = baseOf(en.name);
+        nm.appendChild(fs);
+
+        nm.onclick = (ev) => openPicker(node, ev, idx);
+        top.appendChild(nm);
+
+        if (isMissing(en.name)) {
+            const m = document.createElement("span");
+            m.className = "lz-miss";
+            m.textContent = "MISSING";
+            m.title = "This file isn't in models/loras — it will be skipped.";
+            top.appendChild(m);
+        }
+
+        const mini = (txt, tip, cls, fn) => {
+            const b = document.createElement("span");
+            b.className = "lz-mini " + cls;
+            b.textContent = txt;
+            b.title = tip;
+            b.onclick = fn;
+            return b;
+        };
+
+        top.appendChild(mini("⇄", en.split ? "Linked: use one strength for model + clip" : "Split model / clip strength",
+            en.split ? "on" : "", () => {
+                en.split = !en.split;
+                if (!en.split) en.clip = en.model;
+                else en.clip = en.model;
+                commit();
+            }));
+
+        top.appendChild(mini("✕", "Remove", "x", () => {
+            node.__stack.splice(idx, 1);
+            commit();
+        }));
+
+        row.appendChild(top);
+
+        const bars = document.createElement("div");
+        bars.className = "lz-bars";
+
+        if (en.split) {
+            bars.appendChild(scrub("MODEL", () => en.model, v => { en.model = v; touch(); }));
+            bars.appendChild(scrub("CLIP", () => en.clip, v => { en.clip = v; touch(); }));
+        } else {
+            bars.appendChild(scrub("", () => en.model, v => { en.model = v; en.clip = v; touch(); }));
+        }
+
+        row.appendChild(bars);
+
+        return row;
+    }
+
+    function render() {
+        const st = node.__stack || [];
+
+        list.textContent = "";
+        chip();
+
+        if (!st.length) {
+            const e = document.createElement("div");
+            e.className = "lz-empty";
+            e.innerHTML = `<div class="big">＋</div>Add your first LoRA`;
+            e.onclick = (ev) => openPicker(node, ev);
+            list.appendChild(e);
+        } else {
+            st.forEach((en, i) => list.appendChild(renderRow(en, i)));
+        }
+
+        fit(node);
+    }
+
+    $(".lz-add").onclick = (ev) => openPicker(node, ev);
+
+    $(".lz-all").onclick = () => {
+        const st = node.__stack;
+        const anyOff = st.some(e => !e.on);
+        st.forEach(e => { e.on = anyOff; });
+        commit();
+    };
+
+    let armed = null;
+    $(".lz-clear").onclick = () => {
+        const b = $(".lz-clear");
+
+        if (!node.__stack.length) return;
+
+        if (!armed) {
+            b.classList.add("warn");
+            b.textContent = "?";
+            b.title = "Click again to confirm";
+            armed = setTimeout(() => { armed = null; b.classList.remove("warn"); b.textContent = "🗑"; b.title = "Remove all LoRAs"; }, 2000);
+            return;
+        }
+
+        clearTimeout(armed);
+        armed = null;
+        b.classList.remove("warn");
+        b.textContent = "🗑";
+        node.__stack = [];
+        commit();
+    };
+
+    node.__lzRender = render;
+    node.__lzCommit = commit;
+
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => fit(node)).observe(root);
+
+    return root;
+}
+
+function buildUI(node) {
+    if (node.__lzBuilt) return;
+    node.__lzBuilt = true;
+
+    hideWidget(dataW(node));
+    loadStack(node);
+
+    const panel = buildPanel(node);
+
+    // ComfyUI force-sets an inline height on the element handed to addDOMWidget.
+    // Hand it a holder instead, so `panel` keeps its natural content height and we can measure it.
+    const holder = document.createElement("div");
+    holder.style.cssText = "width:100%;overflow:visible;";
+    holder.appendChild(panel);
+
+    const getH = () => Math.max(panel.offsetHeight + 4, 110);
+
+    const dw = node.addDOMWidget("lz_panel", "div", holder, {
+        serialize: false,
+        getHeight: getH,
+        getMinHeight: getH,
+    });
+
+    dw.serializeValue = () => undefined;
+    dw.computeSize = (w) => [w, getH()];
+
+    node.__lzPanel = panel;
+    node.__lzDW = dw;
+
+    node.__lzRender();
+
+    // widget y / panel height settle after the first draw — re-fit a couple of times
+    setTimeout(() => fit(node), 60);
+    setTimeout(() => fit(node), 400);
+
+    // learn which files exist so missing LoRAs get flagged
+    loras().then(() => node.__lzRender?.());
+}
+
 
 // ── extension ──────────────────────────────────────────────────────────────
+
 app.registerExtension({
     name: "Nougan.LoraLoader",
-    async setup() {
-        // Auto-roll: bake a fresh random pick into lora_data just before each queue.
-        const orig = app.queuePrompt;
-        app.queuePrompt = async function (...a) {
-            try {
-                for (const node of (app.graph?._nodes || [])) {
-                    if (!node.__stack) continue; let changed = false;
-                    for (const en of node.__stack) { if (en.random && en.autoRoll && !en.locked) { const p = await pickRandom(node, en); if (p != null) { en.name = p; changed = true; } } }
-                    if (changed) { sync(node); node.__nllRender?.(); node.setDirtyCanvas(true, false); }
-                }
-            } catch (e) { console.warn("[Nougan Lora] auto-roll failed", e); }
-            return orig.apply(this, a);
-        };
-    },
+
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (!ALL.includes(nodeData?.name)) return;
-        nodeType.color = COLOR; nodeType.bgcolor = BGCOLOR;
+        if (nodeData?.name !== NODE_NAME) return;
+
+        nodeType.color = "#1a2a3a";
+        nodeType.bgcolor = "#0f1923";
+
         const onc = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function () { onc?.apply(this, arguments); this.size = [WIDTH, 170]; try { buildUI(this); } catch (e) { console.warn("[Nougan Lora] UI build failed", e); } };
-        const occ = nodeType.prototype.onConnectionsChange;
-        nodeType.prototype.onConnectionsChange = function () { occ?.apply(this, arguments); setTimeout(() => this.__nllRender?.(), 0); };
+
+        nodeType.prototype.onNodeCreated = function () {
+            onc?.apply(this, arguments);
+            this.size = [WIDTH, 200];
+
+            try { buildUI(this); } catch (e) { console.warn("[Nougan Lora] UI build failed", e); }
+        };
+
         const ocf = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function (info) { ocf?.apply(this, arguments); try { if (!this.__nllBuilt) buildUI(this); loadStack(this); this.__nllRender?.(); this.__nllBtn?.(); snap(this); } catch (e) { console.warn("[Nougan Lora] onConfigure failed", e); } };
+
+        nodeType.prototype.onConfigure = function () {
+            ocf?.apply(this, arguments);
+
+            try {
+                if (!this.__lzBuilt) buildUI(this);
+
+                loadStack(this);
+                sync(this);
+                this.__lzRender?.();
+
+                setTimeout(() => fit(this), 60);
+                setTimeout(() => fit(this), 400);
+            } catch (e) {
+                console.warn("[Nougan Lora] onConfigure failed", e);
+            }
+        };
     },
 });
