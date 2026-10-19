@@ -13,3 +13,5 @@ One page per node family.
 | [Prompt Relay 🎬](prompt-relay.md) | Timeline editor, epsilon tuning, technical deep dives |
 | [LM Studio Bridge 🧠](lm-studio-bridge.md) | Dev-server setup, vision/audio/video, Krea 2 prompt director |
 | [Dataset Captioning 📂](dataset-captioning.md) | Folder Batch Loader · Save Caption (Match Image Name) · whole-folder auto-run · LoRA dataset prep |
+| [Bounding Boxes 🔲](bounding-boxes.md) | Box editor · layers and right-click menu · LLM layout prompt · MOSS-Image layouts |
+| [Image Converter / Saver 💎](image-converter.md) | Save and convert · Smart Squeeze · quality scale · lossless PNG/WebP · batch convert a folder |
