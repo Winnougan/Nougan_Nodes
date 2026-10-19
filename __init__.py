@@ -263,6 +263,16 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Layout LLM Prompt NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
+# ── Optional: Album Cover Maker (embeds cover art into audio files) ─────────
+try:
+    from .nougan_album_cover import NouganAlbumCoverMaker
+    NODE_CLASS_MAPPINGS["NouganAlbumCoverMaker"] = NouganAlbumCoverMaker
+    NODE_DISPLAY_NAME_MAPPINGS["NouganAlbumCoverMaker"] = "Nougan Album Cover Maker 💿"
+    print("[Nougan] ✅ Album Cover Maker loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Album Cover Maker NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
 # ── Routes — always attempted, fully guarded ────────────────────────────────
 _NOUGAN_ROUTES_REGISTERED = False
 
