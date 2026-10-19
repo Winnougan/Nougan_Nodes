@@ -5,11 +5,11 @@
 
 ### Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
-**Seventeen nodes across five families — loaders, LoRA tooling, masking, temporal video prompts, and a local LLM bridge — every one with its own themed, live UI.**
+**Twenty-five nodes across nine families — loaders, LoRA tooling, masking, layout boxes, smart image saving, dataset captioning, remote data, temporal video prompts, and a local LLM bridge — every one with its own themed, live UI.**
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-nodes-006064?style=for-the-badge)](https://github.com/comfyanonymous/ComfyUI)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Nodes](https://img.shields.io/badge/nodes-17-ff4081?style=for-the-badge)](#node-index)
+[![Nodes](https://img.shields.io/badge/nodes-25-ff4081?style=for-the-badge)](#node-index)
 [![Docs](https://img.shields.io/badge/docs-per--node-69f0ae?style=for-the-badge)](docs/)
 [![License](https://img.shields.io/badge/license-MIT-69f0ae?style=for-the-badge)](#license)
 
@@ -22,6 +22,10 @@
 - 🚀 **Loaders** — a folder-aware [Diffusers Loader](docs/core-nodes.md) and the one-toggle [Krea 2 · Uncensored](docs/core-nodes.md) stage with three bundled LoRAs.
 - 📁 **LoRA tooling** — a themed [LoRA stack editor](docs/core-nodes.md) with favourites, folder filters and a randomizer, plus the [Lora Inspector](docs/lora-inspector.md) that identifies any LoRA live from Civitai.
 - 🎨 **Image & masks** — [Get Image](docs/core-nodes.md) for in-graph grabs, a full [Mask Editor](docs/core-nodes.md) and [Mask Composite](docs/core-nodes.md).
+- 🔲 **Layout** — [Bounding Boxes](docs/bounding-boxes.md) to draw a layout on a canvas (with layers and a right-click menu), plus a Layout LLM Prompt that lets a local LLM draw the boxes for you.
+- 💎 **Smart image saving** — the [Image Converter / Saver](docs/image-converter.md) saves or converts to PNG, WebP, JPEG and more, and **Smart Squeeze** finds the smallest file that still looks right.
+- 📂 **Dataset captioning** — [folder batch loaders](docs/dataset-captioning.md) and a caption saver that names each `.txt` after its image, with whole-folder auto-run.
+- 📡 **Remote data** — [Set / Get nodes](docs/set-get-nodes.md) pass data across your graph without wires.
 - 🎭 **Characters & video** — [Regional Character LoRA](docs/regional-character-lora.md) for two identities without blend, and [Prompt Relay](docs/prompt-relay.md) for per-segment prompts in LTX video.
 - 🧠 **Local LLMs** — the [LM Studio Bridge](docs/lm-studio-bridge.md) streams chat, vision, audio and video through any model in LM Studio, with a live on-node console.
 
@@ -44,6 +48,14 @@ Every node ships a custom frontend UI. The pack also includes a global **Tab-cyc
 | **Nougan Lora Inspector 🔍** | Point at a LoRA → trigger words, base model, samples, stats, live from Civitai | [docs](docs/lora-inspector.md) |
 | **Nougan Mask Editor 🎨** | Paint and edit masks on-node | [core](docs/core-nodes.md) |
 | **Nougan Mask Composite 🎭** | Combine masks for edit-then-composite workflows | [core](docs/core-nodes.md) |
+| **Nougan Bounding Boxes 🔲** | Draw layout boxes on a canvas → preview, `BOUNDING_BOX` and prompt elements. Layers, snap, right-click menu, paste/import JSON | [docs](docs/bounding-boxes.md) |
+| **Nougan Layout LLM Prompt 🧭** | Writes the instructions that make an LLM answer with box JSON, so a local LLM can draw your layout | [docs](docs/bounding-boxes.md) |
+| **Nougan Image Converter / Saver 💎** | Save or convert to PNG · WebP · JPEG · AVIF · TIFF · BMP · GIF. **Smart Squeeze** + a 5–10 quality scale find the smallest file that still looks right | [docs](docs/image-converter.md) |
+| **Nougan Load Image Batch From Folder 📂** | One image per run from a folder, with live preview and whole-folder auto-run | [docs](docs/dataset-captioning.md) |
+| **Nougan Load Video Batch From Folder 🎞️** | The video counterpart of the folder loader | [docs](docs/dataset-captioning.md) |
+| **Nougan Save Caption (Match Image/Video Name) 💾** | Saves a caption as a `.txt` named after the file just loaded | [docs](docs/dataset-captioning.md) |
+| **Nougan Set (Remote) 📡** | Sends data under a key, no wire needed | [docs](docs/set-get-nodes.md) |
+| **Nougan Get (Remote) 📥** | Receives data by key from anywhere in the graph | [docs](docs/set-get-nodes.md) |
 | **Nougan Regional Character LoRA 🎭** | Two character LoRAs, one image, each masked to its own region — no blend | [docs](docs/regional-character-lora.md) |
 | **Nougan Prompt Relay Encode 🎬** | Per-segment temporal prompts for LTX · LTX2 · LTXAV | [docs](docs/prompt-relay.md) |
 | **Nougan Prompt Relay Timeline 🎞️** | Same pipeline + a draggable WYSIWYG timeline editor | [docs](docs/prompt-relay.md) |
@@ -62,6 +74,12 @@ Every node ships a custom frontend UI. The pack also includes a global **Tab-cyc
 | Stack style/character LoRAs with favourites + a randomizer | [Lora Loader 📁](docs/core-nodes.md) |
 | Find out what an unknown LoRA actually is | [Lora Inspector 🔍](docs/lora-inspector.md) |
 | Encode positive + negative without the two-node dance | [Text Encode + Zero Neg 🎯](docs/core-nodes.md) |
+| Place subjects and text exactly where I want them | [Bounding Boxes 🔲](docs/bounding-boxes.md) |
+| Let a local LLM plan the layout for me | [Layout LLM Prompt 🧭](docs/bounding-boxes.md) |
+| Save images as small as possible without visible loss | [Image Converter / Saver 💎](docs/image-converter.md) |
+| Convert a whole folder of images to WebP or PNG | [Image Converter / Saver 💎](docs/image-converter.md) |
+| Caption a whole dataset folder in one run | [Dataset Captioning 📂](docs/dataset-captioning.md) |
+| Pass data across the graph without wires | [Set / Get 📡](docs/set-get-nodes.md) |
 | Put two characters in one image without identity blend | [Regional Character LoRA 🎭](docs/regional-character-lora.md) |
 | Give different video segments different prompts | [Prompt Relay 🎬](docs/prompt-relay.md) |
 | Chat with / analyze images via a local LLM | [LM Studio Bridge 🧠](docs/lm-studio-bridge.md) |
@@ -80,11 +98,15 @@ Each family announces itself on boot — and each loads in its own `try/except`,
 
 ```
 [Nougan] ✅ Lora Inspector loaded.
+[Nougan] ✅ Bounding Boxes loaded.
+[Nougan] ✅ Image Converter loaded.
 [Nougan] ✅ Prompt Relay loaded (3 nodes).
 [Nougan] ✅ LM Studio Bridge loaded (2 nodes).
 ```
 
 Or install via **ComfyUI Manager** — search *Nougan*.
+
+Optional: `pip install pyoxipng` adds an extra lossless pass to PNG saving in the [Image Converter](docs/image-converter.md).
 
 ---
 
@@ -95,19 +117,20 @@ Every node family has its own page in [`docs/`](docs/):
 | Page | Covers |
 |---|---|
 | [Core nodes](docs/core-nodes.md) | Diffusers Loader · Krea 2 · Get Image · Text Encode + Zero Neg · Text Box · Title Font · Lora Loaders · Mask Editor · Mask Composite |
+| [Remote Data Nodes](docs/set-get-nodes.md) | Wireless data passing, auto-color sync, dynamic key management |
 | [Lora Inspector](docs/lora-inspector.md) | Civitai lookup, caching, HTTP endpoint |
 | [Regional Character LoRA](docs/regional-character-lora.md) | Token-space masking, regions, recon tool |
 | [Prompt Relay](docs/prompt-relay.md) | Timeline editor, epsilon tuning, technical deep dives |
 | [LM Studio Bridge](docs/lm-studio-bridge.md) | Dev-server setup, vision/audio/video, Krea 2 prompt director |
+| [Dataset Captioning](docs/dataset-captioning.md) | Folder Batch Loader · Save Caption (Match Image Name) · whole-folder auto-run · LoRA dataset prep |
+| [Bounding Boxes](docs/bounding-boxes.md) | Box editor · layers and right-click menu · LLM layout prompt · MOSS-Image layouts |
+| [Image Converter / Saver](docs/image-converter.md) | Save and convert · Smart Squeeze · quality scale · lossless PNG/WebP · batch convert a folder |
 
 ---
 
 ## 📄 License
 
 MIT — take it, ship it, remix it.
-[![Nodes](https://img.shields.io/badge/nodes-17-ff4081?style=for-the-badge)](#node-index)
-[![Docs](https://img.shields.io/badge/docs-per--node-69f0ae?style=for-the-badge)](docs/)
-[![License](https://img.shields.io/badge/license-MIT-69f0ae?style=for-the-badge)](#license)
 
 ---
 
