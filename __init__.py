@@ -233,6 +233,36 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Folder Batch Loader NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
+# ── Optional: Bounding Boxes (classic-UI clone of core "Create Bounding Boxes") ─
+try:
+    from .nougan_bounding_boxes import NouganBoundingBoxes
+    NODE_CLASS_MAPPINGS["NouganBoundingBoxes"] = NouganBoundingBoxes
+    NODE_DISPLAY_NAME_MAPPINGS["NouganBoundingBoxes"] = "Nougan Bounding Boxes 🔲"
+    print("[Nougan] ✅ Bounding Boxes loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Bounding Boxes NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: Image Converter / Saver ───────────────────────────────────────
+try:
+    from .nougan_image_converter import NouganImageConverter
+    NODE_CLASS_MAPPINGS["NouganImageConverter"] = NouganImageConverter
+    NODE_DISPLAY_NAME_MAPPINGS["NouganImageConverter"] = "Nougan Image Converter / Saver 💎"
+    print("[Nougan] ✅ Image Converter loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Image Converter NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: Layout LLM Prompt (makes an LLM answer with bounding-box JSON) ──
+try:
+    from .nougan_layout_llm import NouganLayoutLLMPrompt
+    NODE_CLASS_MAPPINGS["NouganLayoutLLMPrompt"] = NouganLayoutLLMPrompt
+    NODE_DISPLAY_NAME_MAPPINGS["NouganLayoutLLMPrompt"] = "Nougan Layout LLM Prompt 🧭"
+    print("[Nougan] ✅ Layout LLM Prompt loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Layout LLM Prompt NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
 # ── Routes — always attempted, fully guarded ────────────────────────────────
 _NOUGAN_ROUTES_REGISTERED = False
 
