@@ -1,7 +1,7 @@
 [project]
 name = "nougan_nodes"
 description = "Custom nodes for ComfyUI by Winnougan"
-version = "1.0.30"
+version = "1.0.31"
 license = { file = "LICENSE" }
 dependencies = []
 
