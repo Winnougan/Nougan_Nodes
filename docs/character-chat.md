@@ -107,8 +107,10 @@ An example workflow, `Winnougan_Chatbot_Silly.json`, is included. Drag it into C
 | `top_k` | 64 | Only sample from the top K tokens (0 = off) |
 | `min_p` | 0.05 | Drops very unlikely tokens |
 | `repetition_penalty` | 1.05 | Raise slightly if the character loops |
+| `presence_penalty` | 0.0 | Penalises any token that has already appeared. Raise a little to push toward new topics (range -2 to 2) |
 | `seed` | random | Set to `randomize` for varied replies, or fix it for repeatable ones |
-| `thinking` | off | Lets the model reason before replying. Slower, and the reasoning is discarded |
+| `thinking` | false | `true` / `false` toggle. Lets the model reason before replying. Slower, and the reasoning is discarded |
+| `mtp` | auto | Speculative decoding using the model's multi-token-prediction head: `auto`, `off`, or `2`-`5` to pin the draft depth. No effect if your checkpoint has no MTP weights |
 | `context_messages` | 40 | How many recent messages are sent to the model |
 | `card_path` | empty | Full path to a card anywhere on disk. **Overrides the dropdown** |
 
