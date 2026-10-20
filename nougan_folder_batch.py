@@ -1,3 +1,20 @@
+"""
+Nougan folder batch loaders + caption saver.
+
+How `auto_run_folder` works
+---------------------------
+* OFF ("single image/video"): the node loads exactly files[index % total].
+* ON  ("run whole folder"): the node loads files[index] and reports, through
+  its UI output, which index comes next (`next_index`, or -1 at the end of the
+  folder). The front-end extension (web/nougan_folder_batch.js) reads that and
+  queues the next prompt, so ONE press of Run walks the entire folder.
+  In this mode IS_CHANGED always returns NaN, so ComfyUI's cache can never
+  skip an item (re-running a folder really re-runs it).
+
+Node IDs, inputs and outputs are unchanged, so existing workflows keep working.
+UI note: the preview is now sent under the "preview" key (not "images") so the
+custom card draws it instead of ComfyUI drawing a second copy on the node.
+"""
 import hashlib
 from fractions import Fraction
 import os
@@ -26,12 +43,18 @@ IMAGE_EXTS = {
     ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp",
     ".tif", ".tiff", ".gif",
 }
+VIDEO_EXTS = {
+    ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv",
+    ".wmv", ".mpg", ".mpeg", ".ts", ".3gp",
+}
 
 SORT_NUMERIC = "numeric (001, 002, 10...)"
 SORT_ALPHA = "alphabetical"
 
 PREVIEW_MAX_SIDE = 1024
 
+
+# ─────────────────────────────────────────────────────────────── helpers ──
 
 def _clean_path(p: str) -> str:
     # Windows "Copy as path" wraps the path in quotes, strip them
@@ -41,7 +64,7 @@ def _clean_path(p: str) -> str:
 def _natural_key(name: str):
     # "img2" < "img10", "001" < "002" < "010"
     parts = re.split(r"(\d+)", name)
-    key = [int(t) if t.isdigit() else t.casefold() for t in parts]
+    key = [(0, int(t)) if t.isdigit() else (1, t.casefold()) for t in parts if t != ""]
     return (key, name)
 
 
@@ -49,19 +72,56 @@ def _alpha_key(name: str):
     return (name.casefold(), name)
 
 
-def list_images(folder: str, sort_mode: str):
+def _list_files(label: str, folder: str, sort_mode: str, exts):
     if not folder:
-        raise ValueError("[FolderImageBatchLoader] folder_path is empty.")
+        raise ValueError(f"[{label}] folder_path is empty.")
     if not os.path.isdir(folder):
-        raise ValueError(f"[FolderImageBatchLoader] Folder not found: {folder}")
+        raise ValueError(f"[{label}] Folder not found: {folder}")
 
     names = [
         f for f in os.listdir(folder)
         if os.path.isfile(os.path.join(folder, f))
-        and os.path.splitext(f)[1].lower() in IMAGE_EXTS
+        and os.path.splitext(f)[1].lower() in exts
     ]
     names.sort(key=_alpha_key if sort_mode == SORT_ALPHA else _natural_key)
     return names
+
+
+def list_images(folder: str, sort_mode: str):
+    return _list_files("FolderImageBatchLoader", folder, sort_mode, IMAGE_EXTS)
+
+
+def list_videos(folder: str, sort_mode: str):
+    return _list_files("FolderVideoBatchLoader", folder, sort_mode, VIDEO_EXTS)
+
+
+def _resolve_index(label: str, index: int, total: int, auto_run_folder: bool) -> int:
+    """
+    single mode : wrap around (index 12 of 10 files -> file 2), like before.
+    folder mode : never wrap. Silently wrapping would make a chain run from
+                  the wrong place or loop forever, so fail loudly instead.
+    """
+    index = int(index)
+    if auto_run_folder:
+        if index >= total:
+            raise ValueError(
+                f"[{label}] 'run whole folder' is on but index {index} is past the "
+                f"last file ({total} files, last index is {total - 1}). Set index to 0."
+            )
+        return index
+    return index % total
+
+
+def _batch_ui(preview, idx: int, total: int, auto_run_folder: bool, name: str):
+    """What the front-end card needs. This is where auto_run_folder takes effect."""
+    next_index = idx + 1 if (auto_run_folder and idx + 1 < total) else -1
+    return {
+        "preview": [preview],
+        "batch_info": [idx, total],
+        "auto_run": [1 if auto_run_folder else 0],
+        "next_index": [next_index],
+        "file_name": [name],
+    }
 
 
 def _make_preview(img: Image.Image, key: str):
@@ -74,6 +134,8 @@ def _make_preview(img: Image.Image, key: str):
     prev.save(os.path.join(temp_dir, fname), compress_level=1)
     return {"filename": fname, "subfolder": "", "type": "temp"}
 
+
+# ───────────────────────────────────────────────────────────── image node ──
 
 class FolderImageBatchLoader:
     CATEGORY = "image/batch"
@@ -97,27 +159,31 @@ class FolderImageBatchLoader:
         }
 
     @classmethod
-    def IS_CHANGED(cls, folder_path, sort_mode, index, **kwargs):
+    def IS_CHANGED(cls, folder_path, sort_mode, index, auto_run_folder=True, **kwargs):
+        # Folder mode: always execute. The cache must never swallow an item,
+        # and the front-end relies on this node reporting back every time.
+        if auto_run_folder:
+            return float("nan")
         try:
             folder = _clean_path(folder_path)
             files = list_images(folder, sort_mode)
             if not files:
                 return float("nan")
-            name = files[index % len(files)]
-            full = os.path.join(folder, name)
+            full = os.path.join(folder, files[index % len(files)])
             st = os.stat(full)
             return f"{full}|{st.st_mtime_ns}|{st.st_size}|{len(files)}"
         except Exception:
             return float("nan")
 
     def load(self, folder_path, sort_mode, index, auto_run_folder=True):
+        label = "FolderImageBatchLoader"
         folder = _clean_path(folder_path)
         files = list_images(folder, sort_mode)
         total = len(files)
         if total == 0:
-            raise ValueError(f"[FolderImageBatchLoader] No images found in: {folder}")
+            raise ValueError(f"[{label}] No images found in: {folder}")
 
-        idx = index % total  # wraps if index is past the end
+        idx = _resolve_index(label, index, total, auto_run_folder)
         name = files[idx]
         full = os.path.join(folder, name)
 
@@ -145,35 +211,12 @@ class FolderImageBatchLoader:
         stem = os.path.splitext(name)[0]
 
         return {
-            "ui": {
-                "images": [preview],
-                "batch_info": [idx, total],
-            },
+            "ui": _batch_ui(preview, idx, total, auto_run_folder, name),
             "result": (image, mask, stem, full, idx, total),
         }
 
 
-
-VIDEO_EXTS = {
-    ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv",
-    ".wmv", ".mpg", ".mpeg", ".ts", ".3gp",
-}
-
-
-def list_videos(folder: str, sort_mode: str):
-    if not folder:
-        raise ValueError("[FolderVideoBatchLoader] folder_path is empty.")
-    if not os.path.isdir(folder):
-        raise ValueError(f"[FolderVideoBatchLoader] Folder not found: {folder}")
-
-    names = [
-        f for f in os.listdir(folder)
-        if os.path.isfile(os.path.join(folder, f))
-        and os.path.splitext(f)[1].lower() in VIDEO_EXTS
-    ]
-    names.sort(key=_alpha_key if sort_mode == SORT_ALPHA else _natural_key)
-    return names
-
+# ───────────────────────────────────────────────────────────── video node ──
 
 def _video_first_frame(path: str):
     import av
@@ -300,7 +343,9 @@ class FolderVideoBatchLoader:
         }
 
     @classmethod
-    def IS_CHANGED(cls, folder_path, sort_mode, index, **kwargs):
+    def IS_CHANGED(cls, folder_path, sort_mode, index, auto_run_folder=True, **kwargs):
+        if auto_run_folder:
+            return float("nan")
         try:
             folder = _clean_path(folder_path)
             files = list_videos(folder, sort_mode)
@@ -316,13 +361,14 @@ class FolderVideoBatchLoader:
     def load(self, folder_path, sort_mode, index, auto_run_folder=True,
              force_rate=0.0, frame_load_cap=0, skip_first_frames=0,
              select_every_nth=1, resize_longest_side=0):
+        label = "FolderVideoBatchLoader"
         folder = _clean_path(folder_path)
         files = list_videos(folder, sort_mode)
         total = len(files)
         if total == 0:
-            raise ValueError(f"[FolderVideoBatchLoader] No videos found in: {folder}")
+            raise ValueError(f"[{label}] No videos found in: {folder}")
 
-        idx = index % total
+        idx = _resolve_index(label, index, total, auto_run_folder)
         name = files[idx]
         full = os.path.join(folder, name)
 
@@ -334,10 +380,10 @@ class FolderVideoBatchLoader:
         try:
             audio = _decode_audio(full, t0, t1)
         except Exception as e:
-            print(f"[FolderVideoBatchLoader] Audio decode failed for {name}: {e}")
+            print(f"[{label}] Audio decode failed for {name}: {e}")
             audio = None
         if audio is None:
-            print(f"[FolderVideoBatchLoader] No audio in {name}, using silence.")
+            print(f"[{label}] No audio in {name}, using silence.")
             audio = _silent_audio()
 
         first = Image.fromarray((frames[0].numpy() * 255.0).clip(0, 255).astype(np.uint8))
@@ -350,17 +396,16 @@ class FolderVideoBatchLoader:
                 _VideoComponents(images=frames, audio=audio, frame_rate=Fraction(fps).limit_denominator(1000))
             )
         else:
-            print("[FolderVideoBatchLoader] Native VIDEO type unavailable in this ComfyUI version; "
+            print(f"[{label}] Native VIDEO type unavailable in this ComfyUI version; "
                   "'video' output will be empty. Use frames + audio instead.")
 
         return {
-            "ui": {
-                "images": [preview],
-                "batch_info": [idx, total],
-            },
+            "ui": _batch_ui(preview, idx, total, auto_run_folder, name),
             "result": (frames, audio, stem, full, idx, total, float(fps), video),
         }
 
+
+# ─────────────────────────────────────────────────────────── caption saver ──
 
 SAVE_BESIDE = "next to image"
 SAVE_CUSTOM = "custom folder"
@@ -427,11 +472,13 @@ class SaveCaptionMatchImage:
         return {"ui": {"text": [out_path]}, "result": (out_path,)}
 
 
+# ───────────────────────────────────────────────────────────────── routes ──
+
 _ROUTE_REGISTERED = False
 
 
 def _register_routes():
-    """/nougan/folder_batch/scan powers the 'Refresh folder' button."""
+    """/nougan/folder_batch/scan powers the card's preview + refresh button."""
     global _ROUTE_REGISTERED
     if _ROUTE_REGISTERED:
         return
@@ -475,6 +522,7 @@ def _register_routes():
                 "ok": True,
                 "total": total,
                 "index": idx,
+                "requested_index": index,
                 "name": files[idx],
                 "first": files[0],
                 "last": files[-1],
