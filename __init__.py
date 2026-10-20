@@ -243,37 +243,17 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Bounding Boxes NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
-# ── Optional: Image Converter / Saver ───────────────────────────────────────
+# ── Optional: Character Chat (V2/V3 character card PNG + the loaded LLM) ───────
 try:
-    from .nougan_image_converter import NouganImageConverter
-    NODE_CLASS_MAPPINGS["NouganImageConverter"] = NouganImageConverter
-    NODE_DISPLAY_NAME_MAPPINGS["NouganImageConverter"] = "Nougan Image Converter / Saver 💎"
-    print("[Nougan] ✅ Image Converter loaded.")
+    from .nougan_character_chat import NouganCharacterChat
+    NODE_CLASS_MAPPINGS["NouganCharacterChat"] = NouganCharacterChat
+    NODE_DISPLAY_NAME_MAPPINGS["NouganCharacterChat"] = "Nougan Character Chat 💬"
+    print("[Nougan] ✅ Character Chat loaded.")
 except Exception as _e:
-    print(f"[Nougan] ⚠️  Image Converter NOT loaded ({type(_e).__name__}: {_e})")
+    print(f"[Nougan] ⚠️  Character Chat NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
-# ── Optional: Layout LLM Prompt (makes an LLM answer with bounding-box JSON) ──
-try:
-    from .nougan_layout_llm import NouganLayoutLLMPrompt
-    NODE_CLASS_MAPPINGS["NouganLayoutLLMPrompt"] = NouganLayoutLLMPrompt
-    NODE_DISPLAY_NAME_MAPPINGS["NouganLayoutLLMPrompt"] = "Nougan Layout LLM Prompt 🧭"
-    print("[Nougan] ✅ Layout LLM Prompt loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Layout LLM Prompt NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Album Cover Maker (embeds cover art into audio files) ─────────
-try:
-    from .nougan_album_cover import NouganAlbumCoverMaker
-    NODE_CLASS_MAPPINGS["NouganAlbumCoverMaker"] = NouganAlbumCoverMaker
-    NODE_DISPLAY_NAME_MAPPINGS["NouganAlbumCoverMaker"] = "Nougan Album Cover Maker 💿"
-    print("[Nougan] ✅ Album Cover Maker loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Album Cover Maker NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: V2 PNG Baker (bakes Character Card V2 JSON into a PNG) ───────
+# ── Optional: PNG Bakers (Character Card V2 Baker + Workflow PNG Baker) ─────
 try:
     from .nougan_v2_png_baker import NouganV2PNGBaker
     NODE_CLASS_MAPPINGS["NouganV2PNGBaker"] = NouganV2PNGBaker
@@ -283,7 +263,6 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  V2 PNG Baker NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
-# ── Optional: Workflow PNG Baker (embeds a ComfyUI workflow into any image as a PNG) ──
 try:
     from .nougan_workflow_png_baker import NouganWorkflowPNGBaker
     NODE_CLASS_MAPPINGS["NouganWorkflowPNGBaker"] = NouganWorkflowPNGBaker
