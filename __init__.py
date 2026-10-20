@@ -273,6 +273,26 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Album Cover Maker NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
+# ── Optional: V2 PNG Baker (bakes Character Card V2 JSON into a PNG) ───────
+try:
+    from .nougan_v2_png_baker import NouganV2PNGBaker
+    NODE_CLASS_MAPPINGS["NouganV2PNGBaker"] = NouganV2PNGBaker
+    NODE_DISPLAY_NAME_MAPPINGS["NouganV2PNGBaker"] = "Nougan V2 PNG Baker 🃏"
+    print("[Nougan] ✅ V2 PNG Baker loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  V2 PNG Baker NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: Workflow PNG Baker (embeds a ComfyUI workflow into any image as a PNG) ──
+try:
+    from .nougan_workflow_png_baker import NouganWorkflowPNGBaker
+    NODE_CLASS_MAPPINGS["NouganWorkflowPNGBaker"] = NouganWorkflowPNGBaker
+    NODE_DISPLAY_NAME_MAPPINGS["NouganWorkflowPNGBaker"] = "Nougan Workflow PNG Baker 🧬"
+    print("[Nougan] ✅ Workflow PNG Baker loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Workflow PNG Baker NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
 # ── Routes — always attempted, fully guarded ────────────────────────────────
 _NOUGAN_ROUTES_REGISTERED = False
 
