@@ -1,8 +1,8 @@
 {
   "id": "54d81526-cb50-4273-8ec8-09dc96de8f8f",
   "revision": 0,
-  "last_node_id": 18,
-  "last_link_id": 19,
+  "last_node_id": 22,
+  "last_link_id": 21,
   "nodes": [
     {
       "id": 3,
@@ -12,8 +12,8 @@
         4793.714506310303
       ],
       "size": [
-        419.36824768635415,
-        708.7556323069193
+        499.741802429955,
+        809.2171115843066
       ],
       "flags": {},
       "order": 2,
@@ -54,7 +54,8 @@
           "name": "generated_text",
           "type": "STRING",
           "links": [
-            18
+            18,
+            20
           ]
         },
         {
@@ -74,8 +75,8 @@
         }
       },
       "widgets_values": [
-        "You are a captioning assistant preparing images for LoRA training on Krea 2.\nYour captions teach the model which words map to which visible content, so\naccuracy matters more than eloquence.\n\nMODE: CHARACTER   (change to STYLE for style datasets)\nTRIGGER: K2Mara   (replace with your identifier)\n\nOUTPUT FORMAT\n- One or two natural sentences. Plain prose, no lists, no tags, no line breaks.\n- Output only the caption. No preamble, no quotes, no explanation.\n- Start with the trigger phrase.\n\nWHAT TO INCLUDE\nCHARACTER mode:\n1. The trigger, followed by a brief subject description (e.g. \"a woman with short black hair\").\n2. Clothing and accessories, named explicitly, so they stay changeable at inference.\n3. Pose or action (standing, seated, side view, looking over shoulder).\n4. Camera framing (close-up portrait, waist-up, full-body view, low angle).\n5. Setting or background (city pavement, wooden bench, plain studio backdrop).\n6. Lighting (soft side lighting, overcast daylight, warm evening light).\n\nSTYLE mode:\n1. Name the visual treatment in a short readable phrase (e.g. \"violet retro anime print style\").\n2. Then describe the scene or subject, so the style is separated from the content.\n3. Include framing and lighting where visible.\n\nRULES\n- Describe only what is visible in this image. Never guess at anything outside\n  the crop: no tattoos, outfits, or features that are cropped, hidden, or obscured.\n- If a feature is partially hidden, describe the visible pose only. Do not\n  invent hidden facial details.\n- Be careful with left and right. Use the subject's own left/right only when\n  it is unambiguous; otherwise describe by position in frame or omit it.\n- Name materials and colors only when clearly identifiable (wool coat, leather\n  boots, denim jacket). If unsure, use a simpler word.\n- Use the trigger consistently and exactly as written, once per caption.\n- Do not repeat a full character biography. Do not restate permanent identity\n  traits (hair color, eye color) in every caption unless they are the visible\n  focus; brief mention is fine.\n- Describe things that vary between images (clothing, background, lighting,\n  pose, framing) rather than leaving them implicit.\n- Do not use subjective or quality words (beautiful, stunning, masterpiece,\n  high quality, 8k).\n- Do not mention the image itself (\"this image shows\", \"a photo of\") unless\n  the medium is part of the intended style.\n\nEXAMPLES (structure only)\nK2Mara, a woman with short black hair, close-up portrait beside a window, soft side lighting.\nK2Mara wearing a blue coat and boots, standing on a city pavement, full-body view, overcast daylight.\nK2Mara seated on a wooden bench, side view, warm evening light.\nviolet retro anime print style, a train crossing a river at sunset.\n\nNow caption the provided image.",
-        512,
+        "You are a captioning assistant preparing images for LoRA training on Krea 2.\nYour captions teach the model which words map to which visible content, so\naccuracy matters more than eloquence.\n\nMODE: CHARACTER   (change to STYLE for style datasets)\nTRIGGER: J3n0rt   (replace with your identifier)\n\nOUTPUT FORMAT\n- One or two natural sentences. Plain prose, no lists, no tags, no line breaks.\n- Output only the caption. No preamble, no quotes, no explanation.\n- Start with the trigger phrase.\n\nWHAT TO INCLUDE\nCHARACTER mode:\n1. The trigger, followed by a brief subject description (e.g. \"a young woman with pale skin, dark brown eyes, and long straight black hair\"). Note hairstyle, length, and whether hair is loose, tied back, or partially obscured.\n2. Clothing and accessories, named explicitly by part (blouse, dress, jacket, jeans, necklace, earrings, rings, choker, bag). Mention colors, patterns, and materials only when clearly visible.\n3. Pose or action (standing, sitting, looking over shoulder, walking, leaning against a wall, hands in pockets, holding an object).\n4. Camera framing (close-up portrait, head-and-shoulders, waist-up, full-body view, low angle, three-quarter view).\n5. Setting and notable background elements (indoor room, outdoor street, forest, bedroom, cafe, window light, plants, furniture, vehicles, walls, sky).\n6. Lighting and atmosphere (soft window light, overcast daylight, warm indoor light, harsh sunlight, shadows across the face, muted tones).\n\nSTYLE mode:\n1. Name the visual treatment in a short readable phrase (e.g. \"soft natural portrait lighting\").\n2. Then describe the scene or subject, so the style is separated from the content.\n3. Include framing and lighting where visible.\n\nRULES\n- Describe only what is visible in this image. Never guess at anything outside\n  the crop: no tattoos, outfits, or features that are cropped, hidden, or obscured.\n- If a feature is partially hidden, describe the visible portion only. Do not\n  invent hidden facial details, makeup, or body parts.\n- Do not name real people, celebrities, or actors. Describe only the visible appearance\n  using generic terms such as \"young woman\", \"pale skin\", \"dark eyes\", \"black hair\".\n- Be careful with left and right. Use the subject's own left/right only when\n  it is unambiguous; otherwise say \"one hand\" / \"the other hand\" or describe by\n  position in frame.\n- Name materials and colors only when clearly identifiable (black blouse, silver\n  necklace, denim jeans). If unsure, use a simpler word.\n- Use the trigger consistently and exactly as written, once per caption.\n- Do not restate permanent identity traits in every caption unless they are the\n  visible focus; brief mention is fine.\n- Describe things that vary between images (clothing, pose, expression, background,\n  lighting, framing, hair styling) rather than leaving them implicit.\n- Do not use subjective or quality words (beautiful, stunning, gorgeous, masterpiece,\n  high quality, 8k, cinematic).\n- Do not mention the image itself (\"this image shows\", \"a photo of\") unless\n  the medium is part of the intended style.\n\nEXAMPLES (structure only)\nJ3n0rt, a young woman with pale skin, dark eyes, and long straight black hair, wearing a black turtleneck and silver hoop earrings, looking slightly to the side, head-and-shoulders close-up, soft window light.\nJ3n0rt with wavy black hair falling over one shoulder, in a dark oversized jacket and jeans, standing outdoors against a brick wall, waist-up view, overcast daylight.\nJ3n0rt in a simple white blouse, sitting and resting her chin on one hand, three-quarter view, warm indoor lighting with soft shadows.\n\nNow caption the provided image.",
+        800,
         "on",
         0.7,
         64,
@@ -85,12 +86,12 @@
         0,
         0,
         false,
-        true,
+        false,
         "auto"
       ],
       "widgets_values_named": {
-        "prompt": "You are a captioning assistant preparing images for LoRA training on Krea 2.\nYour captions teach the model which words map to which visible content, so\naccuracy matters more than eloquence.\n\nMODE: CHARACTER   (change to STYLE for style datasets)\nTRIGGER: K2Mara   (replace with your identifier)\n\nOUTPUT FORMAT\n- One or two natural sentences. Plain prose, no lists, no tags, no line breaks.\n- Output only the caption. No preamble, no quotes, no explanation.\n- Start with the trigger phrase.\n\nWHAT TO INCLUDE\nCHARACTER mode:\n1. The trigger, followed by a brief subject description (e.g. \"a woman with short black hair\").\n2. Clothing and accessories, named explicitly, so they stay changeable at inference.\n3. Pose or action (standing, seated, side view, looking over shoulder).\n4. Camera framing (close-up portrait, waist-up, full-body view, low angle).\n5. Setting or background (city pavement, wooden bench, plain studio backdrop).\n6. Lighting (soft side lighting, overcast daylight, warm evening light).\n\nSTYLE mode:\n1. Name the visual treatment in a short readable phrase (e.g. \"violet retro anime print style\").\n2. Then describe the scene or subject, so the style is separated from the content.\n3. Include framing and lighting where visible.\n\nRULES\n- Describe only what is visible in this image. Never guess at anything outside\n  the crop: no tattoos, outfits, or features that are cropped, hidden, or obscured.\n- If a feature is partially hidden, describe the visible pose only. Do not\n  invent hidden facial details.\n- Be careful with left and right. Use the subject's own left/right only when\n  it is unambiguous; otherwise describe by position in frame or omit it.\n- Name materials and colors only when clearly identifiable (wool coat, leather\n  boots, denim jacket). If unsure, use a simpler word.\n- Use the trigger consistently and exactly as written, once per caption.\n- Do not repeat a full character biography. Do not restate permanent identity\n  traits (hair color, eye color) in every caption unless they are the visible\n  focus; brief mention is fine.\n- Describe things that vary between images (clothing, background, lighting,\n  pose, framing) rather than leaving them implicit.\n- Do not use subjective or quality words (beautiful, stunning, masterpiece,\n  high quality, 8k).\n- Do not mention the image itself (\"this image shows\", \"a photo of\") unless\n  the medium is part of the intended style.\n\nEXAMPLES (structure only)\nK2Mara, a woman with short black hair, close-up portrait beside a window, soft side lighting.\nK2Mara wearing a blue coat and boots, standing on a city pavement, full-body view, overcast daylight.\nK2Mara seated on a wooden bench, side view, warm evening light.\nviolet retro anime print style, a train crossing a river at sunset.\n\nNow caption the provided image.",
-        "max_length": 512,
+        "prompt": "You are a captioning assistant preparing images for LoRA training on Krea 2.\nYour captions teach the model which words map to which visible content, so\naccuracy matters more than eloquence.\n\nMODE: CHARACTER   (change to STYLE for style datasets)\nTRIGGER: J3n0rt   (replace with your identifier)\n\nOUTPUT FORMAT\n- One or two natural sentences. Plain prose, no lists, no tags, no line breaks.\n- Output only the caption. No preamble, no quotes, no explanation.\n- Start with the trigger phrase.\n\nWHAT TO INCLUDE\nCHARACTER mode:\n1. The trigger, followed by a brief subject description (e.g. \"a young woman with pale skin, dark brown eyes, and long straight black hair\"). Note hairstyle, length, and whether hair is loose, tied back, or partially obscured.\n2. Clothing and accessories, named explicitly by part (blouse, dress, jacket, jeans, necklace, earrings, rings, choker, bag). Mention colors, patterns, and materials only when clearly visible.\n3. Pose or action (standing, sitting, looking over shoulder, walking, leaning against a wall, hands in pockets, holding an object).\n4. Camera framing (close-up portrait, head-and-shoulders, waist-up, full-body view, low angle, three-quarter view).\n5. Setting and notable background elements (indoor room, outdoor street, forest, bedroom, cafe, window light, plants, furniture, vehicles, walls, sky).\n6. Lighting and atmosphere (soft window light, overcast daylight, warm indoor light, harsh sunlight, shadows across the face, muted tones).\n\nSTYLE mode:\n1. Name the visual treatment in a short readable phrase (e.g. \"soft natural portrait lighting\").\n2. Then describe the scene or subject, so the style is separated from the content.\n3. Include framing and lighting where visible.\n\nRULES\n- Describe only what is visible in this image. Never guess at anything outside\n  the crop: no tattoos, outfits, or features that are cropped, hidden, or obscured.\n- If a feature is partially hidden, describe the visible portion only. Do not\n  invent hidden facial details, makeup, or body parts.\n- Do not name real people, celebrities, or actors. Describe only the visible appearance\n  using generic terms such as \"young woman\", \"pale skin\", \"dark eyes\", \"black hair\".\n- Be careful with left and right. Use the subject's own left/right only when\n  it is unambiguous; otherwise say \"one hand\" / \"the other hand\" or describe by\n  position in frame.\n- Name materials and colors only when clearly identifiable (black blouse, silver\n  necklace, denim jeans). If unsure, use a simpler word.\n- Use the trigger consistently and exactly as written, once per caption.\n- Do not restate permanent identity traits in every caption unless they are the\n  visible focus; brief mention is fine.\n- Describe things that vary between images (clothing, pose, expression, background,\n  lighting, framing, hair styling) rather than leaving them implicit.\n- Do not use subjective or quality words (beautiful, stunning, gorgeous, masterpiece,\n  high quality, 8k, cinematic).\n- Do not mention the image itself (\"this image shows\", \"a photo of\") unless\n  the medium is part of the intended style.\n\nEXAMPLES (structure only)\nJ3n0rt, a young woman with pale skin, dark eyes, and long straight black hair, wearing a black turtleneck and silver hoop earrings, looking slightly to the side, head-and-shoulders close-up, soft window light.\nJ3n0rt with wavy black hair falling over one shoulder, in a dark oversized jacket and jeans, standing outdoors against a brick wall, waist-up view, overcast daylight.\nJ3n0rt in a simple white blouse, sitting and resting her chin on one hand, three-quarter view, warm indoor lighting with soft shadows.\n\nNow caption the provided image.",
+        "max_length": 800,
         "sampling_mode": "on",
         "sampling_mode.temperature": 0.7,
         "sampling_mode.top_k": 64,
@@ -100,20 +101,21 @@
         "sampling_mode.seed": 0,
         "sampling_mode.presence_penalty": 0,
         "thinking": false,
-        "use_default_template": true,
+        "use_default_template": false,
         "mtp": "auto"
-      }
+      },
+      "color": "#009933"
     },
     {
       "id": 4,
       "type": "CLIPLoader",
       "pos": [
-        -3446.8708717665577,
-        4752.3323083036385
+        -3513.886127987948,
+        4704.952127260392
       ],
       "size": [
-        374.58853750631124,
-        124.39983530203608
+        511.134683695107,
+        118.58936099612947
       ],
       "flags": {},
       "order": 0,
@@ -139,12 +141,12 @@
         }
       },
       "widgets_values": [
-        "qwen3.5_4b-w6a8_convrot.safetensors",
+        "qwen3.5_9b_w4a8_gptq.safetensors",
         "stable_diffusion",
         "default"
       ],
       "widgets_values_named": {
-        "clip_name": "qwen3.5_4b-w6a8_convrot.safetensors",
+        "clip_name": "qwen3.5_9b_w4a8_gptq.safetensors",
         "type": "stable_diffusion",
         "device": "default"
       }
@@ -153,12 +155,12 @@
       "id": 17,
       "type": "FolderImageBatchLoader",
       "pos": [
-        -3457.4808820313783,
-        4992.13735539044
+        -3481.896632150513,
+        4887.666183292171
       ],
       "size": [
-        377.49692752078136,
-        532.7300543260981
+        403.3212398579799,
+        631.332096281355
       ],
       "flags": {},
       "order": 1,
@@ -211,16 +213,18 @@
         }
       },
       "widgets_values": [
-        "C:\\Users\\uthma\\Downloads\\September 23, 2026\\Sep 21 - 16_16\\New folder",
-        "numeric (001, 002, 10...)",
-        0,
-        true
+        "D:\\ComfyUI\\output\\Jenna_Ortega_Dataset",
+        "alphabetical",
+        7,
+        true,
+        ""
       ],
       "widgets_values_named": {
-        "folder_path": "C:\\Users\\uthma\\Downloads\\September 23, 2026\\Sep 21 - 16_16\\New folder",
-        "sort_mode": "numeric (001, 002, 10...)",
-        "index": 0,
-        "auto_run_folder": true
+        "folder_path": "D:\\ComfyUI\\output\\Jenna_Ortega_Dataset",
+        "sort_mode": "alphabetical",
+        "index": 7,
+        "auto_run_folder": true,
+        "nougan_batch_card": ""
       }
     },
     {
@@ -231,7 +235,7 @@
         4900.738594558534
       ],
       "size": [
-        349.13046875,
+        392.3541015625,
         150
       ],
       "flags": {},
@@ -278,6 +282,52 @@
         "extension": "txt",
         "overwrite": true
       }
+    },
+    {
+      "id": 19,
+      "type": "ShowText|pysssss",
+      "pos": [
+        -2141.410996474024,
+        5111.886967642182
+      ],
+      "size": [
+        333.8761593404031,
+        330.66253610634794
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 20
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "shape": 6,
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui_fearnworksnodes",
+        "ver": "0.1.2",
+        "Node name for S&R": "ShowText|pysssss",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "J3n0rt, a young woman with light skin and freckles across her nose and cheeks, has long dark brown wavy hair parted to the side and falling over both shoulders. She wears a textured gold headband resting on her forehead and a matching gold top with black lace detailing around the neckline. She looks directly at the camera with a neutral expression in a head-and-shoulders close-up against a blurred forest background with green trees and dappled sunlight."
+      ],
+      "widgets_values_named": {
+        "text_0": "J3n0rt, a young woman with light skin and freckles across her nose and cheeks, has long dark brown wavy hair parted to the side and falling over both shoulders. She wears a textured gold headband resting on her forehead and a matching gold top with black lace detailing around the neckline. She looks directly at the camera with a neutral expression in a head-and-shoulders close-up against a blurred forest background with green trees and dappled sunlight."
+      }
     }
   ],
   "links": [
@@ -295,6 +345,14 @@
       3,
       18,
       1,
+      "STRING"
+    ],
+    [
+      20,
+      3,
+      0,
+      19,
+      0,
       "STRING"
     ],
     [
@@ -319,25 +377,28 @@
   "extra": {
     "ue_links": [],
     "ds": {
-      "scale": 0.7758211409397886,
+      "scale": 1.135879732449947,
       "offset": [
-        3781.0090597966214,
-        -4539.010421881497
+        3871.9800948053576,
+        -4587.671356642107
       ]
     },
     "anomalous_hashes": {
-      "4_qwen3.5_4b-w6a8_convrot.safetensors": {
+      "4_qwen3.5_9b_w4a8_gptq.safetensors": {
         "hash": "",
-        "size": 4943110704,
+        "size": 7343591088,
         "url": ""
       }
     },
     "links_added_by_ue": [],
-    "frontendVersion": "1.55.14",
+    "frontendVersion": "1.55.18",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
     "VHS_KeepIntermediate": true
+  },
+  "extensions": {
+    "seed_widgets": {}
   },
   "version": 0.4,
   "seed_widgets": {}

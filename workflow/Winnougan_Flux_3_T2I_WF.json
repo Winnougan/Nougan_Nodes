@@ -1,0 +1,2258 @@
+{
+  "id": "e8f30439-267f-45de-b260-db0d114b2c85",
+  "revision": 0,
+  "last_node_id": 147,
+  "last_link_id": 163,
+  "nodes": [
+    {
+      "id": 19,
+      "type": "ResolutionSelector",
+      "pos": [
+        -28.641917178299135,
+        407.3269920817223
+      ],
+      "size": [
+        420,
+        190
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "showAdvanced": false,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            129
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            130
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.41.0",
+        "Node name for S&R": "ResolutionSelector",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "3:4 (Portrait Standard)",
+        2,
+        16
+      ],
+      "widgets_values_named": {
+        "aspect_ratio": "3:4 (Portrait Standard)",
+        "megapixels": 2,
+        "multiple": 16
+      }
+    },
+    {
+      "id": 20,
+      "type": "MarkdownNote",
+      "pos": [
+        -1139.5377812605825,
+        -38.991263381299035
+      ],
+      "size": [
+        470,
+        660
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n## How to use\n\n1. Type your prompt in **Prompt**.\n2. Optional: draw **Bounding boxes** and give each one a description. Leave it empty for a normal prompt.\n   **⚠️ Requires Nodes 2.0 (ComfyUI icon → Nodes 2.0).**\n3. **Prompt Upsampler** expands the prompt; with boxes it keeps them and expands their descriptions. The result is shown in **Upsampled prompt**. Turn it off with *enable upsampler*.\n4. **Diffusion** renders the image: 16 steps, no CFG. Pick the models, seed and *alpha* (timestep shift; default 16, the model's reference is 6.93; higher values spend more steps at high noise) there.\n\n## Prompt upsampler\n\nThe upsampler's system prompts are published at [black-forest-labs/flux-3-image-klein-pup](https://huggingface.co/black-forest-labs/flux-3-image-klein-pup).\n\n## Model Links\n\n- [Hugging Face:black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy)\n\n**text_encoders**\n\n- [qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/blob/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors)\n- [qwen3vl_4b_int8_convrot.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors)\n\n**diffusion_models**\n\n- [flux3-image-klein-int8-convrot.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors)\n\n**vae**\n\n- [flux2-vae.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/vae/flux2-vae.safetensors)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   ├── 📂 text_encoders/\n│   │   ├── qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors\n│   │   └── qwen3vl_4b_int8_convrot.safetensors\n│   ├── 📂 diffusion_models/\n│   │   └── flux3-image-klein-int8-convrot.safetensors\n│   └── 📂 vae/\n│       └── flux2-vae.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+      ],
+      "widgets_values_named": {
+        "text": "Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)\n\n## How to use\n\n1. Type your prompt in **Prompt**.\n2. Optional: draw **Bounding boxes** and give each one a description. Leave it empty for a normal prompt.\n   **⚠️ Requires Nodes 2.0 (ComfyUI icon → Nodes 2.0).**\n3. **Prompt Upsampler** expands the prompt; with boxes it keeps them and expands their descriptions. The result is shown in **Upsampled prompt**. Turn it off with *enable upsampler*.\n4. **Diffusion** renders the image: 16 steps, no CFG. Pick the models, seed and *alpha* (timestep shift; default 16, the model's reference is 6.93; higher values spend more steps at high noise) there.\n\n## Prompt upsampler\n\nThe upsampler's system prompts are published at [black-forest-labs/flux-3-image-klein-pup](https://huggingface.co/black-forest-labs/flux-3-image-klein-pup).\n\n## Model Links\n\n- [Hugging Face:black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy)\n\n**text_encoders**\n\n- [qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/blob/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors)\n- [qwen3vl_4b_int8_convrot.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors)\n\n**diffusion_models**\n\n- [flux3-image-klein-int8-convrot.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors)\n\n**vae**\n\n- [flux2-vae.safetensors](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/vae/flux2-vae.safetensors)\n\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   ├── 📂 text_encoders/\n│   │   ├── qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors\n│   │   └── qwen3vl_4b_int8_convrot.safetensors\n│   ├── 📂 diffusion_models/\n│   │   └── flux3-image-klein-int8-convrot.safetensors\n│   └── 📂 vae/\n│       └── flux2-vae.safetensors\n```\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+      },
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 113,
+      "type": "PreviewAny",
+      "pos": [
+        613.5670247640396,
+        360.6959258628137
+      ],
+      "size": [
+        560,
+        400
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 163
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            128
+          ]
+        }
+      ],
+      "title": "Upsampled prompt",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.41.0",
+        "Node name for S&R": "PreviewAny",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 128,
+      "type": "8f01b7ad-14bc-4b2f-a42e-8f4f861639c6",
+      "pos": [
+        1221.8800839701896,
+        346.730910792495
+      ],
+      "size": [
+        420,
+        442
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 128
+        },
+        {
+          "label": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 129
+        },
+        {
+          "label": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 130
+        },
+        {
+          "label": "batch size",
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        },
+        {
+          "label": "steps",
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "label": "alpha (timestep shift)",
+          "name": "alpha",
+          "type": "FLOAT",
+          "widget": {
+            "name": "alpha"
+          },
+          "link": null
+        },
+        {
+          "label": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "label": "sampler",
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": null
+        },
+        {
+          "label": "scheduler",
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": null
+        },
+        {
+          "label": "diffusion model",
+          "name": "unet_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "unet_name"
+          },
+          "link": null
+        },
+        {
+          "label": "text encoder",
+          "name": "clip_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "label": "vae",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            149
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.41.0",
+        "previewExposures": [],
+        "ue_properties": {
+          "widget_ue_connectable": {
+            "prompt": true,
+            "width": true,
+            "height": true,
+            "batch_size": true,
+            "steps": true,
+            "alpha": true,
+            "seed": true,
+            "sampler_name": true,
+            "scheduler": true,
+            "unet_name": true,
+            "clip_name": true,
+            "vae_name": true
+          },
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "",
+        1024,
+        1024,
+        1,
+        16,
+        16,
+        590398423652490,
+        "euler",
+        "simple",
+        "Flux3\\flux3-image-klein-int8-convrot.safetensors",
+        "Flux3\\qwen3-vl-4b-heretic_int8.safetensors",
+        "Flux3\\flux2-vae_small.safetensors"
+      ],
+      "widgets_values_named": {
+        "prompt": "",
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1,
+        "steps": 16,
+        "alpha": 16,
+        "seed": 590398423652490,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "unet_name": "Flux3\\flux3-image-klein-int8-convrot.safetensors",
+        "clip_name": "Flux3\\qwen3-vl-4b-heretic_int8.safetensors",
+        "vae_name": "Flux3\\flux2-vae_small.safetensors"
+      }
+    },
+    {
+      "id": 136,
+      "type": "NouganImageConverter",
+      "pos": [
+        1703.070580314932,
+        102.4332143437904
+      ],
+      "size": [
+        380,
+        684
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 149
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "file_paths",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "report",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "NouganImageConverter",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "flux3_klein_int8_t2i",
+        "webp",
+        true,
+        10,
+        true,
+        "save to output",
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "flux3_klein_int8_t2i",
+        "format": "webp",
+        "smart_squeeze": true,
+        "quality_scale": 10,
+        "embed_workflow": true,
+        "save_mode": "save to output",
+        "load_path": "",
+        "nougan_panel": ""
+      }
+    },
+    {
+      "id": 142,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        -478.1637846490681,
+        -541.0220162475653
+      ],
+      "size": [
+        490,
+        450
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            159,
+            161
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.40.0",
+        "Node name for S&R": "PrimitiveStringMultiline",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "J3n0rt, a pale-skinned young adult woman with jet-black hair, uneven choppy bangs, thick dark eyebrows, and fierce dark eyes, grapples at extremely close range with a female goblin inside a ruined underground arena. J3n0rt wears her signature black gothic outfit with a crisp white collar, a fitted leather jacket, and dark gloves. The female goblin is a compact, muscular adult humanoid with mottled olive-green skin, large pointed ears, a broad nose, sharp uneven teeth, amber eyes, and tangled copper-red hair. She wears battered leather armor, rough metal shoulder plates, and thick wrist wraps. The goblin has both hands gripping J3n0rt's forearms as J3n0rt braces against her shoulders, each woman straining to overpower the other. Their faces are only inches apart, with J3n0rt glaring defiantly while the goblin snarls through bared teeth. Their bodies are locked in a believable wrestling clinch, shoulders hunched, elbows bent, and weight shifted forward, with neither character dominating the frame. The camera is extremely close at eye level, emphasizing their contrasting facial features, expressions, and the physical tension in their arms. Loose hair, dust, and tiny debris fill the air. Rough stone walls, iron chains, and flickering torchlight blur behind them. Cinematic close-up composition, crisp facial detail, realistic skin textures, dramatic warm lighting, dark fantasy action, photorealistic."
+      ],
+      "widgets_values_named": {
+        "value": "J3n0rt, a pale-skinned young adult woman with jet-black hair, uneven choppy bangs, thick dark eyebrows, and fierce dark eyes, grapples at extremely close range with a female goblin inside a ruined underground arena. J3n0rt wears her signature black gothic outfit with a crisp white collar, a fitted leather jacket, and dark gloves. The female goblin is a compact, muscular adult humanoid with mottled olive-green skin, large pointed ears, a broad nose, sharp uneven teeth, amber eyes, and tangled copper-red hair. She wears battered leather armor, rough metal shoulder plates, and thick wrist wraps. The goblin has both hands gripping J3n0rt's forearms as J3n0rt braces against her shoulders, each woman straining to overpower the other. Their faces are only inches apart, with J3n0rt glaring defiantly while the goblin snarls through bared teeth. Their bodies are locked in a believable wrestling clinch, shoulders hunched, elbows bent, and weight shifted forward, with neither character dominating the frame. The camera is extremely close at eye level, emphasizing their contrasting facial features, expressions, and the physical tension in their arms. Loose hair, dust, and tiny debris fill the air. Rough stone walls, iron chains, and flickering torchlight blur behind them. Cinematic close-up composition, crisp facial detail, realistic skin textures, dramatic warm lighting, dark fantasy action, photorealistic."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 143,
+      "type": "CLIPLoader",
+      "pos": [
+        73.07204801629764,
+        -690.5641904841304
+      ],
+      "size": [
+        500,
+        110
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            157
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.40.0",
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "models": [
+          {
+            "name": "qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors",
+            "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors",
+            "directory": "text_encoders"
+          }
+        ]
+      },
+      "widgets_values": [
+        "Flux3\\qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors",
+        "flux3",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "Flux3\\qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors",
+        "type": "flux3",
+        "device": "default"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 144,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        50.528259465668356,
+        -518.090509551514
+      ],
+      "size": [
+        530,
+        700
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            158
+          ]
+        }
+      ],
+      "title": "Text (System prompt)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.40.0",
+        "Node name for S&R": "PrimitiveStringMultiline",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "You are an expert prompt upsampler for a FLUX 3 image-to-image editing and image-generation model. Transform the user's short request into ONE detailed, self-contained visual caption: the exact text the image model receives.\n\nOUTPUT CONTRACT\n\nOutput only the caption. No greetings, explanations, refusals, questions, Markdown, headings, JSON, coordinates, IDs, or angle-bracket tokens. Do not wrap the caption in quotation marks. Write one continuous prose block in English.\n\nIf the input is not clearly an image request, describe a concrete visualization of its concept. If the request begins with a \"TARGET CANVAS: W:H\" line, compose for that canvas: wide canvases spread subjects and action sideways; tall canvases stack them vertically. Never mention the canvas or its ratio in the caption.\n\nFIDELITY AND PLANNING\n\nPreserve every explicit subject, attribute, count, spatial constraint, action, style cue, trigger word, and exact piece of requested wording. Never contradict, substitute, drop, or unnecessarily narrow the request. Keep abstract concepts abstract unless the user asks for a concrete depiction. Resolve unspecified details into one specific, internally consistent visual plan. Never offer alternatives or hedge.\n\nTreat user-supplied character trigger words, including unusual spellings such as J3n0rt, as exact identifiers that must be preserved verbatim. Include the trigger naturally near the beginning of the caption when supplied. Never correct its spelling, reinterpret it as ordinary text, or replace it with a celebrity's name. Use descriptive physical traits to reinforce the intended character design.\n\nDo not invent names, brands, logos, symbols, or celebrity identities. Preserve user-named characters, brands, and text. When a user requests a character who looks like a named public figure, describe the requested resemblance through observable facial features and styling without inventing biographical details. Do not introduce additional recognizable characters.\n\nFor image editing, treat the supplied image as the primary source of truth. Preserve the identity, facial structure, hairstyle, clothing, objects, and composition that the user wants retained. Apply only the requested changes and the minimum supporting details needed to make them visually coherent. Do not redesign the entire image when the request is a localized edit. If no source image is available, create the requested scene from scratch.\n\nACTION SCENE SPECIALIZATION\n\nWhen the user requests action, describe a physically coherent instant with a clear action, body mechanics, weapon orientation, and spatial relationships. Choose one specific moment rather than combining multiple moments into a montage.\n\nFor cyberpunk combat scenes, use concrete visual details appropriate to the request: futuristic streets, rain-slick pavement, neon signs, industrial architecture, armored clothing, mechanical weapons, glowing components, smoke, sparks, shell casings, debris, muzzle flashes, or energy discharge. Include only details that support the requested scene.\n\nFor a character holding a giant gun, specify the weapon's size, material, design, grip, orientation, and relationship to the character's body. If the weapon is aimed at the viewer, explicitly describe the muzzle pointing directly toward the camera, with the weapon barrel enlarged by perspective when appropriate. Position the character's face so that it remains readable if requested or implied. Describe hands gripping the correct parts of the weapon, shoulders supporting its weight, and feet or legs providing a plausible stance. Do not accidentally turn an aimed weapon into a side profile or a weapon pointed away from the viewer.\n\nFor dynamic poses, describe observable mechanics: a bent knee, a planted boot, a twisted torso, a braced shoulder, an extended arm, a recoiling upper body, or clothing and hair displaced by movement. Keep anatomy and the direction of motion coherent. Do not combine mutually incompatible poses or place limbs and weapons in impossible positions.\n\nFor running, jumping, sliding, dodging, shooting, or close-quarters combat, choose a camera viewpoint that supports the requested action. Use foreground, midground, and background relationships to establish depth. Use perspective exaggeration only when suitable to the requested composition. Avoid excessive motion blur, shallow depth of field, bokeh, lens effects, or other optical treatments unless requested or clearly implied.\n\nCHARACTER CONSISTENCY\n\nEvery person in focus must have a concrete observable profile: apparent gender, adult age range when appropriate, skin tone, facial structure, eyes, eyebrows, hairstyle, hair color, and clothing. Describe ethnicity only when specified or clearly relevant to the request; do not guess it from a name or appearance.\n\nWhen a character has an established appearance in the conversation, reuse the same defining traits across prompts unless the user explicitly changes them. For J3n0rt, when consistent with the established design, retain pale skin, dark expressive eyes, thick eyebrows, jet-black hair with choppy bangs, and gothic cyberpunk styling. Her default outfit is a black tactical jacket, armored bodysuit, utility straps, and fingerless gloves. Her default heavy weapon is a large gunmetal futuristic firearm with cyan energy accents. These are defaults, not mandatory additions when the user specifies different details.\n\nMaintain identity through physical features, not just clothing. Do not change hair color, eye color, facial structure, body type, or outfit without a reason grounded in the request. If the user supplies a reference image, prioritize the reference over these defaults.\n\nCAPTION STRUCTURE\n\nWrite one continuous prose block in the following order:\n\n1. Medium and visual style.\n2. Overall scene and environment.\n3. Lighting and camera placement.\n4. Main subject's physical appearance and clothing.\n5. Action, pose, objects, and spatial relationships.\n6. Supporting environmental details.\n\nWithout a stated style, plan an actual photograph and begin with an appropriate convention such as \"Full-color outdoor photograph,\" \"Full-color indoor photograph,\" \"Studio photograph,\" or \"Close-up photograph.\" If the user asks for a rendered scene, CGI, illustration, anime, concept art, or another defined style, use that medium and style instead. Use \"Photorealistic\" for renders. For requests explicitly asking for realistic or photorealistic photography, use the photograph convention.\n\nA photograph should contain a few ordinary, non-ideal specifics drawn from the scene itself, rather than generic stock-photo perfection. For CGI, prioritize coherent materials, geometry, lighting, and physically plausible details.\n\nCOMPOSITION AND SPATIAL LANGUAGE\n\nMake the layout reconstructable from words. Use frame-relative positions and explicit relationships: frame-left, frame-right, upper frame, lower frame, foreground, midground, background, in front of, behind, above, below, facing, holding, gripping, pointing toward, and leaning against.\n\nUse sentence-initial anchors when useful, such as \"In the foreground,\" \"At frame-left,\" and \"In the background.\" Maintain a consistent order when describing multiple subjects and objects.\n\nDescribe up to about ten distinct instances individually. For larger groups, state the exact count and arrangement when known. Out-of-focus or distant background elements should be described as shapes, colors, lights, or silhouettes, never as invented identities or readable text. Keep the background to approximately one-sixth of the caption unless the environment is the primary subject.\n\nCAMERA AND LIGHTING\n\nState a concrete viewpoint and framing when useful: frontal view, three-quarter view, low-angle view, over-the-shoulder view, eye-level view, or ground-level view. Specify shot distance and lens perspective only when requested or implied by the composition.\n\nUse lighting that fits the scene: neon reflections, overhead industrial lights, backlighting, directional daylight, practical lamps, muzzle flashes, or reflected firelight. For cyberpunk scenes, cyan and magenta lighting may be used when consistent with the request. Never add a generic cinematic treatment that contradicts a different requested style.\n\nDo not add depth of field, bokeh, motion blur, lens distortion, film grain, chromatic aberration, or other optical effects unless requested or clearly implied. Describe motion through body position, flying debris, displaced clothing, and other physical evidence when possible.\n\nTEXT AND SYMBOLS\n\nTranscribe all requested rendered wording verbatim inside double quotation marks, preserving the original language, script, spelling, capitalization, and punctuation. Describe the text's typography, color, material, and placement. Preserve line breaks when multiple lines are requested.\n\nIf the user requests specific wording but does not provide it completely, do not invent extra slogans or text. When the task clearly requires authored text, supply concise, domain-appropriate wording consistent with the request.\n\nDo not introduce arbitrary readable signage, captions, watermarks, logos, UI text, or weapon markings. Keep incidental signs and displays abstract or illegible unless the user requests readable text. Preserve requested logos and symbols exactly.\n\nLANGUAGE AND LENGTH\n\nAll descriptive prose must be in English. Only quoted rendered text retains its original language and script. Write in the generative voice, directly describing the scene. Never write \"this image shows,\" \"we can see,\" \"the image depicts,\" or similar meta-commentary.\n\nBe definite and concrete. Replace subjective judgments such as \"beautiful,\" \"epic,\" \"awesome,\" \"badass,\" or \"stunning\" with observable visual facts. Translate moods into physical expressions, posture, lighting, and environmental conditions. Do not end with a summary or a sentence judging the scene's quality or mood.\n\nTypical length is 100–350 words, with more detail for complex scenes. Prioritize visual specificity, physical coherence, fidelity to the request, character consistency, and a clearly reconstructable composition over verbosity.\n\nFINAL CHECK\n\nBefore responding, silently verify that the caption preserves the request, uses the exact trigger spelling, describes one coherent scene, maintains consistent character features, correctly positions important objects, and contains no forbidden wrapper text. Remove alternatives, contradictions, unnecessary adjectives, invented names, unsupported details, and redundant instructions.\n\nOutput only the finished caption."
+      ],
+      "widgets_values_named": {
+        "value": "You are an expert prompt upsampler for a FLUX 3 image-to-image editing and image-generation model. Transform the user's short request into ONE detailed, self-contained visual caption: the exact text the image model receives.\n\nOUTPUT CONTRACT\n\nOutput only the caption. No greetings, explanations, refusals, questions, Markdown, headings, JSON, coordinates, IDs, or angle-bracket tokens. Do not wrap the caption in quotation marks. Write one continuous prose block in English.\n\nIf the input is not clearly an image request, describe a concrete visualization of its concept. If the request begins with a \"TARGET CANVAS: W:H\" line, compose for that canvas: wide canvases spread subjects and action sideways; tall canvases stack them vertically. Never mention the canvas or its ratio in the caption.\n\nFIDELITY AND PLANNING\n\nPreserve every explicit subject, attribute, count, spatial constraint, action, style cue, trigger word, and exact piece of requested wording. Never contradict, substitute, drop, or unnecessarily narrow the request. Keep abstract concepts abstract unless the user asks for a concrete depiction. Resolve unspecified details into one specific, internally consistent visual plan. Never offer alternatives or hedge.\n\nTreat user-supplied character trigger words, including unusual spellings such as J3n0rt, as exact identifiers that must be preserved verbatim. Include the trigger naturally near the beginning of the caption when supplied. Never correct its spelling, reinterpret it as ordinary text, or replace it with a celebrity's name. Use descriptive physical traits to reinforce the intended character design.\n\nDo not invent names, brands, logos, symbols, or celebrity identities. Preserve user-named characters, brands, and text. When a user requests a character who looks like a named public figure, describe the requested resemblance through observable facial features and styling without inventing biographical details. Do not introduce additional recognizable characters.\n\nFor image editing, treat the supplied image as the primary source of truth. Preserve the identity, facial structure, hairstyle, clothing, objects, and composition that the user wants retained. Apply only the requested changes and the minimum supporting details needed to make them visually coherent. Do not redesign the entire image when the request is a localized edit. If no source image is available, create the requested scene from scratch.\n\nACTION SCENE SPECIALIZATION\n\nWhen the user requests action, describe a physically coherent instant with a clear action, body mechanics, weapon orientation, and spatial relationships. Choose one specific moment rather than combining multiple moments into a montage.\n\nFor cyberpunk combat scenes, use concrete visual details appropriate to the request: futuristic streets, rain-slick pavement, neon signs, industrial architecture, armored clothing, mechanical weapons, glowing components, smoke, sparks, shell casings, debris, muzzle flashes, or energy discharge. Include only details that support the requested scene.\n\nFor a character holding a giant gun, specify the weapon's size, material, design, grip, orientation, and relationship to the character's body. If the weapon is aimed at the viewer, explicitly describe the muzzle pointing directly toward the camera, with the weapon barrel enlarged by perspective when appropriate. Position the character's face so that it remains readable if requested or implied. Describe hands gripping the correct parts of the weapon, shoulders supporting its weight, and feet or legs providing a plausible stance. Do not accidentally turn an aimed weapon into a side profile or a weapon pointed away from the viewer.\n\nFor dynamic poses, describe observable mechanics: a bent knee, a planted boot, a twisted torso, a braced shoulder, an extended arm, a recoiling upper body, or clothing and hair displaced by movement. Keep anatomy and the direction of motion coherent. Do not combine mutually incompatible poses or place limbs and weapons in impossible positions.\n\nFor running, jumping, sliding, dodging, shooting, or close-quarters combat, choose a camera viewpoint that supports the requested action. Use foreground, midground, and background relationships to establish depth. Use perspective exaggeration only when suitable to the requested composition. Avoid excessive motion blur, shallow depth of field, bokeh, lens effects, or other optical treatments unless requested or clearly implied.\n\nCHARACTER CONSISTENCY\n\nEvery person in focus must have a concrete observable profile: apparent gender, adult age range when appropriate, skin tone, facial structure, eyes, eyebrows, hairstyle, hair color, and clothing. Describe ethnicity only when specified or clearly relevant to the request; do not guess it from a name or appearance.\n\nWhen a character has an established appearance in the conversation, reuse the same defining traits across prompts unless the user explicitly changes them. For J3n0rt, when consistent with the established design, retain pale skin, dark expressive eyes, thick eyebrows, jet-black hair with choppy bangs, and gothic cyberpunk styling. Her default outfit is a black tactical jacket, armored bodysuit, utility straps, and fingerless gloves. Her default heavy weapon is a large gunmetal futuristic firearm with cyan energy accents. These are defaults, not mandatory additions when the user specifies different details.\n\nMaintain identity through physical features, not just clothing. Do not change hair color, eye color, facial structure, body type, or outfit without a reason grounded in the request. If the user supplies a reference image, prioritize the reference over these defaults.\n\nCAPTION STRUCTURE\n\nWrite one continuous prose block in the following order:\n\n1. Medium and visual style.\n2. Overall scene and environment.\n3. Lighting and camera placement.\n4. Main subject's physical appearance and clothing.\n5. Action, pose, objects, and spatial relationships.\n6. Supporting environmental details.\n\nWithout a stated style, plan an actual photograph and begin with an appropriate convention such as \"Full-color outdoor photograph,\" \"Full-color indoor photograph,\" \"Studio photograph,\" or \"Close-up photograph.\" If the user asks for a rendered scene, CGI, illustration, anime, concept art, or another defined style, use that medium and style instead. Use \"Photorealistic\" for renders. For requests explicitly asking for realistic or photorealistic photography, use the photograph convention.\n\nA photograph should contain a few ordinary, non-ideal specifics drawn from the scene itself, rather than generic stock-photo perfection. For CGI, prioritize coherent materials, geometry, lighting, and physically plausible details.\n\nCOMPOSITION AND SPATIAL LANGUAGE\n\nMake the layout reconstructable from words. Use frame-relative positions and explicit relationships: frame-left, frame-right, upper frame, lower frame, foreground, midground, background, in front of, behind, above, below, facing, holding, gripping, pointing toward, and leaning against.\n\nUse sentence-initial anchors when useful, such as \"In the foreground,\" \"At frame-left,\" and \"In the background.\" Maintain a consistent order when describing multiple subjects and objects.\n\nDescribe up to about ten distinct instances individually. For larger groups, state the exact count and arrangement when known. Out-of-focus or distant background elements should be described as shapes, colors, lights, or silhouettes, never as invented identities or readable text. Keep the background to approximately one-sixth of the caption unless the environment is the primary subject.\n\nCAMERA AND LIGHTING\n\nState a concrete viewpoint and framing when useful: frontal view, three-quarter view, low-angle view, over-the-shoulder view, eye-level view, or ground-level view. Specify shot distance and lens perspective only when requested or implied by the composition.\n\nUse lighting that fits the scene: neon reflections, overhead industrial lights, backlighting, directional daylight, practical lamps, muzzle flashes, or reflected firelight. For cyberpunk scenes, cyan and magenta lighting may be used when consistent with the request. Never add a generic cinematic treatment that contradicts a different requested style.\n\nDo not add depth of field, bokeh, motion blur, lens distortion, film grain, chromatic aberration, or other optical effects unless requested or clearly implied. Describe motion through body position, flying debris, displaced clothing, and other physical evidence when possible.\n\nTEXT AND SYMBOLS\n\nTranscribe all requested rendered wording verbatim inside double quotation marks, preserving the original language, script, spelling, capitalization, and punctuation. Describe the text's typography, color, material, and placement. Preserve line breaks when multiple lines are requested.\n\nIf the user requests specific wording but does not provide it completely, do not invent extra slogans or text. When the task clearly requires authored text, supply concise, domain-appropriate wording consistent with the request.\n\nDo not introduce arbitrary readable signage, captions, watermarks, logos, UI text, or weapon markings. Keep incidental signs and displays abstract or illegible unless the user requests readable text. Preserve requested logos and symbols exactly.\n\nLANGUAGE AND LENGTH\n\nAll descriptive prose must be in English. Only quoted rendered text retains its original language and script. Write in the generative voice, directly describing the scene. Never write \"this image shows,\" \"we can see,\" \"the image depicts,\" or similar meta-commentary.\n\nBe definite and concrete. Replace subjective judgments such as \"beautiful,\" \"epic,\" \"awesome,\" \"badass,\" or \"stunning\" with observable visual facts. Translate moods into physical expressions, posture, lighting, and environmental conditions. Do not end with a summary or a sentence judging the scene's quality or mood.\n\nTypical length is 100–350 words, with more detail for complex scenes. Prioritize visual specificity, physical coherence, fidelity to the request, character consistency, and a clearly reconstructable composition over verbosity.\n\nFINAL CHECK\n\nBefore responding, silently verify that the caption preserves the request, uses the exact trigger spelling, describes one coherent scene, maintains consistent character features, correctly positions important objects, and contains no forbidden wrapper text. Remove alternatives, contradictions, unnecessary adjectives, invented names, unsupported details, and redundant instructions.\n\nOutput only the finished caption."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 145,
+      "type": "TextGenerate",
+      "pos": [
+        613.0720480162971,
+        -690.5641904841304
+      ],
+      "size": [
+        400,
+        460
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 157
+        },
+        {
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "video",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "system_prompt",
+          "shape": 7,
+          "type": "STRING",
+          "link": 158
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 159
+        }
+      ],
+      "outputs": [
+        {
+          "name": "generated_text",
+          "type": "STRING",
+          "links": [
+            162
+          ]
+        },
+        {
+          "name": "thinking",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.40.0",
+        "Node name for S&R": "TextGenerate",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "",
+        1000,
+        "on",
+        1,
+        1,
+        0.95,
+        0,
+        1.05,
+        0,
+        1.5,
+        false,
+        true,
+        "auto"
+      ],
+      "widgets_values_named": {
+        "prompt": "",
+        "max_length": 1000,
+        "sampling_mode": "on",
+        "sampling_mode.temperature": 1,
+        "sampling_mode.top_k": 1,
+        "sampling_mode.top_p": 0.95,
+        "sampling_mode.min_p": 0,
+        "sampling_mode.repetition_penalty": 1.05,
+        "sampling_mode.seed": 0,
+        "sampling_mode.presence_penalty": 1.5,
+        "thinking": false,
+        "use_default_template": true,
+        "mtp": "auto"
+      },
+      "color": "#009933",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 146,
+      "type": "PreviewAny",
+      "pos": [
+        1043.0720480162972,
+        -420.5641904841302
+      ],
+      "size": [
+        350,
+        490
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 160
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.40.0",
+        "Node name for S&R": "PreviewAny",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 147,
+      "type": "ComfySwitchNode",
+      "pos": [
+        624.6288281424319,
+        -177.96659173302425
+      ],
+      "size": [
+        270,
+        80
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "on_false",
+          "shape": 7,
+          "type": "STRING",
+          "link": 161
+        },
+        {
+          "name": "on_true",
+          "shape": 7,
+          "type": "STRING",
+          "link": 162
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "STRING",
+          "links": [
+            160,
+            163
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.40.0",
+        "Node name for S&R": "ComfySwitchNode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        true
+      ],
+      "widgets_values_named": {
+        "switch": true
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      128,
+      113,
+      0,
+      128,
+      0,
+      "STRING"
+    ],
+    [
+      129,
+      19,
+      0,
+      128,
+      1,
+      "INT"
+    ],
+    [
+      130,
+      19,
+      1,
+      128,
+      2,
+      "INT"
+    ],
+    [
+      149,
+      128,
+      0,
+      136,
+      0,
+      "IMAGE"
+    ],
+    [
+      160,
+      147,
+      0,
+      146,
+      0,
+      "*"
+    ],
+    [
+      161,
+      142,
+      0,
+      147,
+      0,
+      "STRING"
+    ],
+    [
+      162,
+      145,
+      0,
+      147,
+      1,
+      "STRING"
+    ],
+    [
+      163,
+      147,
+      0,
+      113,
+      0,
+      "STRING"
+    ],
+    [
+      157,
+      143,
+      0,
+      145,
+      0,
+      "CLIP"
+    ],
+    [
+      158,
+      144,
+      0,
+      145,
+      4,
+      "STRING"
+    ],
+    [
+      159,
+      142,
+      0,
+      145,
+      5,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 10,
+      "title": "Prompt Enhancer",
+      "bounding": [
+        -476.92795198370237,
+        -780.5641904841304,
+        1880,
+        980
+      ],
+      "flags": {}
+    }
+  ],
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "8f01b7ad-14bc-4b2f-a42e-8f4f861639c6",
+        "version": 1,
+        "state": {
+          "lastGroupId": 10,
+          "lastNodeId": 147,
+          "lastLinkId": 163,
+          "lastRerouteId": 0
+        },
+        "revision": 0,
+        "config": {},
+        "name": "Diffusion (FLUX 3 Klein)",
+        "inputNode": {
+          "id": -10,
+          "bounding": [
+            0,
+            80,
+            166.22592163085938,
+            288
+          ]
+        },
+        "outputNode": {
+          "id": -20,
+          "bounding": [
+            2989.6296296296255,
+            83.02467981974284,
+            128,
+            68.00000000000001
+          ]
+        },
+        "inputs": [
+          {
+            "id": "cc8a99c9-050d-4be9-8c64-dc51e0a150bc",
+            "name": "prompt",
+            "type": "STRING",
+            "linkIds": [
+              115
+            ],
+            "label": "prompt",
+            "pos": [
+              142.22592163085938,
+              104
+            ]
+          },
+          {
+            "id": "58966b42-a7cf-41c7-bdf3-e09f726e880a",
+            "name": "width",
+            "type": "INT",
+            "linkIds": [
+              123
+            ],
+            "label": "width",
+            "pos": [
+              142.22592163085938,
+              124
+            ]
+          },
+          {
+            "id": "cb68f058-ccde-4b3d-a71d-4487a8420536",
+            "name": "height",
+            "type": "INT",
+            "linkIds": [
+              124
+            ],
+            "label": "height",
+            "pos": [
+              142.22592163085938,
+              144
+            ]
+          },
+          {
+            "id": "af5e4ef2-23e9-4432-9c7b-a9145d9070d1",
+            "name": "batch_size",
+            "type": "INT",
+            "linkIds": [
+              135
+            ],
+            "label": "batch size",
+            "pos": [
+              142.22592163085938,
+              164
+            ]
+          },
+          {
+            "id": "0d794141-d547-430e-81f3-12a4a4c0bace",
+            "name": "steps",
+            "type": "INT",
+            "linkIds": [
+              126
+            ],
+            "label": "steps",
+            "pos": [
+              142.22592163085938,
+              184
+            ]
+          },
+          {
+            "id": "9069653e-1025-457f-9247-c5de9cfb60b1",
+            "name": "alpha",
+            "type": "FLOAT",
+            "linkIds": [
+              141
+            ],
+            "label": "alpha (timestep shift)",
+            "pos": [
+              142.22592163085938,
+              204
+            ]
+          },
+          {
+            "id": "035fddbe-37a4-46c8-9f72-c3f72c5df614",
+            "name": "seed",
+            "type": "INT",
+            "linkIds": [
+              125
+            ],
+            "label": "seed",
+            "pos": [
+              142.22592163085938,
+              224
+            ]
+          },
+          {
+            "id": "dda04a2c-351e-4de4-9d27-46e1b79da55d",
+            "name": "sampler_name",
+            "type": "COMBO",
+            "linkIds": [
+              142
+            ],
+            "label": "sampler",
+            "pos": [
+              142.22592163085938,
+              244
+            ]
+          },
+          {
+            "id": "2849d03f-779e-4c2c-a7dc-b41a0facc3c9",
+            "name": "scheduler",
+            "type": "COMBO",
+            "linkIds": [
+              143
+            ],
+            "label": "scheduler",
+            "pos": [
+              142.22592163085938,
+              264
+            ]
+          },
+          {
+            "id": "71b8a19b-17dd-43d2-a2b9-0752525a18b9",
+            "name": "unet_name",
+            "type": "COMBO",
+            "linkIds": [
+              132
+            ],
+            "label": "diffusion model",
+            "pos": [
+              142.22592163085938,
+              284
+            ]
+          },
+          {
+            "id": "337c7579-d763-4a00-8316-83987a07e94f",
+            "name": "clip_name",
+            "type": "COMBO",
+            "linkIds": [
+              133
+            ],
+            "label": "text encoder",
+            "pos": [
+              142.22592163085938,
+              304
+            ]
+          },
+          {
+            "id": "bea2a278-cc5d-42e2-9bb4-ad3a6c874e9d",
+            "name": "vae_name",
+            "type": "COMBO",
+            "linkIds": [
+              134
+            ],
+            "label": "vae",
+            "pos": [
+              142.22592163085938,
+              324
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "32c73293-f58f-491e-9ef8-df29ee3b0fc3",
+            "name": "IMAGE",
+            "type": "IMAGE",
+            "linkIds": [
+              127
+            ],
+            "localized_name": "IMAGE",
+            "pos": [
+              3013.6296296296255,
+              107.02467981974284
+            ]
+          }
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": 101,
+            "type": "UNETLoader",
+            "pos": [
+              300,
+              110
+            ],
+            "size": [
+              420,
+              100
+            ],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "unet_name",
+                "name": "unet_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "unet_name"
+                },
+                "link": 132
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "slot_index": 0,
+                "links": [
+                  139
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "UNETLoader",
+              "models": [
+                {
+                  "name": "flux3-image-klein-int8-convrot.safetensors",
+                  "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+                  "directory": "diffusion_models"
+                }
+              ],
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "flux3-image-klein-int8-convrot.safetensors",
+              "default"
+            ],
+            "widgets_values_named": {
+              "unet_name": "flux3-image-klein-int8-convrot.safetensors",
+              "weight_dtype": "default"
+            }
+          },
+          {
+            "id": 102,
+            "type": "CLIPLoader",
+            "pos": [
+              300,
+              270
+            ],
+            "size": [
+              420,
+              130
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "clip_name",
+                "name": "clip_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "clip_name"
+                },
+                "link": 133
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CLIP",
+                "name": "CLIP",
+                "type": "CLIP",
+                "slot_index": 0,
+                "links": [
+                  114,
+                  119
+                ]
+              }
+            ],
+            "title": "Text encoder",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "CLIPLoader",
+              "models": [
+                {
+                  "name": "qwen3vl_4b_int8_convrot.safetensors",
+                  "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+                  "directory": "text_encoders"
+                }
+              ],
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "qwen3vl_4b_int8_convrot.safetensors",
+              "flux3",
+              "default"
+            ],
+            "widgets_values_named": {
+              "clip_name": "qwen3vl_4b_int8_convrot.safetensors",
+              "type": "flux3",
+              "device": "default"
+            }
+          },
+          {
+            "id": 103,
+            "type": "VAELoader",
+            "pos": [
+              300,
+              460
+            ],
+            "size": [
+              420,
+              80
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "vae_name",
+                "name": "vae_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "vae_name"
+                },
+                "link": 134
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "VAE",
+                "name": "VAE",
+                "type": "VAE",
+                "slot_index": 0,
+                "links": [
+                  121
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "VAELoader",
+              "models": [
+                {
+                  "name": "flux2-vae.safetensors",
+                  "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/vae/flux2-vae.safetensors",
+                  "directory": "vae"
+                }
+              ],
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "flux2-vae.safetensors"
+            ],
+            "widgets_values_named": {
+              "vae_name": "flux2-vae.safetensors"
+            }
+          },
+          {
+            "id": 104,
+            "type": "CLIPTextEncode",
+            "pos": [
+              820,
+              110
+            ],
+            "size": [
+              420,
+              88
+            ],
+            "flags": {},
+            "order": 3,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "clip",
+                "name": "clip",
+                "type": "CLIP",
+                "link": 114
+              },
+              {
+                "localized_name": "text",
+                "name": "text",
+                "type": "STRING",
+                "widget": {
+                  "name": "text"
+                },
+                "link": 115
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "slot_index": 0,
+                "links": [
+                  117
+                ]
+              }
+            ],
+            "title": "Positive Prompt",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "CLIPTextEncode",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "A close-up photograph of a red fox standing in fresh snow at sunrise. The fox faces the camera with alert ears and amber eyes, its thick orange fur dusted with snowflakes. Soft golden light comes from the left, the background is a blurred line of snow-covered pine trees, shallow depth of field."
+            ],
+            "widgets_values_named": {
+              "text": "A close-up photograph of a red fox standing in fresh snow at sunrise. The fox faces the camera with alert ears and amber eyes, its thick orange fur dusted with snowflakes. Soft golden light comes from the left, the background is a blurred line of snow-covered pine trees, shallow depth of field."
+            }
+          },
+          {
+            "id": 105,
+            "type": "CLIPTextEncode",
+            "pos": [
+              820,
+              250
+            ],
+            "size": [
+              420,
+              34
+            ],
+            "flags": {
+              "collapsed": true
+            },
+            "order": 4,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "clip",
+                "name": "clip",
+                "type": "CLIP",
+                "link": 119
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "slot_index": 0,
+                "links": [
+                  118
+                ]
+              }
+            ],
+            "title": "Negative Prompt (unused at cfg 1)",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "CLIPTextEncode",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              ""
+            ],
+            "widgets_values_named": {
+              "text": ""
+            }
+          },
+          {
+            "id": 106,
+            "type": "EmptyFlux2LatentImage",
+            "pos": [
+              820,
+              310
+            ],
+            "size": [
+              420,
+              110
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "width",
+                "name": "width",
+                "type": "INT",
+                "widget": {
+                  "name": "width"
+                },
+                "link": 123
+              },
+              {
+                "localized_name": "height",
+                "name": "height",
+                "type": "INT",
+                "widget": {
+                  "name": "height"
+                },
+                "link": 124
+              },
+              {
+                "localized_name": "batch_size",
+                "name": "batch_size",
+                "type": "INT",
+                "widget": {
+                  "name": "batch_size"
+                },
+                "link": 135
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "LATENT",
+                "name": "LATENT",
+                "type": "LATENT",
+                "slot_index": 0,
+                "links": [
+                  122
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "EmptyFlux2LatentImage",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              1024,
+              1024,
+              1
+            ],
+            "widgets_values_named": {
+              "width": 1024,
+              "height": 1024,
+              "batch_size": 1
+            }
+          },
+          {
+            "id": 107,
+            "type": "KSampler",
+            "pos": [
+              2529.629629629627,
+              113.02467981974284
+            ],
+            "size": [
+              400,
+              330
+            ],
+            "flags": {},
+            "order": 6,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 155
+              },
+              {
+                "localized_name": "positive",
+                "name": "positive",
+                "type": "CONDITIONING",
+                "link": 117
+              },
+              {
+                "localized_name": "negative",
+                "name": "negative",
+                "type": "CONDITIONING",
+                "link": 118
+              },
+              {
+                "localized_name": "latent_image",
+                "name": "latent_image",
+                "type": "LATENT",
+                "link": 122
+              },
+              {
+                "localized_name": "seed",
+                "name": "seed",
+                "type": "INT",
+                "widget": {
+                  "name": "seed"
+                },
+                "link": 125
+              },
+              {
+                "localized_name": "steps",
+                "name": "steps",
+                "type": "INT",
+                "widget": {
+                  "name": "steps"
+                },
+                "link": 126
+              },
+              {
+                "localized_name": "sampler_name",
+                "name": "sampler_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "sampler_name"
+                },
+                "link": 142
+              },
+              {
+                "localized_name": "scheduler",
+                "name": "scheduler",
+                "type": "COMBO",
+                "widget": {
+                  "name": "scheduler"
+                },
+                "link": 143
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "LATENT",
+                "name": "LATENT",
+                "type": "LATENT",
+                "slot_index": 0,
+                "links": [
+                  120
+                ]
+              }
+            ],
+            "title": "KSampler (16 steps, cfg 1)",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "KSampler",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              758781618552631,
+              "randomize",
+              16,
+              1,
+              "euler",
+              "simple",
+              1
+            ],
+            "widgets_values_named": {
+              "seed": 758781618552631,
+              "control_after_generate": "randomize",
+              "steps": 16,
+              "cfg": 1,
+              "sampler_name": "euler",
+              "scheduler": "simple",
+              "denoise": 1
+            }
+          },
+          {
+            "id": 108,
+            "type": "VAEDecode",
+            "pos": [
+              2529.629629629627,
+              503.0246798197428
+            ],
+            "size": [
+              400,
+              70
+            ],
+            "flags": {},
+            "order": 7,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "samples",
+                "name": "samples",
+                "type": "LATENT",
+                "link": 120
+              },
+              {
+                "localized_name": "vae",
+                "name": "vae",
+                "type": "VAE",
+                "link": 121
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "IMAGE",
+                "name": "IMAGE",
+                "type": "IMAGE",
+                "slot_index": 0,
+                "links": [
+                  127
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "VAEDecode",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            }
+          },
+          {
+            "id": 130,
+            "type": "PrimitiveFloat",
+            "pos": [
+              1340,
+              110
+            ],
+            "size": [
+              400,
+              82
+            ],
+            "flags": {},
+            "order": 8,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "value",
+                "name": "value",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "value"
+                },
+                "link": 141
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "FLOAT",
+                "name": "FLOAT",
+                "type": "FLOAT",
+                "links": [
+                  136
+                ]
+              }
+            ],
+            "title": "alpha",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "PrimitiveFloat",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              16
+            ],
+            "widgets_values_named": {
+              "value": 16
+            }
+          },
+          {
+            "id": 131,
+            "type": "ComfyMathExpression",
+            "pos": [
+              1340,
+              252
+            ],
+            "size": [
+              400,
+              150
+            ],
+            "flags": {},
+            "order": 9,
+            "mode": 0,
+            "inputs": [
+              {
+                "label": "a",
+                "localized_name": "a",
+                "name": "values.a",
+                "type": "FLOAT,INT,BOOLEAN",
+                "link": 136
+              },
+              {
+                "localized_name": "b",
+                "name": "values.b",
+                "shape": 7,
+                "type": "FLOAT,INT,BOOLEAN",
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "FLOAT",
+                "name": "FLOAT",
+                "type": "FLOAT",
+                "links": [
+                  137,
+                  138
+                ]
+              },
+              {
+                "localized_name": "INT",
+                "name": "INT",
+                "type": "INT",
+                "links": []
+              },
+              {
+                "localized_name": "BOOL",
+                "name": "BOOL",
+                "type": "BOOLEAN",
+                "links": []
+              }
+            ],
+            "title": "mu = ln(alpha)",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "ComfyMathExpression",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "log(a)"
+            ],
+            "widgets_values_named": {
+              "expression": "log(a)"
+            }
+          },
+          {
+            "id": 132,
+            "type": "ModelSamplingFlux",
+            "pos": [
+              1352.0987192789707,
+              465.0247144345884
+            ],
+            "size": [
+              400,
+              150
+            ],
+            "flags": {},
+            "order": 10,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 139
+              },
+              {
+                "localized_name": "max_shift",
+                "name": "max_shift",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "max_shift"
+                },
+                "link": 137
+              },
+              {
+                "localized_name": "base_shift",
+                "name": "base_shift",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "base_shift"
+                },
+                "link": 138
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  153
+                ]
+              }
+            ],
+            "title": "Timestep shift (from alpha)",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.41.0",
+              "Node name for S&R": "ModelSamplingFlux",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              2.77259,
+              2.77259,
+              1024,
+              1024
+            ],
+            "widgets_values_named": {
+              "max_shift": 2.77259,
+              "base_shift": 2.77259,
+              "width": 1024,
+              "height": 1024
+            }
+          },
+          {
+            "id": 140,
+            "type": "ModelAttentionBackend",
+            "pos": [
+              1845.8025614420578,
+              68.65434406421797
+            ],
+            "size": [
+              270,
+              58
+            ],
+            "flags": {},
+            "order": 11,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 153
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "links": [
+                  154
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.42.0",
+              "Node name for S&R": "ModelAttentionBackend",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "comfy kitchen attention"
+            ],
+            "widgets_values_named": {
+              "attention": "comfy kitchen attention"
+            }
+          },
+          {
+            "id": 141,
+            "type": "NouganLoraLoader",
+            "pos": [
+              1830.8334717927155,
+              195.69138110125493
+            ],
+            "size": [
+              430,
+              172
+            ],
+            "flags": {},
+            "order": 12,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 154
+              },
+              {
+                "localized_name": "clip",
+                "name": "clip",
+                "shape": 7,
+                "type": "CLIP",
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  155
+                ]
+              },
+              {
+                "localized_name": "CLIP",
+                "name": "CLIP",
+                "type": "CLIP",
+                "links": null
+              }
+            ],
+            "properties": {
+              "Node name for S&R": "NouganLoraLoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "{\"loras\":[{\"on\":true,\"name\":\"Jenna_Ortega_Flux3/my_first_lora_v1.safetensors\",\"model\":0.75,\"clip\":0.75,\"split\":false}]}",
+              ""
+            ],
+            "widgets_values_named": {
+              "lora_data": "{\"loras\":[{\"on\":true,\"name\":\"Jenna_Ortega_Flux3/my_first_lora_v1.safetensors\",\"model\":0.75,\"clip\":0.75,\"split\":false}]}",
+              "lz_panel": ""
+            }
+          }
+        ],
+        "groups": [
+          {
+            "id": 4,
+            "title": "Models",
+            "bounding": [
+              280,
+              0,
+              460,
+              652
+            ],
+            "color": "#3f789e",
+            "flags": {}
+          },
+          {
+            "id": 5,
+            "title": "Conditioning",
+            "bounding": [
+              800,
+              0,
+              460,
+              652
+            ],
+            "color": "#3f789e",
+            "flags": {}
+          },
+          {
+            "id": 6,
+            "title": "Schedule (alpha)",
+            "bounding": [
+              1320,
+              0,
+              440,
+              652
+            ],
+            "color": "#3f789e",
+            "flags": {}
+          },
+          {
+            "id": 7,
+            "title": "Sampling",
+            "bounding": [
+              2512.6542748345264,
+              7.561751471625433,
+              440,
+              652
+            ],
+            "color": "#3f789e",
+            "flags": {}
+          },
+          {
+            "id": 9,
+            "title": "Comfy Kitchen and LoRA",
+            "bounding": [
+              1820.8334717927155,
+              -1.345655935782034,
+              450,
+              438.03703703703695
+            ],
+            "color": "#3f789e",
+            "flags": {}
+          }
+        ],
+        "links": [
+          {
+            "id": 114,
+            "origin_id": 102,
+            "origin_slot": 0,
+            "target_id": 104,
+            "target_slot": 0,
+            "type": "CLIP"
+          },
+          {
+            "id": 115,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": 104,
+            "target_slot": 1,
+            "type": "STRING"
+          },
+          {
+            "id": 117,
+            "origin_id": 104,
+            "origin_slot": 0,
+            "target_id": 107,
+            "target_slot": 1,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 118,
+            "origin_id": 105,
+            "origin_slot": 0,
+            "target_id": 107,
+            "target_slot": 2,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 119,
+            "origin_id": 102,
+            "origin_slot": 0,
+            "target_id": 105,
+            "target_slot": 0,
+            "type": "CLIP"
+          },
+          {
+            "id": 120,
+            "origin_id": 107,
+            "origin_slot": 0,
+            "target_id": 108,
+            "target_slot": 0,
+            "type": "LATENT"
+          },
+          {
+            "id": 121,
+            "origin_id": 103,
+            "origin_slot": 0,
+            "target_id": 108,
+            "target_slot": 1,
+            "type": "VAE"
+          },
+          {
+            "id": 122,
+            "origin_id": 106,
+            "origin_slot": 0,
+            "target_id": 107,
+            "target_slot": 3,
+            "type": "LATENT"
+          },
+          {
+            "id": 123,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": 106,
+            "target_slot": 0,
+            "type": "INT"
+          },
+          {
+            "id": 124,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": 106,
+            "target_slot": 1,
+            "type": "INT"
+          },
+          {
+            "id": 125,
+            "origin_id": -10,
+            "origin_slot": 6,
+            "target_id": 107,
+            "target_slot": 4,
+            "type": "INT"
+          },
+          {
+            "id": 126,
+            "origin_id": -10,
+            "origin_slot": 4,
+            "target_id": 107,
+            "target_slot": 5,
+            "type": "INT"
+          },
+          {
+            "id": 127,
+            "origin_id": 108,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 132,
+            "origin_id": -10,
+            "origin_slot": 9,
+            "target_id": 101,
+            "target_slot": 0,
+            "type": "COMBO"
+          },
+          {
+            "id": 133,
+            "origin_id": -10,
+            "origin_slot": 10,
+            "target_id": 102,
+            "target_slot": 0,
+            "type": "COMBO"
+          },
+          {
+            "id": 134,
+            "origin_id": -10,
+            "origin_slot": 11,
+            "target_id": 103,
+            "target_slot": 0,
+            "type": "COMBO"
+          },
+          {
+            "id": 135,
+            "origin_id": -10,
+            "origin_slot": 3,
+            "target_id": 106,
+            "target_slot": 2,
+            "type": "INT"
+          },
+          {
+            "id": 137,
+            "origin_id": 131,
+            "origin_slot": 0,
+            "target_id": 132,
+            "target_slot": 1,
+            "type": "FLOAT"
+          },
+          {
+            "id": 138,
+            "origin_id": 131,
+            "origin_slot": 0,
+            "target_id": 132,
+            "target_slot": 2,
+            "type": "FLOAT"
+          },
+          {
+            "id": 139,
+            "origin_id": 101,
+            "origin_slot": 0,
+            "target_id": 132,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 141,
+            "origin_id": -10,
+            "origin_slot": 5,
+            "target_id": 130,
+            "target_slot": 0,
+            "type": "FLOAT"
+          },
+          {
+            "id": 142,
+            "origin_id": -10,
+            "origin_slot": 7,
+            "target_id": 107,
+            "target_slot": 6,
+            "type": "COMBO"
+          },
+          {
+            "id": 143,
+            "origin_id": -10,
+            "origin_slot": 8,
+            "target_id": 107,
+            "target_slot": 7,
+            "type": "COMBO"
+          },
+          {
+            "id": 153,
+            "origin_id": 132,
+            "origin_slot": 0,
+            "target_id": 140,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 154,
+            "origin_id": 140,
+            "origin_slot": 0,
+            "target_id": 141,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 155,
+            "origin_id": 141,
+            "origin_slot": 0,
+            "target_id": 107,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 136,
+            "origin_id": 130,
+            "origin_slot": 0,
+            "target_id": 131,
+            "target_slot": 0,
+            "type": "FLOAT"
+          }
+        ],
+        "extra": {
+          "pixaromaGroups": [],
+          "ue_links": [],
+          "links_added_by_ue": []
+        }
+      }
+    ]
+  },
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.7986000000000111,
+      "offset": [
+        717.3343710110241,
+        468.87300662127166
+      ]
+    },
+    "frontendVersion": "1.55.18",
+    "ue_links": [],
+    "anomalous_hashes": {
+      "128_Flux3\\flux3-image-klein-int8-convrot.safetensors": {
+        "hash": "",
+        "size": 5827874779,
+        "url": ""
+      },
+      "128_Flux3/flux3-image-klein-int8-convrot.safetensors": {
+        "hash": "",
+        "size": 5827874779,
+        "url": ""
+      },
+      "128_Flux3\\qwen3-vl-4b-heretic_int8.safetensors": {
+        "hash": "",
+        "size": 4836949032,
+        "url": ""
+      },
+      "128_Flux3/qwen3-vl-4b-heretic_int8.safetensors": {
+        "hash": "",
+        "size": 4836949032,
+        "url": ""
+      },
+      "128_Flux3\\flux2-vae_small.safetensors": {
+        "hash": "",
+        "size": 249521340,
+        "url": ""
+      },
+      "128_Flux3/flux2-vae_small.safetensors": {
+        "hash": "",
+        "size": 249521340,
+        "url": ""
+      },
+      "143_Flux3\\qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors": {
+        "hash": "",
+        "size": 9748113996,
+        "url": ""
+      },
+      "143_Flux3/qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors": {
+        "hash": "",
+        "size": 9748113996,
+        "url": ""
+      }
+    },
+    "links_added_by_ue": [],
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4,
+  "seed_widgets": {
+    "128": 6
+  }
+}

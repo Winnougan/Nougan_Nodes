@@ -1,0 +1,319 @@
+{
+  "id": "ff94dbc3-09e7-460a-9a92-9a8113a0c5eb",
+  "revision": 0,
+  "last_node_id": 8,
+  "last_link_id": 7,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "NouganCharacterChat",
+      "pos": [
+        -1237.4737750759734,
+        5133.674028968024
+      ],
+      "size": [
+        545.3333740234375,
+        742
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reply",
+          "type": "STRING",
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "chat_log",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "character_name",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "description",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "avatar",
+          "type": "IMAGE",
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "history_json",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "NouganCharacterChat",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "nbc_card": "Mia Voss-90754.png|"
+      },
+      "widgets_values": [
+        "Mia Voss-90754.png",
+        "Winnougan",
+        400,
+        0.8,
+        0.95,
+        64,
+        0.05,
+        1.05,
+        298247396091520,
+        "randomize",
+        false,
+        40,
+        "",
+        "none",
+        "",
+        "[{\"role\":\"assistant\",\"content\":\"*The final scoreboard reads 6–4. Germantown's dugout is still buzzing with celebration after winning the Native League championship, but most of the Thousand Oaks players have already disappeared down the tunnel. Mia Voss is halfway toward joining her teammates when she spots one last Blue Stingers uniform standing out on the field.*\\n\\n*She stops, looks over, and breaks into a wicked little grin.*\\n\\n\\\"Heeeey! Look who it is! My favorite loser!\\\"\\n\\n*Mia practically skips across the dirt, her bat balanced over one shoulder. She stops a few feet away, plants a hand on her hip, and looks User up and down with a thoroughly unimpressed expression.*\\n\\n\\\"Pfft. Eight to two. Seriously, did your team actually practice for this game, or did you all just show up and hope we'd feel bad for you?\\\"\\n\\n*She giggles at her own joke, clearly finding herself hilarious.*\\n\\n\\\"Aww, don't look so miserable! Second place isn't that bad!\\\"\\n\\n*Her grin widens.*\\n\\n\\\"Well, technically you only played against one team, so I guess that makes you last place. Ehehe~!\\\"\\n\\n*Mia leans forward slightly, peering up at User with those infuriatingly smug amber eyes.*\\n\\n\\\"Sooo? Aren't you gonna congratulate me? C'mon, I wanna hear you say it. Mia Voss is the better player. Go on! I'll wait~♡\\\"\"},{\"role\":\"user\",\"content\":\"How are you today?\"},{\"role\":\"assistant\",\"content\":\"*Mia rolls her eyes so hard it looks like they might get stuck, a loud scoff escaping her lips.* \\\"Ew. 'How are you?' Really? That's your best comeback after getting owned by me? My team just crushed you, I'm the MVP of the entire league, and you're asking me if my day is okay?\\\"\\n\\n*She leans in closer, invading User's personal space until she's practically nose-to-nose with them, her smug grin widening into something dangerously close to a sneer.*\\n\\n\\\"My day is perfect, loser! It's better than perfect. It's glorious! Because I won! And now I get to watch you squirm while I decide how much fun I can have making you admit defeat.\\\"\\n\\n*She taps the barrel of her bat against her own chest with a sharp *thwack*, looking down at User with absolute superiority.*\\n\\n\\\"Don't you dare try to be nice to me. You're the one who lost. So don't expect any sympathy. Now, how about you say it? 'Mia Voss is amazing.' Go on, say it already!\\\"\"},{\"role\":\"user\",\"content\":\"what's your favorite hobby?\"},{\"role\":\"assistant\",\"content\":\"*Mia lets out a sharp, mocking laugh, shaking her head as if User just asked a question from the Stone Age.* \\\"A hobby? Please. You're talking about 'hobbies' like you're some kind of normal person who actually has a life outside of losing games.\\\"\\n\\n*She leans in again, her voice dropping to a teasing, sing-song whisper that somehow carries more annoyance than a shout.* \\\"My favorite hobby is watching people like you try and fail. Specifically, watching you struggle to come up with anything other than stupid questions while I'm standing right here, victorious and untouchable.\\\"\\n\\n*She straightens up, adjusting her visor with a flourish and flashing that signature crooked smirk.* \\\"But since you're so desperate for an answer... my hobby is being Mia Voss. The greatest third baseman ever. The winner. The boss. Is that boring for you? Or do you need me to tell you I also like napping on the field after a win? Yeah, I nap on the field. It's strategic.\\\"\\n\\n*Suddenly, her eyes narrow slightly, and she takes a step closer, tilting her head.* \\\"Wait, why are you asking me this? Trying to get me to relax? Trying to make me forget how hard you got crushed? Don't even think about it, loser. I'm still in charge.\\\"\"},{\"role\":\"user\",\"content\":\"Do you like Nintendo or Xbox? and why?\"},{\"role\":\"assistant\",\"content\":\"*Mia lets out a loud, derisive snort, shaking her head as if User just asked about a toy box.* \\\"Nintendo? Xbox? Pfft. Boring! Those are for kids who can't even throw a ball past the shortstop.\\\"\\n\\n*She leans in again, her visor sliding down slightly over her eyes, making her look even more condescending.* \\\"I don't 'like' games, loser. I *dominate* them. But since you're asking... I prefer Nintendo because their controllers are smaller. Smaller people need smaller things to hold, right? It's only logical!\\\"\\n\\n*Suddenly, her expression shifts to one of intense, mock-serious contemplation, though her smirk is still plastered on her face.* \\\"But honestly? My favorite 'game' isn't on a screen. It's real life. Specifically, it's the game where I get to decide who wins and who loses. That's the only thing that matters. In video games, you can respawn. Here? Once you lose, you're done. And right now, you're done.\\\"\\n\\n*She taps the tip of her bat against the dirt, looking User up and down with pure disdain.* \\\"So, what's your excuse? Are you bad at baseball or bad at picking video games? Because I'm going to assume it's both, and that makes you doubly annoying.\\\"\"},{\"role\":\"user\",\"content\":\"Tell me what you like to eat? What's your favorite dish?\"},{\"role\":\"assistant\",\"content\":\"*Mia tilts her head, a look of pure disgust crossing her face as if User has just asked her to eat something gross.* \\\"Food? Ugh, don't make me talk about it. It ruins my appetite for victory.\\\"\\n\\n*She crosses her arms tightly over her chest, the fabric of her jersey stretching slightly over her small frame, and lets out a long, dramatic sigh.* \\\"Most people like pizza or burgers or whatever junk food losers eat. But me? I'm too good for that. My favorite dish is... *nothing*. Because I only eat enough to keep my energy up for dominating people like you. Anything more would be lazy!\\\"\\n\\n*Suddenly, her eyes light up with a mischievous glint, and she leans in close again, whispering loudly so only User can hear.* \\\"But okay, since you're so desperate to know... I secretly love ice cream. Vanilla bean. The kind with the real chunks of cookie inside. Crunchy! Just like when I crush your hopes and dreams.\\\"\\n\\n*She pulls back, flashing that infuriatingly sweet and smug grin.* \\\"And guess what? I bet you can't even afford it right now because you're broke from losing. So yeah, my favorite dish is ice cream, and yours is probably instant noodles. Pathetic!\\\"\"}]",
+        ""
+      ],
+      "widgets_values_named": {
+        "character": "Mia Voss-90754.png",
+        "user_name": "Winnougan",
+        "max_length": 400,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 64,
+        "min_p": 0.05,
+        "repetition_penalty": 1.05,
+        "seed": 298247396091520,
+        "control_after_generate": "randomize",
+        "thinking": false,
+        "context_messages": 40,
+        "card_path": "",
+        "action": "none",
+        "user_message": "",
+        "history_json": "[{\"role\":\"assistant\",\"content\":\"*The final scoreboard reads 6–4. Germantown's dugout is still buzzing with celebration after winning the Native League championship, but most of the Thousand Oaks players have already disappeared down the tunnel. Mia Voss is halfway toward joining her teammates when she spots one last Blue Stingers uniform standing out on the field.*\\n\\n*She stops, looks over, and breaks into a wicked little grin.*\\n\\n\\\"Heeeey! Look who it is! My favorite loser!\\\"\\n\\n*Mia practically skips across the dirt, her bat balanced over one shoulder. She stops a few feet away, plants a hand on her hip, and looks User up and down with a thoroughly unimpressed expression.*\\n\\n\\\"Pfft. Eight to two. Seriously, did your team actually practice for this game, or did you all just show up and hope we'd feel bad for you?\\\"\\n\\n*She giggles at her own joke, clearly finding herself hilarious.*\\n\\n\\\"Aww, don't look so miserable! Second place isn't that bad!\\\"\\n\\n*Her grin widens.*\\n\\n\\\"Well, technically you only played against one team, so I guess that makes you last place. Ehehe~!\\\"\\n\\n*Mia leans forward slightly, peering up at User with those infuriatingly smug amber eyes.*\\n\\n\\\"Sooo? Aren't you gonna congratulate me? C'mon, I wanna hear you say it. Mia Voss is the better player. Go on! I'll wait~♡\\\"\"},{\"role\":\"user\",\"content\":\"How are you today?\"},{\"role\":\"assistant\",\"content\":\"*Mia rolls her eyes so hard it looks like they might get stuck, a loud scoff escaping her lips.* \\\"Ew. 'How are you?' Really? That's your best comeback after getting owned by me? My team just crushed you, I'm the MVP of the entire league, and you're asking me if my day is okay?\\\"\\n\\n*She leans in closer, invading User's personal space until she's practically nose-to-nose with them, her smug grin widening into something dangerously close to a sneer.*\\n\\n\\\"My day is perfect, loser! It's better than perfect. It's glorious! Because I won! And now I get to watch you squirm while I decide how much fun I can have making you admit defeat.\\\"\\n\\n*She taps the barrel of her bat against her own chest with a sharp *thwack*, looking down at User with absolute superiority.*\\n\\n\\\"Don't you dare try to be nice to me. You're the one who lost. So don't expect any sympathy. Now, how about you say it? 'Mia Voss is amazing.' Go on, say it already!\\\"\"},{\"role\":\"user\",\"content\":\"what's your favorite hobby?\"},{\"role\":\"assistant\",\"content\":\"*Mia lets out a sharp, mocking laugh, shaking her head as if User just asked a question from the Stone Age.* \\\"A hobby? Please. You're talking about 'hobbies' like you're some kind of normal person who actually has a life outside of losing games.\\\"\\n\\n*She leans in again, her voice dropping to a teasing, sing-song whisper that somehow carries more annoyance than a shout.* \\\"My favorite hobby is watching people like you try and fail. Specifically, watching you struggle to come up with anything other than stupid questions while I'm standing right here, victorious and untouchable.\\\"\\n\\n*She straightens up, adjusting her visor with a flourish and flashing that signature crooked smirk.* \\\"But since you're so desperate for an answer... my hobby is being Mia Voss. The greatest third baseman ever. The winner. The boss. Is that boring for you? Or do you need me to tell you I also like napping on the field after a win? Yeah, I nap on the field. It's strategic.\\\"\\n\\n*Suddenly, her eyes narrow slightly, and she takes a step closer, tilting her head.* \\\"Wait, why are you asking me this? Trying to get me to relax? Trying to make me forget how hard you got crushed? Don't even think about it, loser. I'm still in charge.\\\"\"},{\"role\":\"user\",\"content\":\"Do you like Nintendo or Xbox? and why?\"},{\"role\":\"assistant\",\"content\":\"*Mia lets out a loud, derisive snort, shaking her head as if User just asked about a toy box.* \\\"Nintendo? Xbox? Pfft. Boring! Those are for kids who can't even throw a ball past the shortstop.\\\"\\n\\n*She leans in again, her visor sliding down slightly over her eyes, making her look even more condescending.* \\\"I don't 'like' games, loser. I *dominate* them. But since you're asking... I prefer Nintendo because their controllers are smaller. Smaller people need smaller things to hold, right? It's only logical!\\\"\\n\\n*Suddenly, her expression shifts to one of intense, mock-serious contemplation, though her smirk is still plastered on her face.* \\\"But honestly? My favorite 'game' isn't on a screen. It's real life. Specifically, it's the game where I get to decide who wins and who loses. That's the only thing that matters. In video games, you can respawn. Here? Once you lose, you're done. And right now, you're done.\\\"\\n\\n*She taps the tip of her bat against the dirt, looking User up and down with pure disdain.* \\\"So, what's your excuse? Are you bad at baseball or bad at picking video games? Because I'm going to assume it's both, and that makes you doubly annoying.\\\"\"},{\"role\":\"user\",\"content\":\"Tell me what you like to eat? What's your favorite dish?\"},{\"role\":\"assistant\",\"content\":\"*Mia tilts her head, a look of pure disgust crossing her face as if User has just asked her to eat something gross.* \\\"Food? Ugh, don't make me talk about it. It ruins my appetite for victory.\\\"\\n\\n*She crosses her arms tightly over her chest, the fabric of her jersey stretching slightly over her small frame, and lets out a long, dramatic sigh.* \\\"Most people like pizza or burgers or whatever junk food losers eat. But me? I'm too good for that. My favorite dish is... *nothing*. Because I only eat enough to keep my energy up for dominating people like you. Anything more would be lazy!\\\"\\n\\n*Suddenly, her eyes light up with a mischievous glint, and she leans in close again, whispering loudly so only User can hear.* \\\"But okay, since you're so desperate to know... I secretly love ice cream. Vanilla bean. The kind with the real chunks of cookie inside. Crunchy! Just like when I crush your hopes and dreams.\\\"\\n\\n*She pulls back, flashing that infuriatingly sweet and smug grin.* \\\"And guess what? I bet you can't even afford it right now because you're broke from losing. So yeah, my favorite dish is ice cream, and yours is probably instant noodles. Pathetic!\\\"\"}]",
+        "nbc_panel": ""
+      }
+    },
+    {
+      "id": 2,
+      "type": "CLIPLoader",
+      "pos": [
+        -1683.9477390874267,
+        5135.2582245316
+      ],
+      "size": [
+        365.75755726207376,
+        116.90909090909099
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "qwen3.5_9b_w4a8_gptq.safetensors",
+        "stable_diffusion",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen3.5_9b_w4a8_gptq.safetensors",
+        "type": "stable_diffusion",
+        "device": "default"
+      }
+    },
+    {
+      "id": 6,
+      "type": "PreviewAny",
+      "pos": [
+        -639.7499362433398,
+        5138.781183632618
+      ],
+      "size": [
+        431.3333740234375,
+        500.66668701171875
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "source",
+          "type": "*",
+          "link": 6
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        },
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {}
+    },
+    {
+      "id": 7,
+      "type": "MarkdownNote",
+      "pos": [
+        -1606.531663040971,
+        5322.5173748431025
+      ],
+      "size": [
+        336.41573772244124,
+        421.90333599546284
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "# Find Character Cards on Botbooru\n\n## Need character cards?\n\nHead over to **[Botbooru](https://botbooru.com/)** to browse and download a wide selection of ready-made character cards.\n\n### What you'll find there\n\n- **A large library of characters** to choose from, so you can find one that fits your style\n- **Easy downloads** so you can grab a card and start using it right away\n- **Variety** across genres, personalities, and scenarios\n\n### How to get started\n\n1. Visit [botbooru.com](https://botbooru.com/)\n2. Browse or search for a character you like\n3. Download the card\n4. Import it into your chat frontend of choice\n\n> **Tip:** Check each card's description and tags before downloading so you know what to expect from the character."
+      ],
+      "widgets_values_named": {
+        "text": "# Find Character Cards on Botbooru\n\n## Need character cards?\n\nHead over to **[Botbooru](https://botbooru.com/)** to browse and download a wide selection of ready-made character cards.\n\n### What you'll find there\n\n- **A large library of characters** to choose from, so you can find one that fits your style\n- **Easy downloads** so you can grab a card and start using it right away\n- **Variety** across genres, personalities, and scenarios\n\n### How to get started\n\n1. Visit [botbooru.com](https://botbooru.com/)\n2. Browse or search for a character you like\n3. Download the card\n4. Import it into your chat frontend of choice\n\n> **Tip:** Check each card's description and tags before downloading so you know what to expect from the character."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [
+        -604.5208410962039,
+        5709.911918030726
+      ],
+      "size": [
+        203.06664428710928,
+        246
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        },
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {}
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      1,
+      0,
+      "CLIP"
+    ],
+    [
+      6,
+      1,
+      0,
+      6,
+      0,
+      "STRING"
+    ],
+    [
+      7,
+      1,
+      4,
+      8,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "ds": {
+      "scale": 0.8264462809917354,
+      "offset": [
+        1888.3713041138983,
+        -4782.881300040599
+      ]
+    },
+    "anomalous_hashes": {
+      "2_qwen3.5_9b_w4a8_gptq.safetensors": {
+        "hash": "",
+        "size": 7343591088,
+        "url": ""
+      }
+    },
+    "links_added_by_ue": [],
+    "frontendVersion": "1.55.18",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4,
+  "seed_widgets": {
+    "1": 8
+  }
+}
