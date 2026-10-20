@@ -15,3 +15,4 @@ One page per node family.
 | [Dataset Captioning 📂](dataset-captioning.md) | Folder Batch Loader · Save Caption (Match Image Name) · whole-folder auto-run · LoRA dataset prep |
 | [Bounding Boxes 🔲](bounding-boxes.md) | Box editor · layers and right-click menu · LLM layout prompt · MOSS-Image layouts |
 | [Image Converter / Saver 💎](image-converter.md) | Save and convert · Smart Squeeze · quality scale · lossless PNG/WebP · batch convert a folder |
+| [PNG Bakers 🃏](png-bakers.md) | Character Card V2 Baker · Workflow PNG Baker · accepted JSON shapes · holographic preview · troubleshooting |
