@@ -16,3 +16,4 @@ One page per node family.
 | [Bounding Boxes 🔲](bounding-boxes.md) | Box editor · layers and right-click menu · LLM layout prompt · MOSS-Image layouts |
 | [Image Converter / Saver 💎](image-converter.md) | Save and convert · Smart Squeeze · quality scale · lossless PNG/WebP · batch convert a folder |
 | [PNG Bakers 🃏](png-bakers.md) | Character Card V2 Baker · Workflow PNG Baker · accepted JSON shapes · holographic preview · troubleshooting |
+| [Character Chat 💬](character-chat.md) | Chat with V1/V2/V3 character cards · Qwen3.5 · chat panel · lorebooks · sampling settings · outputs · troubleshooting |
