@@ -178,6 +178,8 @@ _FEATURES = [
     ("Qwen 2.1 RefMod", "nougan_qwen_refmod", "*"),
     # Bake / Encode for MOSS-Image edit models (needs the Ostris edit patch for generation).
     ("MOSS RefMod", "nougan_moss_refmod", "*"),
+    # Bake / Encode for Krea 2 edit LoRAs (needs the Ostris Krea 2 edit patch for generation).
+    ("Krea 2 RefMod", "nougan_krea2_refmod", "*"),
     ("Image Converter", "nougan_image_converter", [
         ("NouganImageConverter", "NouganImageConverter", "Nougan Image Converter 🖼️"),
     ]),
