@@ -1,0 +1,350 @@
+{
+  "id": "39b3cfda-f9fc-476b-bc6e-461c4dc1f50c",
+  "revision": 0,
+  "last_node_id": 6,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 2,
+      "type": "NouganRefModBake",
+      "pos": [
+        2332.5123364991487,
+        38.82039118014927
+      ],
+      "size": [
+        400,
+        456
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 1
+        },
+        {
+          "name": "images",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 3
+        },
+        {
+          "name": "video_frames",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 4
+        },
+        {
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mods",
+          "type": "H3_REF_MODS",
+          "links": null
+        },
+        {
+          "name": "saved_path",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "details",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "NouganRefModBake",
+        "nougan_slots": 1,
+        "nougan_adv": false,
+        "cnr_id": "comfyui_fearnworksnodes",
+        "ver": "0.1.2",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Wednesday",
+        "",
+        "voice",
+        30,
+        5120,
+        1024,
+        16384,
+        "error",
+        8,
+        1536,
+        "",
+        "characters",
+        true
+      ],
+      "widgets_values_named": {
+        "name": "Wednesday",
+        "folder": "",
+        "audio_type": "voice",
+        "audio_max_seconds": 30,
+        "audio_max_tokens": 5120,
+        "ref_resolution": 1024,
+        "max_visual_tokens": 16384,
+        "visual_budget": "error",
+        "folder_max_items": 8,
+        "folder_max_edge": 1536,
+        "description": "",
+        "subfolder": "characters",
+        "overwrite": true
+      },
+      "color": "#4a2f8c",
+      "bgcolor": "#171226"
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        1982.6975699165296,
+        -68.63123801047865
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "title": "Load Video VAE",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "VAELoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "minimax_h3_video_vae_int8_convrot.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+      }
+    },
+    {
+      "id": 4,
+      "type": "VAELoader",
+      "pos": [
+        1969.5646294506023,
+        345.65450608651753
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "title": "Load Audio VAE",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "VAELoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "minimax_h3_audio_vae_fp32.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    {
+      "id": 5,
+      "type": "LoadImageDataSetFromFolder",
+      "pos": [
+        1976.7280713966445,
+        54.34119117202752
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "images",
+          "shape": 6,
+          "type": "IMAGE",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "LoadImageDataSetFromFolder",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "JO"
+      ],
+      "widgets_values_named": {
+        "folder": "JO"
+      }
+    },
+    {
+      "id": 6,
+      "type": "LoadAudio",
+      "pos": [
+        1968.3707406771703,
+        158.211126715997
+      ],
+      "size": [
+        281.5677032470703,
+        136
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.0",
+        "Node name for S&R": "LoadAudio",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Wednesday Said WHAT_ Jenna Ortega’s Best Lines _ Netflix.mp3",
+        ""
+      ],
+      "widgets_values_named": {
+        "audio": "Wednesday Said WHAT_ Jenna Ortega’s Best Lines _ Netflix.mp3",
+        "upload": ""
+      }
+    }
+  ],
+  "links": [
+    [
+      1,
+      3,
+      0,
+      2,
+      0,
+      "VAE"
+    ],
+    [
+      2,
+      4,
+      0,
+      2,
+      4,
+      "VAE"
+    ],
+    [
+      3,
+      5,
+      0,
+      2,
+      1,
+      "IMAGE"
+    ],
+    [
+      4,
+      6,
+      0,
+      2,
+      3,
+      "AUDIO"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1.3513057093104037,
+      "offset": [
+        -1755.8156282933658,
+        230.90452504855875
+      ]
+    },
+    "anomalous_hashes": {
+      "3_minimax_h3_video_vae_int8_convrot.safetensors": {
+        "hash": "",
+        "size": 2811065184,
+        "url": ""
+      },
+      "4_minimax_h3_audio_vae_fp32.safetensors": {
+        "hash": "",
+        "size": 605254808,
+        "url": ""
+      }
+    },
+    "ue_links": [],
+    "links_added_by_ue": [],
+    "frontendVersion": "1.57.1",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4,
+  "seed_widgets": {}
+}
