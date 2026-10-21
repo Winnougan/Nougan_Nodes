@@ -17,3 +17,4 @@ One page per node family.
 | [Image Converter / Saver 💎](image-converter.md) | Save and convert · Smart Squeeze · quality scale · lossless PNG/WebP · batch convert a folder |
 | [PNG Bakers 🃏](png-bakers.md) | Character Card V2 Baker · Workflow PNG Baker · accepted JSON shapes · holographic preview · troubleshooting |
 | [Character Chat 💬](character-chat.md) | Chat with V1/V2/V3 character cards · Qwen3.5 · chat panel · lorebooks · sampling settings · outputs · troubleshooting |
+| [RefMod 🧬](refmod.md) | MiniMax H3 character references · Bake (portraits + audio → one file) · Loader · Apply · card UI · curves and scramble · credits |
