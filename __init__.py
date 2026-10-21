@@ -176,6 +176,8 @@ _FEATURES = [
     ("RefMod Toolkit", "nougan_refmod", "*"),
     # Bake / Encode for Qwen Image 2.1 (own file format, no engine dependency).
     ("Qwen 2.1 RefMod", "nougan_qwen_refmod", "*"),
+    # Bake / Encode for MOSS-Image edit models (needs the Ostris edit patch for generation).
+    ("MOSS RefMod", "nougan_moss_refmod", "*"),
     ("Image Converter", "nougan_image_converter", [
         ("NouganImageConverter", "NouganImageConverter", "Nougan Image Converter 🖼️"),
     ]),
