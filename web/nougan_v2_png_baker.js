@@ -1,5 +1,7 @@
 // web/nougan_v2_png_baker.js
-// Holographic trading-card preview for "Nougan V2 PNG Baker".
+// Holographic trading-card preview for "Nougan V2 PNG Baker" and "Nougan Refmod Baker".
+// Both nodes send the same card_preview / card_info; the refmod baker adds an info.refmod block
+// (hybrid or character-only, tensor count, file size, saved path) that changes a few labels.
 //
 //  • 3D tilt that follows the mouse, with a rainbow foil sheen + glare
 //  • Rarity tiers (common / rare / epic / legendary) from the card's size, just for fun
@@ -13,7 +15,23 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_NAME = "NouganV2PNGBaker";
+// Per-node wording. Everything else (tilt, foil, rarity, stamp) is shared.
+const NODES = {
+  NouganV2PNGBaker: {
+    widget: "nougan_v2_card",
+    icon: "🃏",
+    idleText: "Connect an image and your<br>card JSON, then press Run",
+    ready: "Ready. Connect an image + json_text.",
+    dlLabel: "⬇ Download PNG",
+  },
+  NouganRefmodBaker: {
+    widget: "nougan_refmod_card",
+    icon: "🧬",
+    idleText: "Connect an avatar and your<br>card JSON, then press Run",
+    ready: "Ready. Connect an avatar + json_text (and pick a base refmod, or leave it on none).",
+    dlLabel: "⬇ Avatar PNG",
+  },
+};
 const CARD_H = 462;
 const MIN_W = 330; // the card is laid out for this width; the node is never allowed to be narrower
 const REDUCED = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -142,11 +160,18 @@ const viewURL = (p) =>
 
 const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
 
+const fmtBytes = (n) => {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+};
+
 // ──────────────────────────────────────────────────────────── controller ──
 
 class BakerCard {
-  constructor(node) {
+  constructor(node, cfg) {
     this.node = node;
+    this.cfg = cfg;
     this.visible = true;
     this.raf = 0;
     this.last = 0;
@@ -174,7 +199,7 @@ class BakerCard {
             <div class="nv2-head"><span class="nv2-name" data-k="name">Awaiting bake</span><span class="nv2-gem" data-k="gem">COMMON</span></div>
             <div class="nv2-art">
               <img data-k="img" class="nv2-hide" alt="" draggable="false">
-              <div class="nv2-idle"><b>🃏</b><span>Connect an image and your<br>card JSON, then press Run</span></div>
+              <div class="nv2-idle"><b>${this.cfg.icon}</b><span>${this.cfg.idleText}</span></div>
             </div>
             <div class="nv2-tags" data-k="tags"></div>
             <div class="nv2-meters">
@@ -198,9 +223,9 @@ class BakerCard {
       </div></div></div></div>
       <div class="nv2-btns">
         <div class="nv2-btn" data-k="flip" role="button" aria-disabled="true">↻ Flip card</div>
-        <a class="nv2-btn" data-k="dl" aria-disabled="true">⬇ Download PNG</a>
+        <a class="nv2-btn" data-k="dl" aria-disabled="true">${this.cfg.dlLabel}</a>
       </div>
-      <div class="nv2-status" data-k="status">Ready. Connect an image + json_text.</div>`;
+      <div class="nv2-status" data-k="status">${this.cfg.ready}</div>`;
 
     const q = (n) => root.querySelector(`[data-k="${n}"]`);
     this.q = q;
@@ -223,7 +248,7 @@ class BakerCard {
       }).observe(root);
     }
 
-    const w = this.node.addDOMWidget("nougan_v2_card", "nougan_v2_card", root, {
+    const w = this.node.addDOMWidget(this.cfg.widget, this.cfg.widget, root, {
       serialize: false, hideOnZoom: false, getMinHeight: () => CARD_H,
     });
     w.computeSize = (width) => [width, CARD_H];
@@ -421,7 +446,11 @@ class BakerCard {
     animate ? this.typewrite(info.name) : (this.q("name").textContent = info.name);
     this.q("creator").textContent = info.creator ? `by ${info.creator}` : "by unknown";
     const extra = previews.length > 1 ? ` · ×${previews.length}` : "";
-    this.q("meta").textContent = `V${info.spec_version || "2.0"} · ~${fmtK(info.tokens)} tok · ${info.kb} KB${extra}`;
+    const rm = info.refmod; // only present for the Refmod Baker
+    this.q("meta").textContent = rm
+      ? `refmod · ${rm.kind} · ${fmtBytes(rm.bytes)}`
+      : `V${info.spec_version || "2.0"} · ~${fmtK(info.tokens)} tok · ${info.kb} KB${extra}`;
+    this.q("meta").title = rm ? (rm.base ? `Embedded into a copy of ${rm.base}` : "Character-only file (no tensors)") : "";
 
     const tags = this.q("tags");
     tags.textContent = "";
@@ -450,6 +479,7 @@ class BakerCard {
     const pills = this.q("pills");
     pills.textContent = "";
     for (const txt of [
+      ...(rm ? [rm.tensors ? `${rm.tensors} tensor${rm.tensors === 1 ? "" : "s"} kept` : "no tensors"] : []),
       `${info.alt_greetings || 0} alt greeting${info.alt_greetings === 1 ? "" : "s"}`,
       `${info.book_entries || 0} lorebook entr${info.book_entries === 1 ? "y" : "ies"}`,
       `~${info.tokens} tokens`,
@@ -461,9 +491,10 @@ class BakerCard {
     const flip = this.q("flip"), dl = this.q("dl");
     flip.setAttribute("aria-disabled", "false");
     dl.setAttribute("aria-disabled", "false");
-    dl.href = url; dl.download = first.filename;
+    dl.href = url; dl.download = rm ? `${info.name || "avatar"}.png` : first.filename;
 
-    const where = first.subfolder ? `${first.subfolder}/${first.filename}` : first.filename;
+    // for a refmod the saved file is the .safetensors, not the preview image
+    const where = rm?.saved || (first.subfolder ? `${first.subfolder}/${first.filename}` : first.filename);
     this.setStatus(`✓ Saved ${where}`, "ok");
     if ((info.notes || []).length) this.setStatus(`✓ Saved ${where}  ·  ℹ ${info.notes[0]}`, "ok");
 
@@ -516,7 +547,8 @@ app.registerExtension({
   },
 
   async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData?.name !== NODE_NAME) return;
+    const cfg = NODES[nodeData?.name];
+    if (!cfg) return;
 
     // Enforce MIN_W as the node's minimum width. Setting it once on creation isn't enough: a saved
     // workflow (or a manual resize) could leave the node narrower than the card, which then spills
@@ -538,7 +570,7 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
       injectCSS();
-      const card = new BakerCard(this);
+      const card = new BakerCard(this, cfg);
       this.__nv2 = card;
       cards.add(card);
       this.setSize([Math.max(this.size[0], MIN_W), Math.max(this.size[1], this.computeSize()[1])]);

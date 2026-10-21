@@ -1,5 +1,8 @@
 // nougan-character-chat-ui.js -- chat panel for the Nougan Character Chat node (classic LiteGraph DOM widget, no Nodes 2.0)
 //
+// Characters come from V2/V3 card PNGs, card JSONs, or refmod .safetensors files with a baked character
+// (made by Nougan Refmod Baker); the backend lists and reads all three, this panel just shows them.
+//
 // Turn flow: Send -> sets the hidden widgets (action / user_message / history_json) -> queues the graph ->
 // the node generates the reply -> onExecuted hands back the full history, which becomes the saved chat.
 
@@ -187,11 +190,11 @@ function buildPanel(node) {
     root.innerHTML = `
         <div class="nbc-head">
             <img class="nbc-hav" alt="">
-            <div class="nbc-hi"><div class="nbc-name">No character</div><div class="nbc-sub">Pick a card below, or upload one</div></div>
-            <button class="nbc-tb nbc-up" title="Upload a character card PNG/JSON into input/characters">⬆ Card</button>
-            <button class="nbc-tb nbc-rf" title="Refresh the card list">↻</button>
+            <div class="nbc-hi"><div class="nbc-name">No character</div><div class="nbc-sub">Pick a card or refmod below, or upload one</div></div>
+            <button class="nbc-tb nbc-up" title="Upload a character card (PNG/JSON) or a character refmod (.safetensors) into input/characters">⬆ Card</button>
+            <button class="nbc-tb nbc-rf" title="Refresh the card and refmod list">↻</button>
             <button class="nbc-tb nbc-set" title="Show / hide sampling settings">⚙</button>
-            <input type="file" class="nbc-file" accept=".png,.json" hidden>
+            <input type="file" class="nbc-file" accept=".png,.json,.safetensors" hidden>
         </div>
         <div class="nbc-log"></div>
         <div class="nbc-in">
@@ -228,8 +231,8 @@ function buildPanel(node) {
         const i = st.info;
         $(".nbc-name").textContent = i ? i.name : "No character";
         $(".nbc-sub").textContent = i
-            ? [i.creator ? `by ${i.creator}` : "", (i.tags || []).slice(0, 4).join(" · "), i.lore_entries ? `${i.lore_entries} lore entries` : ""].filter(Boolean).join("  ·  ") || i.spec
-            : (st.infoError || "Pick a card below, or upload one");
+            ? [i.source === "refmod" ? "🧬 refmod" : "", i.creator ? `by ${i.creator}` : "", (i.tags || []).slice(0, 4).join(" · "), i.lore_entries ? `${i.lore_entries} lore entries` : ""].filter(Boolean).join("  ·  ") || i.spec
+            : (st.infoError || "Pick a card or refmod below, or upload one");
         $(".nbc-sub").title = i?.creator_notes || "";
         const img = $(".nbc-hav");
         if (i) { img.src = avatarUrl(); img.style.visibility = "visible"; } else { img.removeAttribute("src"); img.style.visibility = "hidden"; }
@@ -344,7 +347,7 @@ function buildPanel(node) {
         if (!st.history.length && !st.busy) {
             const e = document.createElement("div");
             e.className = "nbc-empty";
-            e.textContent = st.info ? "Say hello to start the chat." : "Choose a character card to begin.";
+            e.textContent = st.info ? "Say hello to start the chat." : "Choose a character card or refmod to begin.";
             logEl.appendChild(e);
         }
 
@@ -393,7 +396,7 @@ function buildPanel(node) {
     function send() {
         const text = ta.value.trim();
         if (!text || st.busy) return;
-        if (!st.info) { st.error = "No character loaded — pick a card first."; render(); return; }
+        if (!st.info) { st.error = "No character loaded — pick a card or refmod first."; render(); return; }
 
         st.lastSent = text;
         st.removed = null;
