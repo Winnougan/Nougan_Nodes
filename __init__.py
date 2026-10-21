@@ -1,301 +1,235 @@
-# __init__.py
+# __init__.py  —  Nougan suite by Winnougan
 import os
+import sys
 import traceback
+import importlib
 
 WEB_DIRECTORY = "./web"
+VERSION = "1.0"  # edit me
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  Pretty console output (ANSI). Set NO_COLOR=1 in your environment to disable.
+# ═════════════════════════════════════════════════════════════════════════════
+_COLOR = "NO_COLOR" not in os.environ
+if _COLOR and os.name == "nt":
+    os.system("")  # flips on ANSI/VT processing in Windows terminals
+
+
+def _c(code, text):
+    return f"\033[{code}m{text}\033[0m" if _COLOR else str(text)
+
+
+def _bold(t):    return _c("1", t)
+def _dim(t):     return _c("2", t)
+def _green(t):   return _c("1;92", t)
+def _yellow(t):  return _c("1;93", t)
+def _red(t):     return _c("1;91", t)
+def _cyan(t):    return _c("96", t)
+def _magenta(t): return _c("95", t)
+def _orange(t):  return _c("38;5;208", t)
+
+
+OK = _green("✔")
+FAIL = _red("✘")
+WARN = _yellow("⚠")
+TAG = _magenta("[Nougan]")
+
+SOCIALS = [
+    ("Patreon",     "https://www.patreon.com/c/Winnougan",        _orange),
+    ("Ko-fi",       "https://ko-fi.com/winnougan",                _cyan),
+    ("YouTube",     "https://www.youtube.com/@Winnougan",         _red),
+    ("Discord",     "https://discord.gg/CJv5wceJaN",              _magenta),
+    ("HuggingFace", "https://huggingface.co/Winnougan",           _yellow),
+    ("GitHub",      "https://github.com/Winnougan/Nougan_No",     _green),
+]
+
+
+def _banner():
+    line = _magenta("═" * 62)
+    print()
+    print(line)
+    print(f"  {_bold(_magenta('N O U G A N'))}  {_cyan('·')}  {_bold('ComfyUI node suite')}  {_dim('v' + VERSION)}")
+    print(f"  {_dim('made with love by')} {_orange('Winnougan')}")
+    print(line)
+    print(f"  {_bold('Support & community')}")
+    for name, url, color in SOCIALS:
+        print(f"   {color('●')} {color(name.ljust(12))} {_dim(url)}")
+    print(line)
+
+
+def _footer(loaded, failed, total_nodes):
+    line = _magenta("═" * 62)
+    print(line)
+    status = f"{OK} {_green(str(loaded) + ' modules loaded')}"
+    if failed:
+        status += f"   {FAIL} {_red(str(len(failed)) + ' failed')} {_dim('(' + ', '.join(failed) + ')')}"
+    print(f"  {status}")
+    print(f"  {_cyan('◆')} {_bold(str(total_nodes))} nodes registered")
+    if not failed:
+        print(f"  {_yellow('★')} {_dim('Enjoying Nougan? Support on')} {_orange('Patreon')}{_dim(' / ')}{_cyan('Ko-fi')} {_dim('— thank you!')}")
+    print(line)
+    print()
+
 
 # Fallback so the /nougan/krea2_loras route can never NameError.
 def get_krea2_lora_status():
     return []
 
-# ── Core nodes — each in its own try/except so ONE bad file can't kill all ──
-try:
-    from .diffusers_loader import NouganDiffusersLoader
-    NODE_CLASS_MAPPINGS["NouganDiffusersLoader"] = NouganDiffusersLoader
-    NODE_DISPLAY_NAME_MAPPINGS["NouganDiffusersLoader"] = "Nougan Diffusers Loader 🚀"
-except Exception as _e:
-    print(f"[Nougan] ⚠️  diffusers_loader NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
 
-try:
-    from .get_image import NouganGetImage
-    NODE_CLASS_MAPPINGS["NouganGetImage"] = NouganGetImage
-    NODE_DISPLAY_NAME_MAPPINGS["NouganGetImage"] = "Nougan Get Image 🖼️"
-except Exception as _e:
-    print(f"[Nougan] ⚠️  get_image NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+# ═════════════════════════════════════════════════════════════════════════════
+#  Feature table — each entry loads in its own try/except so ONE bad file
+#  can't take down the rest of the suite.
+#
+#  (label, module, [(node_id, class_name_in_module, display_name), ...])
+#  Use "*" as the class name to pull the module's own NODE_CLASS_MAPPINGS /
+#  NODE_DISPLAY_NAME_MAPPINGS instead (used by the RefMod toolkit).
+#  The same class may be registered under several node IDs (legacy aliases).
+# ═════════════════════════════════════════════════════════════════════════════
+_FEATURES = [
+    ("Diffusers Loader", "diffusers_loader", [
+        ("NouganDiffusersLoader", "NouganDiffusersLoader", "Nougan Diffusers Loader 🚀"),
+    ]),
+    ("Get Image", "get_image", [
+        ("NouganGetImage", "NouganGetImage", "Nougan Get Image 🖼️"),
+    ]),
+    ("Krea 2 Loader", "krea2_loader", [
+        ("NouganKrea2Loader",      "NouganKrea2Loader",      "Nougan Krea 2 · LoRA 🌀"),
+        ("NouganKrea2LoaderMulti", "NouganKrea2LoaderMulti", "Nougan Krea 2 · LoRA Stack 🌀"),
+    ]),
+    ("Text Encode + Zero Neg", "text_encode", [
+        ("NouganTextEncodeZeroNeg", "NouganTextEncodeZeroNeg", "Nougan Text Encode + Zero Neg 🎯"),
+    ]),
+    ("Text Box", "text_box", [
+        ("NouganTextBox", "NouganTextBox", "Nougan Text Box 📝"),
+    ]),
+    ("Title Font", "title_font", [
+        ("NouganTitleFont", "NouganTitleFont", "Nougan Title Font 🌈"),
+    ]),
+    ("Remote Set / Get", "nougan_set_get", [
+        ("NouganSet", "NouganSet", "Nougan Set (Remote) 📡"),
+        ("NouganGet", "NouganGet", "Nougan Get (Remote) 📥"),
+    ]),
+    ("Power Lora Loader", "nougan_lora_loader", [
+        ("NouganLoraLoader", "NouganLoraLoader", "Nougan Lora Loader 📁"),
+    ]),
+    ("Lora Inspector", "nougan_lora_inspector", [
+        ("NouganLoraInspector", "NouganLoraInspector", "Nougan Lora Inspector 🔍"),
+    ]),
+    ("Mask Editor", "mask_editor", [
+        ("NouganMaskEditor", "NouganMaskEditor", "Nougan Mask Editor 🎨"),
+    ]),
+    ("Mask Composite", "mask_composite", [
+        ("NouganMaskComposite", "NouganMaskComposite", "Nougan Mask Composite 🎭"),
+    ]),
+    ("Regional Character LoRA", "nougan_regional_lora", [
+        ("NouganRegionalCharacterLoRA", "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
+        ("Krea2RegionalCharacterLoRA",  "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
+        ("RegionalCharacterLora",        "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
+    ]),
+    ("Prompt Relay", "prompt_relay", [
+        ("PromptRelayEncode",          "PromptRelayEncode",          "Nougan Prompt Relay Encode 🎬"),
+        ("PromptRelayEncodeTimeline",  "PromptRelayEncodeTimeline",  "Nougan Prompt Relay Timeline 🎞️"),
+        ("PromptRelayAdvancedOptions", "PromptRelayAdvancedOptions", "Nougan Prompt Relay Options ⚙️"),
+    ]),
+    ("LM Studio Bridge", "lm_studio", [
+        ("NouganLMStudio",          "NouganLMStudio",          "Nougan LM Studio 🧠"),
+        ("NouganLMStudioPromptBox", "NouganLMStudioPromptBox", "Nougan LM Studio Prompt Box 💬"),
+    ]),
+    ("Match Image Size", "nougan_match_size", [
+        ("NouganMatchImageSize", "NouganMatchImageSize", "Nougan Match Image Size 📐"),
+    ]),
+    ("Before / After Compare", "nougan_before_after", [
+        ("NouganBeforeAfterCompare", "NouganBeforeAfterCompare", "Nougan Before / After 🔀"),
+    ]),
+    ("Edit Prompt Template", "nougan_edit_prompt", [
+        ("NouganEditPromptTemplate", "NouganEditPromptTemplate", "Nougan Edit Prompt Template 🧩"),
+    ]),
+    ("MiniMax H3 Image Edit", "nougan_h3_edit", [
+        ("NouganH3ImageEdit", "NouganH3ImageEdit", "Nougan MiniMax H3 · Image Edit 🎬"),
+    ]),
+    # Node IDs are kept as FolderImageBatchLoader / SaveCaptionMatchImage so
+    # existing captioning workflows keep working. Only the display names are new.
+    ("Folder Batch Loaders + Save Caption", "nougan_folder_batch", [
+        ("FolderImageBatchLoader", "FolderImageBatchLoader", "Nougan Load Image Batch From Folder 📂"),
+        ("FolderVideoBatchLoader", "FolderVideoBatchLoader", "Nougan Load Video Batch From Folder 🎞️"),
+        ("SaveCaptionMatchImage",  "SaveCaptionMatchImage",  "Nougan Save Caption (Match Image/Video Name) 💾"),
+    ]),
+    ("Bounding Boxes", "nougan_bounding_boxes", [
+        ("NouganBoundingBoxes", "NouganBoundingBoxes", "Nougan Bounding Boxes 🔲"),
+    ]),
+    ("Character Chat", "nougan_character_chat", [
+        ("NouganCharacterChat", "NouganCharacterChat", "Nougan Character Chat 💬"),
+    ]),
+    ("V2 PNG Baker", "nougan_v2_png_baker", [
+        ("NouganV2PNGBaker", "NouganV2PNGBaker", "Nougan V2 PNG Baker 🃏"),
+    ]),
+    ("Workflow PNG Baker", "nougan_workflow_png_baker", [
+        ("NouganWorkflowPNGBaker", "NouganWorkflowPNGBaker", "Nougan Workflow PNG Baker 🧬"),
+    ]),
+    ("Refmod Baker", "nougan_refmod_baker", [
+        ("NouganRefmodBaker", "NouganRefmodBaker", "Nougan Refmod Baker 🧬"),
+    ]),
+    # Bake / Loader / Apply — vendored MiniMaxH3Mod engine (MIT, Luisa).
+    ("RefMod Toolkit", "nougan_refmod", "*"),
+    ("Image Converter", "nougan_image_converter", [
+        ("NouganImageConverter", "NouganImageConverter", "Nougan Image Converter 🖼️"),
+    ]),
+]
 
-try:
-    from .krea2_loader import (
-        NouganKrea2Loader,
-        NouganKrea2LoaderMulti,
-        get_krea2_lora_status as _gk2,
-    )
-    get_krea2_lora_status = _gk2
-    NODE_CLASS_MAPPINGS["NouganKrea2Loader"] = NouganKrea2Loader
-    NODE_CLASS_MAPPINGS["NouganKrea2LoaderMulti"] = NouganKrea2LoaderMulti
-    NODE_DISPLAY_NAME_MAPPINGS["NouganKrea2Loader"] = "Nougan Krea 2 · LoRA 🌀"
-    NODE_DISPLAY_NAME_MAPPINGS["NouganKrea2LoaderMulti"] = "Nougan Krea 2 · LoRA Stack 🌀"
-    print("[Nougan] ✅ Krea 2 loader loaded (2 nodes).")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  krea2_loader NOT loaded ({type(_e).__name__}: {_e}) — other nodes are fine.")
-    traceback.print_exc()
 
-try:
-    from .text_encode import NouganTextEncodeZeroNeg
-    NODE_CLASS_MAPPINGS["NouganTextEncodeZeroNeg"] = NouganTextEncodeZeroNeg
-    NODE_DISPLAY_NAME_MAPPINGS["NouganTextEncodeZeroNeg"] = "Nougan Text Encode + Zero Neg 🎯"
-except Exception as _e:
-    print(f"[Nougan] ⚠️  text_encode NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+def _load_feature(label, module_name, spec):
+    """Import one module and register its nodes. Returns node count; raises on failure."""
+    mod = importlib.import_module(f".{module_name}", package=__name__)
 
-try:
-    from .text_box import NouganTextBox
-    NODE_CLASS_MAPPINGS["NouganTextBox"] = NouganTextBox
-    NODE_DISPLAY_NAME_MAPPINGS["NouganTextBox"] = "Nougan Text Box 📝"
-except Exception as _e:
-    print(f"[Nougan] ⚠️  text_box NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+    # Module-provided mappings (RefMod toolkit)
+    if spec == "*":
+        classes = dict(mod.NODE_CLASS_MAPPINGS)
+        NODE_CLASS_MAPPINGS.update(classes)
+        NODE_DISPLAY_NAME_MAPPINGS.update(mod.NODE_DISPLAY_NAME_MAPPINGS)
+        return len(classes)
 
-try:
-    from .title_font import NouganTitleFont
-    NODE_CLASS_MAPPINGS["NouganTitleFont"] = NouganTitleFont
-    NODE_DISPLAY_NAME_MAPPINGS["NouganTitleFont"] = "Nougan Title Font 🌈"
-except Exception as _e:
-    print(f"[Nougan] ⚠️  title_font NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+    # Resolve everything first so a missing class registers nothing (all-or-nothing).
+    resolved = [(nid, getattr(mod, cls), display) for nid, cls, display in spec]
+    for nid, cls, display in resolved:
+        NODE_CLASS_MAPPINGS[nid] = cls
+        NODE_DISPLAY_NAME_MAPPINGS[nid] = display
 
-# ── Optional: Remote Set / Get ──────────────────────────────────────────────
-try:
-    from .nougan_set_get import NouganSet, NouganGet
-    NODE_CLASS_MAPPINGS.update({"NouganSet": NouganSet, "NouganGet": NouganGet})
-    NODE_DISPLAY_NAME_MAPPINGS.update({
-        "NouganSet": "Nougan Set (Remote) 📡",
-        "NouganGet": "Nougan Get (Remote) 📥",
-    })
-    print("[Nougan] ✅ Remote Set/Get loaded (2 nodes).")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Remote Set/Get NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+    # Krea 2 exposes a LoRA status helper that the /nougan/krea2_loras route uses.
+    if module_name == "krea2_loader":
+        global get_krea2_lora_status
+        get_krea2_lora_status = getattr(mod, "get_krea2_lora_status", get_krea2_lora_status)
 
-# ── Optional: Power Lora Loader ─────────────────────────────────────────────
-try:
-    from .nougan_lora_loader import NouganLoraLoader
-    NODE_CLASS_MAPPINGS["NouganLoraLoader"] = NouganLoraLoader
-    NODE_DISPLAY_NAME_MAPPINGS["NouganLoraLoader"] = "Nougan Lora Loader 📁"
-    print("[Nougan] ✅ Power Lora Loader loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Power Lora Loader NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+    return len(resolved)
 
-# ── Optional: Lora Inspector ────────────────────────────────────────────────
-try:
-    from .nougan_lora_inspector import NouganLoraInspector
-    NODE_CLASS_MAPPINGS["NouganLoraInspector"] = NouganLoraInspector
-    NODE_DISPLAY_NAME_MAPPINGS["NouganLoraInspector"] = "Nougan Lora Inspector 🔍"
-    print("[Nougan] ✅ Lora Inspector loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Lora Inspector NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
 
-# ── Optional: Mask Editor ───────────────────────────────────────────────────
-try:
-    from .mask_editor import NouganMaskEditor
-    NODE_CLASS_MAPPINGS["NouganMaskEditor"] = NouganMaskEditor
-    NODE_DISPLAY_NAME_MAPPINGS["NouganMaskEditor"] = "Nougan Mask Editor 🎨"
-    print("[Nougan] ✅ Mask Editor loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Mask Editor NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+# ═════════════════════════════════════════════════════════════════════════════
+#  Load everything
+# ═════════════════════════════════════════════════════════════════════════════
+_banner()
 
-# ── Optional: Mask Composite ────────────────────────────────────────────────
-try:
-    from .mask_composite import NouganMaskComposite
-    NODE_CLASS_MAPPINGS["NouganMaskComposite"] = NouganMaskComposite
-    NODE_DISPLAY_NAME_MAPPINGS["NouganMaskComposite"] = "Nougan Mask Composite 🎭"
-    print("[Nougan] ✅ Mask Composite loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Mask Composite NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+_loaded = 0
+_failed = []
 
-# ── Optional: Regional Character LoRA ───────────────────────────────────────
-try:
-    from .nougan_regional_lora import NouganRegionalCharacterLoRA
-    NODE_CLASS_MAPPINGS["NouganRegionalCharacterLoRA"] = NouganRegionalCharacterLoRA
-    NODE_CLASS_MAPPINGS["Krea2RegionalCharacterLoRA"] = NouganRegionalCharacterLoRA
-    NODE_CLASS_MAPPINGS["RegionalCharacterLora"] = NouganRegionalCharacterLoRA
-    NODE_DISPLAY_NAME_MAPPINGS["NouganRegionalCharacterLoRA"] = "Nougan Regional Character LoRA 👥"
-    NODE_DISPLAY_NAME_MAPPINGS["Krea2RegionalCharacterLoRA"] = "Nougan Regional Character LoRA 👥"
-    NODE_DISPLAY_NAME_MAPPINGS["RegionalCharacterLora"] = "Nougan Regional Character LoRA 👥"
-    print("[Nougan] ✅ Regional Character LoRA loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Regional Character LoRA NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
+for _label, _module, _spec in _FEATURES:
+    try:
+        _n = _load_feature(_label, _module, _spec)
+        _loaded += 1
+        _plural = "node" if _n == 1 else "nodes"
+        print(f"  {OK} {_bold(_label)} {_dim(f'({_n} {_plural})')}")
+    except Exception as _e:
+        _failed.append(_label)
+        print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow(type(_e).__name__ + ': ' + str(_e))}")
+        traceback.print_exc()
 
-# ── Optional: Prompt Relay ──────────────────────────────────────────────────
-try:
-    from .prompt_relay import (
-        PromptRelayEncode,
-        PromptRelayEncodeTimeline,
-        PromptRelayAdvancedOptions,
-    )
-    NODE_CLASS_MAPPINGS.update({
-        "PromptRelayEncode": PromptRelayEncode,
-        "PromptRelayEncodeTimeline": PromptRelayEncodeTimeline,
-        "PromptRelayAdvancedOptions": PromptRelayAdvancedOptions,
-    })
-    NODE_DISPLAY_NAME_MAPPINGS.update({
-        "PromptRelayEncode": "Nougan Prompt Relay Encode 🎬",
-        "PromptRelayEncodeTimeline": "Nougan Prompt Relay Timeline 🎞️",
-        "PromptRelayAdvancedOptions": "Nougan Prompt Relay Options ⚙️",
-    })
-    print("[Nougan] ✅ Prompt Relay loaded (3 nodes).")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Prompt Relay NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
 
-# ── Optional: LM Studio Bridge ──────────────────────────────────────────────
-try:
-    from .lm_studio import NouganLMStudio, NouganLMStudioPromptBox
-    NODE_CLASS_MAPPINGS.update({
-        "NouganLMStudio": NouganLMStudio,
-        "NouganLMStudioPromptBox": NouganLMStudioPromptBox,
-    })
-    NODE_DISPLAY_NAME_MAPPINGS.update({
-        "NouganLMStudio": "Nougan LM Studio 🧠",
-        "NouganLMStudioPromptBox": "Nougan LM Studio Prompt Box 💬",
-    })
-    print("[Nougan] ✅ LM Studio Bridge loaded (2 nodes).")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  LM Studio Bridge NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Match Image Size ──────────────────────────────────────────────
-try:
-    from .nougan_match_size import NouganMatchImageSize
-    NODE_CLASS_MAPPINGS["NouganMatchImageSize"] = NouganMatchImageSize
-    NODE_DISPLAY_NAME_MAPPINGS["NouganMatchImageSize"] = "Nougan Match Image Size 📐"
-    print("[Nougan] ✅ Match Image Size loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Match Image Size NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Before / After Compare ────────────────────────────────────────
-try:
-    from .nougan_before_after import NouganBeforeAfterCompare
-    NODE_CLASS_MAPPINGS["NouganBeforeAfterCompare"] = NouganBeforeAfterCompare
-    NODE_DISPLAY_NAME_MAPPINGS["NouganBeforeAfterCompare"] = "Nougan Before / After 🔀"
-    print("[Nougan] ✅ Before/After Compare loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Before/After Compare NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Edit Prompt Template ──────────────────────────────────────────
-try:
-    from .nougan_edit_prompt import NouganEditPromptTemplate
-    NODE_CLASS_MAPPINGS["NouganEditPromptTemplate"] = NouganEditPromptTemplate
-    NODE_DISPLAY_NAME_MAPPINGS["NouganEditPromptTemplate"] = "Nougan Edit Prompt Template 🧩"
-    print("[Nougan] ✅ Edit Prompt Template loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Edit Prompt Template NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: MiniMax H3 Image Edit (one-shot) ─────────────────────────────
-try:
-    from .nougan_h3_edit import NouganH3ImageEdit
-    NODE_CLASS_MAPPINGS["NouganH3ImageEdit"] = NouganH3ImageEdit
-    NODE_DISPLAY_NAME_MAPPINGS["NouganH3ImageEdit"] = "Nougan MiniMax H3 · Image Edit 🎬"
-    print("[Nougan] ✅ MiniMax H3 Image Edit loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  MiniMax H3 Image Edit NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Folder Batch Loader + Save Caption (dataset captioning) ──────
-# Node IDs are kept as FolderImageBatchLoader / SaveCaptionMatchImage so
-# existing captioning workflows keep working. Only the display names are new.
-try:
-    from .nougan_folder_batch import FolderImageBatchLoader, FolderVideoBatchLoader, SaveCaptionMatchImage
-    NODE_CLASS_MAPPINGS.update({
-        "FolderImageBatchLoader": FolderImageBatchLoader,
-        "FolderVideoBatchLoader": FolderVideoBatchLoader,
-        "SaveCaptionMatchImage": SaveCaptionMatchImage,
-    })
-    NODE_DISPLAY_NAME_MAPPINGS.update({
-        "FolderImageBatchLoader": "Nougan Load Image Batch From Folder 📂",
-        "FolderVideoBatchLoader": "Nougan Load Video Batch From Folder 🎞️",
-        "SaveCaptionMatchImage": "Nougan Save Caption (Match Image/Video Name) 💾",
-    })
-    print("[Nougan] ✅ Folder Batch Loaders (image + video) + Save Caption loaded (3 nodes).")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Folder Batch Loader NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Bounding Boxes (classic-UI clone of core "Create Bounding Boxes") ─
-try:
-    from .nougan_bounding_boxes import NouganBoundingBoxes
-    NODE_CLASS_MAPPINGS["NouganBoundingBoxes"] = NouganBoundingBoxes
-    NODE_DISPLAY_NAME_MAPPINGS["NouganBoundingBoxes"] = "Nougan Bounding Boxes 🔲"
-    print("[Nougan] ✅ Bounding Boxes loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Bounding Boxes NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Character Chat (V2/V3 character card PNG + the loaded LLM) ───────
-try:
-    from .nougan_character_chat import NouganCharacterChat
-    NODE_CLASS_MAPPINGS["NouganCharacterChat"] = NouganCharacterChat
-    NODE_DISPLAY_NAME_MAPPINGS["NouganCharacterChat"] = "Nougan Character Chat 💬"
-    print("[Nougan] ✅ Character Chat loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Character Chat NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: PNG Bakers (Character Card V2 Baker + Workflow PNG Baker) ─────
-try:
-    from .nougan_v2_png_baker import NouganV2PNGBaker
-    NODE_CLASS_MAPPINGS["NouganV2PNGBaker"] = NouganV2PNGBaker
-    NODE_DISPLAY_NAME_MAPPINGS["NouganV2PNGBaker"] = "Nougan V2 PNG Baker 🃏"
-    print("[Nougan] ✅ V2 PNG Baker loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  V2 PNG Baker NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-try:
-    from .nougan_workflow_png_baker import NouganWorkflowPNGBaker
-    NODE_CLASS_MAPPINGS["NouganWorkflowPNGBaker"] = NouganWorkflowPNGBaker
-    NODE_DISPLAY_NAME_MAPPINGS["NouganWorkflowPNGBaker"] = "Nougan Workflow PNG Baker 🧬"
-    print("[Nougan] ✅ Workflow PNG Baker loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Workflow PNG Baker NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Refmod Baker (character card + avatar baked into a refmod .safetensors) ─
-try:
-    from .nougan_refmod_baker import NouganRefmodBaker
-    NODE_CLASS_MAPPINGS["NouganRefmodBaker"] = NouganRefmodBaker
-    NODE_DISPLAY_NAME_MAPPINGS["NouganRefmodBaker"] = "Nougan Refmod Baker 🧬"
-    print("[Nougan] ✅ Refmod Baker loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Refmod Baker NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Optional: Image Converter ───────────────────────────────────────────────
-try:
-    from .nougan_image_converter import NouganImageConverter
-
-    NODE_CLASS_MAPPINGS["NouganImageConverter"] = NouganImageConverter
-    NODE_DISPLAY_NAME_MAPPINGS["NouganImageConverter"] = "Nougan Image Converter 🖼️"
-
-    print("[Nougan] ✅ Image Converter loaded.")
-except Exception as _e:
-    print(f"[Nougan] ⚠️  Image Converter NOT loaded ({type(_e).__name__}: {_e})")
-    traceback.print_exc()
-
-# ── Routes — always attempted, fully guarded ────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  Routes — always attempted, fully guarded
+# ═════════════════════════════════════════════════════════════════════════════
 _NOUGAN_ROUTES_REGISTERED = False
+
 
 def _register_routes():
     global _NOUGAN_ROUTES_REGISTERED
@@ -327,13 +261,18 @@ def _register_routes():
                 names = []
             return web.json_response(names)
 
+        @routes.get("/nougan/socials")
+        async def _nougan_socials(_request):
+            return web.json_response({n: u for n, u, _ in SOCIALS})
+
         _NOUGAN_ROUTES_REGISTERED = True
-        print("[Nougan] ✅ Routes registered.")
+        print(f"  {OK} {_bold('Routes registered')}")
     except Exception as _e:
-        print(f"[Nougan] ⚠️  Could not register routes: {_e}")
+        print(f"  {WARN} {_yellow('Could not register routes:')} {_e}")
+
 
 _register_routes()
 
-print(f"[Nougan] ── total nodes registered: {len(NODE_CLASS_MAPPINGS)} ──")
+_footer(_loaded, _failed, len(NODE_CLASS_MAPPINGS))
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
