@@ -174,6 +174,8 @@ _FEATURES = [
     ]),
     # Bake / Loader / Apply — vendored MiniMaxH3Mod engine (MIT, Luisa).
     ("RefMod Toolkit", "nougan_refmod", "*"),
+    # Bake / Encode for Qwen Image 2.1 (own file format, no engine dependency).
+    ("Qwen 2.1 RefMod", "nougan_qwen_refmod", "*"),
     ("Image Converter", "nougan_image_converter", [
         ("NouganImageConverter", "NouganImageConverter", "Nougan Image Converter 🖼️"),
     ]),
