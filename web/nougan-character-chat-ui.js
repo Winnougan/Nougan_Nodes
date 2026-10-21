@@ -8,7 +8,7 @@ import { api } from "../../scripts/api.js";
 
 const NODE_NAME = "NouganCharacterChat";
 const HIDDEN = ["action", "user_message", "history_json"];
-const SETTINGS = ["max_length", "temperature", "top_p", "top_k", "min_p", "repetition_penalty", "seed", "control_after_generate", "thinking", "context_messages", "card_path", "presence_penalty", "mtp"];
+const SETTINGS = ["max_length", "temperature", "top_p", "top_k", "min_p", "repetition_penalty", "seed", "control_after_generate", "thinking", "context_messages", "card_path", "presence_penalty", "mtp", "video_max_frames"];
 const WIDTH = 520;
 const MSG_MAX_H = 380;
 
@@ -22,6 +22,42 @@ function fmt(text) {
         .replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>")
         .replace(/\*(.+?)\*/gs, '<i class="act">$1</i>')
         .replace(/\n/g, "<br>");
+}
+
+// Saved widget values are restored by position. If an older / shifted save put values in the wrong widgets
+// (e.g. the hidden action value "none" landing in card_path), put them back where they belong.
+function repairWidgets(node) {
+    const g = (n) => wget(node, n);
+    const isHist = (s) => {
+        try { const a = JSON.parse(s); return Array.isArray(a) && a.every(m => m && typeof m.content === "string"); } catch { return false; }
+    };
+    const cp = g("card_path"), ac = g("action"), um = g("user_message"), hj = g("history_json");
+
+    if (cp && ["none", "null", "undefined"].includes(String(cp.value ?? "").trim().toLowerCase())) cp.value = "";
+
+    if (hj && !isHist(hj.value)) {
+        const src = [um, ac, cp].find(w => w && typeof w.value === "string" && w.value.trim().startsWith("[") && isHist(w.value));
+        if (src) { hj.value = src.value; src.value = ""; } else hj.value = "[]";
+    }
+    if (ac && !["none", "send", "regenerate"].includes(ac.value)) ac.value = "none";
+    if (um && ac && ac.value === "none" && um.value) um.value = "";
+
+    // every numeric setting must be a real number inside its own min/max, otherwise back to its default
+    const NUM_DEFAULTS = { max_length: 400, temperature: 0.8, top_p: 0.95, top_k: 64, min_p: 0.05, repetition_penalty: 1.05,
+                           context_messages: 40, presence_penalty: 0, video_max_frames: 8 };
+    for (const [name, def] of Object.entries(NUM_DEFAULTS)) {
+        const w = g(name); if (!w) continue;
+        const v = w.value, lo = w.options?.min, hi = w.options?.max;
+        const ok = typeof v === "number" && Number.isFinite(v) && (lo == null || v >= lo) && (hi == null || v <= hi);
+        if (!ok) w.value = def;
+    }
+    const seed = g("seed"); if (seed && !(typeof seed.value === "number" && Number.isFinite(seed.value))) seed.value = 0;
+    const ctl = g("control_after_generate");
+    if (ctl && !["fixed", "increment", "decrement", "randomize"].includes(ctl.value)) ctl.value = "randomize";
+    const think = g("thinking"); if (think && typeof think.value !== "boolean") think.value = false;
+    const un = g("user_name"); if (un && typeof un.value !== "string") un.value = "User";
+    if (cp && typeof cp.value !== "string") cp.value = "";
+    const mtp = g("mtp"); if (mtp && Array.isArray(mtp.options?.values) && !mtp.options.values.includes(mtp.value)) mtp.value = "auto";
 }
 
 function hideWidget(w) {
@@ -220,9 +256,13 @@ function buildPanel(node) {
             if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
             st.info = j;
             st.infoError = "";
+            if (!st.busy) st.error = "";
         } catch (e) {
             st.info = null;
             st.infoError = e.message || "couldn't read the card";
+            console.warn("[Nougan Chat] card load failed:", st.infoError);
+            const noCard = String(W("character")?.value || "").startsWith("(none") && !(W("card_path")?.value || "").trim();
+            if (!noCard) st.error = st.infoError;           // show it in the chat, not just the tiny header line
         }
 
         st.avatarTick = Date.now();
@@ -334,6 +374,9 @@ function buildPanel(node) {
     // -- sending / generating --
     async function run(action, text) {
         st.error = "";
+        const keepHist = W("history_json")?.value;
+        repairWidgets(node);                            // never queue with a bad value in any setting
+        if (keepHist !== undefined) setW("history_json", keepHist);
         setW("action", action);
         setW("user_message", text || "");
         save();                                         // history_json = history *before* the new user message
@@ -576,6 +619,11 @@ api.addEventListener("execution_success", () => {
 app.registerExtension({
     name: "Nougan.CharacterChat",
 
+    loadedGraphNode(node) {
+        if (node?.type !== NODE_NAME) return;
+        try { repairWidgets(node); node.__nbcApplySettings?.(); node.__nbcRender?.(); } catch (e) { console.warn("[Nougan Chat] repair failed", e); }
+    },
+
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData?.name !== NODE_NAME) return;
 
@@ -594,6 +642,7 @@ app.registerExtension({
             ocf?.apply(this, arguments);
 
             try {
+                repairWidgets(this);
                 if (!this.__nbcBuilt) buildUI(this);
 
                 const st = this.__nbc;
