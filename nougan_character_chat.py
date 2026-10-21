@@ -5,6 +5,7 @@
 # clip.tokenize / clip.generate / clip.decode, exactly like the core "Generate Text" node).
 #
 # Cards live in  ComfyUI/input/characters/  (the node's upload button puts them there), or point `card_path` at any card.
+# Optional inputs: image / audio / video (ComfyUI Load Image / Load Audio / Load Video) and system_prompt (string).
 # The chat history is kept by the node's UI (hidden `history_json` widget) and saved with the workflow.
 
 import base64
@@ -62,15 +63,67 @@ def _png_text_chunks(data: bytes) -> dict:
 
 
 def _decode_payload(text: str):
-    text = text.strip()
-    try:
-        return json.loads(base64.b64decode(text, validate=False).decode("utf-8"))
-    except Exception:
-        pass
-    try:
-        return json.loads(text)
-    except Exception:
-        return None
+    """Card text -> dict. Accepts base64 JSON (standard / url-safe / missing padding), plain JSON, a BOM,
+    and JSON that was encoded twice."""
+    text = (text or "").strip().lstrip("\ufeff")
+    candidates = []
+    squashed = re.sub(r"\s+", "", text)
+    squashed += "=" * (-len(squashed) % 4)
+    for dec in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            candidates.append(dec(squashed).decode("utf-8-sig"))
+        except Exception:
+            pass
+    candidates.append(text)
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+        except Exception:
+            continue
+        for _ in range(2):                        # JSON inside a JSON string
+            if isinstance(obj, str):
+                try:
+                    obj = json.loads(obj)
+                except Exception:
+                    break
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+def _looks_like_card(raw) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    d = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    return any(k in d for k in ("name", "description", "first_mes", "personality", "char_name"))
+
+
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+
+
+def _card_from_png(data: bytes, fname: str) -> dict:
+    if data[:8] != PNG_SIG:
+        kind = ("a JPEG" if data[:3] == b"\xff\xd8\xff" else
+                "a WebP" if data[:4] == b"RIFF" and data[8:12] == b"WEBP" else
+                "a GIF" if data[:3] == b"GIF" else None)
+        if kind:
+            raise ValueError(f"{fname} is really {kind} file with a .png name, and those can't hold card data. "
+                             "Download the original card file again (not the preview image).")
+        raise ValueError(f"{fname} isn't a PNG image.")
+    chunks = _png_text_chunks(data)
+    lower = {}
+    for k, v in chunks.items():
+        lower.setdefault(k.lower(), v)
+    order = [k for k in ("ccv3", "chara") if k in lower] + [k for k in lower if k not in ("ccv3", "chara")]
+    for k in order:                               # first chunk that really decodes to a card wins
+        raw = _decode_payload(lower[k])
+        if _looks_like_card(raw):
+            return raw
+    if not chunks:
+        raise ValueError(f"{fname} has no embedded card data. The image was probably re-saved, compressed or converted "
+                         "(Discord, a screenshot, a browser preview) and the card data was stripped. "
+                         "Download the original PNG again.")
+    raise ValueError(f"{fname} has text chunks ({', '.join(chunks)}) but none of them contain character card data.")
 
 
 def _norm_card(raw: dict) -> dict:
@@ -104,16 +157,13 @@ def read_card(path: str) -> dict:
     ext = os.path.splitext(path)[1].lower()
     with open(path, "rb") as f:
         data = f.read()
+    fname = os.path.basename(path)
     if ext == ".json":
         raw = _decode_payload(data.decode("utf-8", "replace"))
+        if not _looks_like_card(raw):
+            raise ValueError(f"couldn't read a character card from {fname} (is it a card JSON?)")
     else:
-        chunks = _png_text_chunks(data)
-        payload = chunks.get("ccv3") or chunks.get("chara")
-        if payload is None:
-            raise ValueError(f"{os.path.basename(path)} has no 'chara' / 'ccv3' text chunk - is it a character card PNG?")
-        raw = _decode_payload(payload)
-    if not isinstance(raw, dict):
-        raise ValueError(f"couldn't read the card JSON in {os.path.basename(path)}")
+        raw = _card_from_png(data, fname)
     return _norm_card(raw)
 
 
@@ -133,7 +183,7 @@ def list_cards() -> list:
 
 
 def resolve_card_path(character: str, card_path: str = "") -> str:
-    if card_path and card_path.strip():
+    if card_path and card_path.strip().strip('"').lower() not in ("none", "null", "undefined"):
         return card_path.strip().strip('"')
     if not character or character == NONE_CHOICE:
         raise ValueError("pick a character card (or set card_path)")
@@ -149,6 +199,53 @@ def load_avatar(path: str) -> torch.Tensor:
     except Exception:
         img = Image.new("RGB", (256, 256), (30, 34, 44))
     return torch.from_numpy(np.array(img).astype(np.float32) / 255.0)[None, ...]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# media (image / video -> image placeholders; audio passed straight to the tokenizer)
+# ---------------------------------------------------------------------------------------------------------------
+IMG_BLOCK = "<|vision_start|><|image_pad|><|vision_end|>"       # one per image; ComfyUI swaps each <|image_pad|> for an embedding
+_audio_note_shown = False
+
+
+def _video_frames(video, max_frames):
+    """VIDEO (Load Video) or an IMAGE batch -> up to max_frames evenly spaced frames (about 1 per second) as [N,H,W,C]."""
+    if video is None:
+        return None
+    fps = 24.0
+    if torch.is_tensor(video):
+        frames = video
+    else:
+        comps = video.get_components()
+        frames = comps.images
+        try:
+            fps = float(comps.frame_rate) or 24.0
+        except Exception:
+            pass
+    if frames is None or frames.ndim != 4 or frames.shape[0] == 0:
+        return None
+    n = int(frames.shape[0])
+    want = max(1, min(int(max_frames), int(np.ceil(n / max(fps, 1.0)))))
+    idx = np.unique(np.linspace(0, n - 1, want).round().astype(int))
+    return frames[torch.as_tensor(idx)]
+
+
+def _collect_images(image, video_frames):
+    """image batch first, then video frames -> list of [1,H,W,C] tensors."""
+    imgs = []
+    for t in (image, video_frames):
+        if t is not None and torch.is_tensor(t) and t.ndim == 4:
+            imgs.extend(t[i:i + 1] for i in range(t.shape[0]))
+    return imgs
+
+
+def _image_kwargs(imgs):
+    """Same batch path as ComfyUI's Generate Text node; falls back to a list when the sizes differ."""
+    if not imgs:
+        return {"image": None}
+    if len({tuple(t.shape[1:]) for t in imgs}) == 1:
+        return {"image": torch.cat(imgs, dim=0)}
+    return {"image": None, "images": imgs}
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -207,10 +304,10 @@ def _example_block(mes_example: str, char: str, user: str) -> str:
     return "Example conversations (for voice and style only):\n\n" + "\n\n".join(subst(p, char, user) for p in parts)
 
 
-def build_system(card: dict, user: str, scan_text: str) -> str:
+def build_system(card: dict, user: str, scan_text: str, override: str = "") -> str:
     char = card["name"]
     sub = lambda t: subst(t, char, user).strip()
-    base = sub(card["system_prompt"]) or (
+    base = sub(override) or sub(card["system_prompt"]) or (
         f"Write {char}'s next reply in a fictional chat between {char} and {user}. Stay in character, write only "
         f"{char}'s side, and never write {user}'s actions, thoughts or dialogue.")
     parts = [base]
@@ -233,16 +330,21 @@ def build_system(card: dict, user: str, scan_text: str) -> str:
     return "\n\n".join(parts)
 
 
-def build_prompt(card: dict, user: str, history: list, context_messages: int, thinking: bool, scan_depth: int = 4) -> str:
+def build_prompt(card: dict, user: str, history: list, context_messages: int, thinking: bool, scan_depth: int = 4,
+                 n_images: int = 0, n_video: int = 0, system_override: str = "") -> str:
     """Qwen ChatML conversation, ending with the open assistant turn (ComfyUI's Qwen3.5 tokenizer keeps text that
     starts with <|im_start|> as-is)."""
     char = card["name"]
     hist = history[-context_messages:] if context_messages > 0 else history
     scan = "\n".join(m["content"] for m in history[-scan_depth:])
-    out = "<|im_start|>system\n" + build_system(card, user, scan) + "<|im_end|>\n"
-    for m in hist:
+    out = "<|im_start|>system\n" + build_system(card, user, scan, system_override) + "<|im_end|>\n"
+    for i, m in enumerate(hist):
         role = "user" if m["role"] == "user" else "assistant"
-        out += f"<|im_start|>{role}\n{subst(m['content'], char, user).strip()}<|im_end|>\n"
+        text = subst(m["content"], char, user).strip()
+        if n_images and role == "user" and i == len(hist) - 1:          # media rides with the newest user message
+            note = f"[Of the attached images, the last {n_video} are consecutive frames sampled from a video.]\n" if n_video else ""
+            text = IMG_BLOCK * n_images + note + text
+        out += f"<|im_start|>{role}\n{text}<|im_end|>\n"
     out += "<|im_start|>assistant\n"
     out += "<think>\n" if thinking else "<think>\n\n</think>\n\n"     # same convention as ComfyUI's Qwen3.5 template
     return out
@@ -330,6 +432,13 @@ class NouganCharacterChat:
                 # keeps every existing workflow loading correctly (old workflows just get the defaults).
                 "presence_penalty": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.01, "tooltip": "Penalises tokens that have already appeared at all. Raise a little to nudge the character toward new topics."}),
                 "mtp": (["auto", "off", "2", "3", "4", "5"], {"default": "auto", "tooltip": "Speculative decoding with the checkpoint's multi-token-prediction head. No effect without MTP weights. auto adapts the draft depth; 2-5 pins it. Output differs from non-MTP output for the same seed."}),
+                "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 64, "tooltip": "Most frames taken from a connected video. Each frame is processed like an image, so more frames = more VRAM and time."}),
+                # media + system prompt sockets go LAST: widget values are saved by position, and a socket that
+                # sits in front of the widgets can shift every saved value after it (this broke card_path once).
+                "image": ("IMAGE", {"tooltip": "Optional. Connect Load Image. The character sees it with your newest message (a batch = several images)."}),
+                "audio": ("AUDIO", {"tooltip": "Optional. Connect Load Audio. Passed to the model with your newest message (only used if the loaded model supports audio)."}),
+                "video": ("VIDEO", {"tooltip": "Optional. Connect Load Video. Sampled into up to video_max_frames evenly spaced frames (about 1 per second) and shown as images."}),
+                "system_prompt": ("STRING", {"forceInput": True, "multiline": True, "tooltip": "Optional. Replaces the card's own system prompt. Description, personality, scenario, lore and examples are still used."}),
             },
         }
 
@@ -338,11 +447,11 @@ class NouganCharacterChat:
     FUNCTION = "chat"
     OUTPUT_NODE = True
     CATEGORY = "Nougan"
-    DESCRIPTION = "Chat with a Character Card V2/V3 PNG using the LLM you've loaded (built around Qwen3.5)."
+    DESCRIPTION = "Chat with a Character Card V2/V3 PNG using the LLM you've loaded (built around Qwen3.5). Optional image / audio / video inputs and a system prompt."
 
     def chat(self, clip, character, user_name, max_length, temperature, top_p, top_k, min_p, repetition_penalty,
              seed, thinking, context_messages, card_path="", action="none", user_message="", history_json="[]",
-             presence_penalty=0.0, mtp="auto"):
+             presence_penalty=0.0, mtp="auto", video_max_frames=8, image=None, audio=None, video=None, system_prompt=""):
         path = resolve_card_path(character, card_path)
         card = read_card(path)
         user = (user_name or "User").strip() or "User"
@@ -365,9 +474,17 @@ class NouganCharacterChat:
 
         if generate:
             mtp_value = _mtp_value(mtp)
-            prompt = build_prompt(card, user, history, int(context_messages), bool(thinking))
-            tokens = clip.tokenize(prompt, image=None, skip_template=True, min_length=1, thinking=bool(thinking),
-                                   video=None, audio=None, system_prompt="")
+            vframes = _video_frames(video, video_max_frames)
+            imgs = _collect_images(image, vframes)
+            n_video = int(vframes.shape[0]) if vframes is not None else 0
+            global _audio_note_shown
+            if audio is not None and not _audio_note_shown:
+                _audio_note_shown = True
+                print("[Nougan Chat] audio is connected - it is only used if the loaded model / ComfyUI build supports audio input.")
+            prompt = build_prompt(card, user, history, int(context_messages), bool(thinking),
+                                  n_images=len(imgs), n_video=n_video, system_override=system_prompt or "")
+            tokens = clip.tokenize(prompt, skip_template=True, min_length=1, thinking=bool(thinking),
+                                   video=None, audio=audio, system_prompt="", **_image_kwargs(imgs))
             ids = clip.generate(tokens, do_sample=True, max_length=int(max_length), temperature=float(temperature),
                                 top_k=int(top_k), top_p=float(top_p), min_p=float(min_p),
                                 repetition_penalty=float(repetition_penalty), presence_penalty=float(presence_penalty),
@@ -414,6 +531,7 @@ def _register_routes():
             path = resolve_card_path(request.query.get("character", ""), request.query.get("card_path", ""))
             return web.json_response(card_info(read_card(path), request.query.get("user", "User") or "User"))
         except Exception as e:
+            print(f"[Nougan Chat] couldn't load card: {e}")
             return web.json_response({"error": str(e)}, status=400)
 
     @routes.get("/nougan/character/avatar")
