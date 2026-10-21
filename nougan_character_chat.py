@@ -5,10 +5,12 @@
 # clip.tokenize / clip.generate / clip.decode, exactly like the core "Generate Text" node).
 #
 # Cards live in  ComfyUI/input/characters/  (the node's upload button puts them there), or point `card_path` at any card.
+# Refmods (.safetensors with a baked character, made by Nougan Refmod Baker) are listed too, as "refmod:<name>".
 # Optional inputs: image / audio / video (ComfyUI Load Image / Load Audio / Load Video) and system_prompt (string).
 # The chat history is kept by the node's UI (hidden `history_json` widget) and saved with the workflow.
 
 import base64
+import io
 import json
 import os
 import re
@@ -21,9 +23,13 @@ from PIL import Image
 
 import folder_paths
 
+from .nougan_refmod_io import (
+    REFMOD_PREFIX, list_refmods, read_avatar_bytes, read_character, resolve_refmod,
+)
+
 CARD_DIR_NAME = "characters"
 NONE_CHOICE = "(none - add cards to input/characters)"
-CARD_EXTS = (".png", ".json")
+CARD_EXTS = (".png", ".json", ".safetensors")
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -155,6 +161,14 @@ def read_card(path: str) -> dict:
     if not path or not os.path.isfile(path):
         raise ValueError(f"character card not found: {path!r}")
     ext = os.path.splitext(path)[1].lower()
+    if ext == ".safetensors":                     # refmod: header-only read, tensors are never loaded
+        ch = read_character(path)
+        if not _looks_like_card(ch["card"]):
+            raise ValueError(f"{os.path.basename(path)} has an embedded character, but it isn't a valid card.")
+        card = _norm_card(ch["card"])
+        if ch["system_prompt"].strip():           # the refmod's own system prompt replaces the card's
+            card["system_prompt"] = ch["system_prompt"]
+        return card
     with open(path, "rb") as f:
         data = f.read()
     fname = os.path.basename(path)
@@ -179,7 +193,10 @@ def list_cards() -> list:
             for fn in files:
                 if fn.lower().endswith(CARD_EXTS):
                     found.append(os.path.relpath(os.path.join(root, fn), base).replace(os.sep, "/"))
-    return sorted(found, key=str.lower)
+    found.sort(key=str.lower)
+    # refmods that carry a character, from the refmod folders (header check only, so this stays fast)
+    found.extend(REFMOD_PREFIX + r for r in list_refmods(only_with_character=True))
+    return found
 
 
 def resolve_card_path(character: str, card_path: str = "") -> str:
@@ -187,6 +204,8 @@ def resolve_card_path(character: str, card_path: str = "") -> str:
         return card_path.strip().strip('"')
     if not character or character == NONE_CHOICE:
         raise ValueError("pick a character card (or set card_path)")
+    if character.startswith(REFMOD_PREFIX):
+        return resolve_refmod(character[len(REFMOD_PREFIX):])
     full = os.path.normpath(os.path.join(card_dir(), character))
     if not full.startswith(os.path.normpath(card_dir())):
         raise ValueError("invalid character name")
@@ -195,7 +214,10 @@ def resolve_card_path(character: str, card_path: str = "") -> str:
 
 def load_avatar(path: str) -> torch.Tensor:
     try:
-        img = Image.open(path).convert("RGB")
+        if path.lower().endswith(".safetensors"):
+            img = Image.open(io.BytesIO(read_avatar_bytes(path))).convert("RGB")
+        else:
+            img = Image.open(path).convert("RGB")
     except Exception:
         img = Image.new("RGB", (256, 256), (30, 34, 44))
     return torch.from_numpy(np.array(img).astype(np.float32) / 255.0)[None, ...]
@@ -411,7 +433,7 @@ class NouganCharacterChat:
         return {
             "required": {
                 "clip": ("CLIP", {"tooltip": "The LLM (e.g. Qwen3.5 9B loaded as a text encoder / CLIP)."}),
-                "character": (cards, {"tooltip": "Character card from ComfyUI/input/characters. Use the upload button on the node to add cards."}),
+                "character": (cards, {"tooltip": "Character card from ComfyUI/input/characters, or a refmod with a baked character (listed as refmod:<name>). Use the upload button on the node to add cards."}),
                 "user_name": ("STRING", {"default": "User", "multiline": False, "tooltip": "What {{user}} is called in the card."}),
                 "max_length": ("INT", {"default": 400, "min": 16, "max": 4096, "step": 1, "tooltip": "Max tokens per reply."}),
                 "temperature": ("FLOAT", {"default": 0.8, "min": 0.01, "max": 2.0, "step": 0.01}),
@@ -424,7 +446,7 @@ class NouganCharacterChat:
                 "context_messages": ("INT", {"default": 40, "min": 2, "max": 400, "tooltip": "How many of the most recent chat messages are sent to the model."}),
             },
             "optional": {
-                "card_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Optional full path to a card (.png/.json) anywhere on disk. Overrides the dropdown."}),
+                "card_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Optional full path to a card (.png/.json) or a character refmod (.safetensors) anywhere on disk. Overrides the dropdown."}),
                 "action": ("STRING", {"default": "none", "multiline": False}),
                 "user_message": ("STRING", {"default": "", "multiline": False}),
                 "history_json": ("STRING", {"default": "[]", "multiline": False}),
@@ -447,7 +469,7 @@ class NouganCharacterChat:
     FUNCTION = "chat"
     OUTPUT_NODE = True
     CATEGORY = "Nougan"
-    DESCRIPTION = "Chat with a Character Card V2/V3 PNG using the LLM you've loaded (built around Qwen3.5). Optional image / audio / video inputs and a system prompt."
+    DESCRIPTION = "Chat with a Character Card V2/V3 PNG/JSON, or a refmod (.safetensors) with a baked character, using the LLM you've loaded (built around Qwen3.5). Optional image / audio / video inputs and a system prompt."
 
     def chat(self, clip, character, user_name, max_length, temperature, top_p, top_k, min_p, repetition_penalty,
              seed, thinking, context_messages, card_path="", action="none", user_message="", history_json="[]",
@@ -496,7 +518,7 @@ class NouganCharacterChat:
 
         log = "\n\n".join(f"{char if m['role'] == 'assistant' else user}: {subst(m['content'], char, user)}" for m in history)
         hj = json.dumps(history, ensure_ascii=False)
-        avatar = load_avatar(path) if path.lower().endswith(".png") else load_avatar("")
+        avatar = load_avatar(path) if path.lower().endswith((".png", ".safetensors")) else load_avatar("")
 
         return {
             "ui": {"nbc_chat": [json.dumps({"history": history, "reply": reply, "generated": bool(generate)}, ensure_ascii=False)]},
@@ -529,7 +551,9 @@ def _register_routes():
     async def _info(request):
         try:
             path = resolve_card_path(request.query.get("character", ""), request.query.get("card_path", ""))
-            return web.json_response(card_info(read_card(path), request.query.get("user", "User") or "User"))
+            info = card_info(read_card(path), request.query.get("user", "User") or "User")
+            info["source"] = "refmod" if path.lower().endswith(".safetensors") else "card"
+            return web.json_response(info)
         except Exception as e:
             print(f"[Nougan Chat] couldn't load card: {e}")
             return web.json_response({"error": str(e)}, status=400)
@@ -539,6 +563,11 @@ def _register_routes():
         try:
             path = resolve_card_path(request.query.get("character", ""), request.query.get("card_path", ""))
             read_card(path)                                       # only ever serve files that really are cards
+            if path.lower().endswith(".safetensors"):
+                data = read_avatar_bytes(path)
+                if not data:
+                    raise ValueError("no avatar")
+                return web.Response(body=data, content_type="image/png")
             if not path.lower().endswith(".png"):
                 raise ValueError("no avatar")
             return web.FileResponse(path)

@@ -272,6 +272,28 @@ except Exception as _e:
     print(f"[Nougan] ⚠️  Workflow PNG Baker NOT loaded ({type(_e).__name__}: {_e})")
     traceback.print_exc()
 
+# ── Optional: Refmod Baker (character card + avatar baked into a refmod .safetensors) ─
+try:
+    from .nougan_refmod_baker import NouganRefmodBaker
+    NODE_CLASS_MAPPINGS["NouganRefmodBaker"] = NouganRefmodBaker
+    NODE_DISPLAY_NAME_MAPPINGS["NouganRefmodBaker"] = "Nougan Refmod Baker 🧬"
+    print("[Nougan] ✅ Refmod Baker loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Refmod Baker NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
+# ── Optional: Image Converter ───────────────────────────────────────────────
+try:
+    from .nougan_image_converter import NouganImageConverter
+
+    NODE_CLASS_MAPPINGS["NouganImageConverter"] = NouganImageConverter
+    NODE_DISPLAY_NAME_MAPPINGS["NouganImageConverter"] = "Nougan Image Converter 🖼️"
+
+    print("[Nougan] ✅ Image Converter loaded.")
+except Exception as _e:
+    print(f"[Nougan] ⚠️  Image Converter NOT loaded ({type(_e).__name__}: {_e})")
+    traceback.print_exc()
+
 # ── Routes — always attempted, fully guarded ────────────────────────────────
 _NOUGAN_ROUTES_REGISTERED = False
 
