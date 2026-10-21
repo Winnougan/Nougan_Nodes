@@ -1,7 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to docs](README.md)
 
 # 💬 Character Chat
-
+<img width="1672" height="941" alt="1b48eb72-83b8-43de-8268-e91d094f842b" src="https://github.com/user-attachments/assets/e1ec53a2-3419-4afa-ab08-f5e828cb097c" />
 Chat with SillyTavern-style character cards **inside ComfyUI**, using the same LLM you already load as a text encoder. No external server, no API keys. Load a card, type a message, and the character answers right on the node.
 
 Characters can come from a **card PNG**, a **card JSON**, or a **refmod** (a `.safetensors` file with the character baked into its header). It's the same node for all three.
