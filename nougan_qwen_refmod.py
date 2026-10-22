@@ -50,6 +50,24 @@ DEFAULT_SUBFOLDER = "qwen21"
 NONE = "None"
 _RESERVED = {"..", ".", "graph_presets", ".git", "__pycache__"}
 
+# ── ref_strength: how long the references stay active ────────────────────────
+# Not an amplitude: the references steer the first `ref_strength` of the denoise,
+# then the plain prompt (same text conditioning, no reference latents) finishes it.
+REF_STRENGTH_TIP = ("How long the references stay active, as a fraction of the denoising steps counted from the start. "
+                    "1.0 = every step (default, same as before). 0.6 = the references steer the first 60% of the steps, "
+                    "then the prompt alone finishes. 0 = references off. Lower = looser likeness and more prompt freedom.")
+
+
+def _schedule(with_refs, without_refs, strength):
+    """Conditioning list: `with_refs` for the first `strength` of the sampling, `without_refs` after."""
+    if strength >= 1.0:
+        return with_refs
+    if strength <= 0.0:
+        return without_refs
+    head = node_helpers.conditioning_set_values(with_refs, {"start_percent": 0.0, "end_percent": strength})
+    tail = node_helpers.conditioning_set_values(without_refs, {"start_percent": strength, "end_percent": 1.0})
+    return head + tail
+
 
 # ── folders ──────────────────────────────────────────────────────────────────
 
@@ -278,6 +296,7 @@ class NouganQwen21RefModEncode:
                 "extra_image": ("IMAGE", {"tooltip": "Optional plain reference(s), encoded on the fly. Needs the VAE."}),
                 "vae": ("VAE", {"tooltip": "Only needed for extra_image."}),
                 "extra_image_resolution": ("INT", {"default": 1024, "min": 0, "max": 4096, "step": 32}),
+                "ref_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": REF_STRENGTH_TIP}),
             },
         }
 
@@ -297,7 +316,7 @@ class NouganQwen21RefModEncode:
         return True  # combo lists are rebuilt on refresh; missing files raise a clear error at run time
 
     def encode(self, clip, prompt, negative_prompt, refmod_1, refmod_2=NONE, refmod_3=NONE,
-               extra_image=None, vae=None, extra_image_resolution=1024):
+               extra_image=None, vae=None, extra_image_resolution=1024, ref_strength=1.0):
         ref_latents, images_vl = [], []
         for rel in (refmod_1, refmod_2, refmod_3):
             if rel and rel != NONE:
@@ -327,6 +346,15 @@ class NouganQwen21RefModEncode:
         if ref_latents:
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": ref_latents}, append=True)
             negative = node_helpers.conditioning_set_values(negative, {"reference_latents": ref_latents}, append=True)
+            ref_strength = float(ref_strength)
+            if ref_strength < 1.0:
+                # what the stock node encodes with no references: plain prompt, vision tokens kept
+                plain_pos = clip.encode_from_tokens_scheduled(
+                    clip.tokenize(prompt, images=[], keep_vision=True, prevent_empty_text=True))
+                plain_neg = clip.encode_from_tokens_scheduled(
+                    clip.tokenize(negative_prompt, images=[], keep_vision=True, prevent_empty_text=True))
+                positive = _schedule(positive, plain_pos, ref_strength)
+                negative = _schedule(negative, plain_neg, ref_strength)
 
         # empty latent on the first reference's size: any other size shifts the edit
         if ref_latents:

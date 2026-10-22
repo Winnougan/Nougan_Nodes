@@ -48,9 +48,36 @@ META_KEY = "nougan_moss"
 VLM_MAX_PIXELS = 384 * 384   # the Qwen3.5 encoder sees a coarse reference (as in training)
 REF_SNAP = 16                # FLUX.2 VAE latent grid
 MAX_REFS = 8
+SCALE_KONTEXT = "kontext (matches Ostris example)"
+SCALE_MEGAPIXELS = "megapixels"
+# FluxKontextImageScale's presets (core ComfyUI): the Ostris example workflow scales every
+# reference with that node before encoding, i.e. nearest preset by aspect + CENTER CROP.
+KONTEXT_RESOLUTIONS = [
+    (672, 1568), (688, 1504), (720, 1456), (752, 1392), (800, 1328), (832, 1248),
+    (880, 1184), (944, 1104), (1024, 1024), (1104, 944), (1184, 880), (1248, 832),
+    (1328, 800), (1392, 752), (1456, 720), (1504, 688), (1568, 672),
+]
 DEFAULT_SUBFOLDER = "moss"
 NONE = "None"
 _RESERVED = {"..", ".", "graph_presets", ".git", "__pycache__"}
+
+# ── ref_strength: how long the references stay active ────────────────────────
+# Not an amplitude: the references steer the first `ref_strength` of the denoise,
+# then the plain prompt (same text conditioning, no reference latents) finishes it.
+REF_STRENGTH_TIP = ("How long the references stay active, as a fraction of the denoising steps counted from the start. "
+                    "1.0 = every step (default, same as before). 0.6 = the references steer the first 60% of the steps, "
+                    "then the prompt alone finishes. 0 = references off. Lower = looser likeness and more prompt freedom.")
+
+
+def _schedule(with_refs, without_refs, strength):
+    """Conditioning list: `with_refs` for the first `strength` of the sampling, `without_refs` after."""
+    if strength >= 1.0:
+        return with_refs
+    if strength <= 0.0:
+        return without_refs
+    head = node_helpers.conditioning_set_values(with_refs, {"start_percent": 0.0, "end_percent": strength})
+    tail = node_helpers.conditioning_set_values(without_refs, {"start_percent": strength, "end_percent": 1.0})
+    return head + tail
 
 
 # ── folders ──────────────────────────────────────────────────────────────────
@@ -159,6 +186,14 @@ def _scale_total(frame, resolution):
     return comfy.utils.common_upscale(frame.movedim(-1, 1), nw, nh, "lanczos", "disabled").movedim(1, -1)
 
 
+def _scale_kontext(frame):
+    """Exactly core's FluxKontextImageScale: nearest preset by aspect, lanczos, center crop."""
+    h, w = frame.shape[1], frame.shape[2]
+    aspect = w / h
+    _, tw, th = min((abs(aspect - pw / ph), pw, ph) for pw, ph in KONTEXT_RESOLUTIONS)
+    return comfy.utils.common_upscale(frame.movedim(-1, 1), tw, th, "lanczos", "center").movedim(1, -1)
+
+
 def _fit_area(samples, max_pixels):
     """(B,C,H,W): downscale, never upscale, to fit max_pixels."""
     h, w = samples.shape[2], samples.shape[3]
@@ -177,9 +212,13 @@ def _snap(samples, snap):
     return comfy.utils.common_upscale(samples, nw, nh, "area", "disabled")
 
 
-def _encode_frame(frame, vae, resolution):
+def _encode_frame(frame, vae, resolution, scale_mode=SCALE_KONTEXT):
     """-> (latent, vl image [1,h,w,3], ref size (w,h))."""
-    scaled = _scale_total(frame[:1], resolution)[..., :3]
+    frame = frame[:1]
+    if scale_mode == SCALE_KONTEXT:
+        scaled = _scale_kontext(frame)[..., :3]
+    else:
+        scaled = _scale_total(frame, resolution)[..., :3]
     samples = scaled.movedim(-1, 1)
     vl = _fit_area(samples, VLM_MAX_PIXELS).movedim(1, -1)
     snapped = _snap(samples, REF_SNAP)
@@ -218,10 +257,13 @@ class NouganMossRefModBake:
                 "images": ("IMAGE", {"tooltip": f"Every frame in the batch becomes one reference (max {MAX_REFS})."}),
                 "vae": ("VAE", {"tooltip": "The MOSS-Image VAE (FLUX.2 VAE)."}),
                 "name": ("STRING", {"default": "my_character"}),
+                "scale_mode": ([SCALE_KONTEXT, SCALE_MEGAPIXELS], {
+                    "tooltip": "kontext = what the Ostris example workflow does (FluxKontextImageScale: nearest "
+                               "~1MP preset by aspect, center-cropped). megapixels = keep the full image, scale to "
+                               "resolution^2 pixels."}),
                 "resolution": ("INT", {"default": 1024, "min": 0, "max": 4096, "step": 16,
-                                       "tooltip": "References are scaled to about resolution x resolution pixels "
-                                                  "(1024 = ~1MP, the training default), then snapped to 16 px. "
-                                                  "Each costs ~4096 tokens per step at 1024. 0 keeps each image's size."}),
+                                       "tooltip": "Only used by scale_mode 'megapixels': about resolution x resolution "
+                                                  "pixels (1024 = ~1MP), then snapped to 16 px. 0 keeps each image's size."}),
                 "subfolder": ("STRING", {"default": DEFAULT_SUBFOLDER}),
                 "overwrite": ("BOOLEAN", {"default": False}),
             },
@@ -230,7 +272,7 @@ class NouganMossRefModBake:
             },
         }
 
-    def bake(self, images, vae, name, resolution, subfolder, overwrite,
+    def bake(self, images, vae, name, scale_mode, resolution, subfolder, overwrite,
              image_2=None, image_3=None, image_4=None):
         frames = _frames(images, image_2, image_3, image_4)
         if not frames:
@@ -245,7 +287,7 @@ class NouganMossRefModBake:
 
         tensors, sizes = {}, []
         for i, frame in enumerate(frames):
-            lat, vl, size = _encode_frame(frame, vae, resolution)
+            lat, vl, size = _encode_frame(frame, vae, resolution, scale_mode)
             tensors[f"lat_{i}"] = lat.detach().cpu().float().contiguous().clone()
             img = (vl.clamp(0, 1) * 255.0).round().to(torch.uint8)
             tensors[f"img_{i}"] = img.detach().cpu().contiguous().clone()
@@ -253,7 +295,7 @@ class NouganMossRefModBake:
 
         meta = {"format": FORMAT, "version": 1, "name": os.path.basename(path)[:-len(".safetensors")],
                 "count": len(frames), "ref_sizes": sizes, "downscale": REF_SNAP,
-                "latent_channels": int(tensors["lat_0"].shape[1]), "resolution": int(resolution)}
+                "latent_channels": int(tensors["lat_0"].shape[1]), "resolution": int(resolution), "scale_mode": scale_mode}
         directory = os.path.dirname(path)
         os.makedirs(directory, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=".refmod-", suffix=".tmp", dir=directory)
@@ -297,7 +339,9 @@ class NouganMossRefModEncode:
                 "refmod_3": (names,),
                 "extra_image": ("IMAGE", {"tooltip": "Optional plain reference(s), encoded on the fly. Needs the VAE."}),
                 "vae": ("VAE", {"tooltip": "Only needed for extra_image."}),
+                "extra_image_scale": ([SCALE_KONTEXT, SCALE_MEGAPIXELS],),
                 "extra_image_resolution": ("INT", {"default": 1024, "min": 0, "max": 4096, "step": 16}),
+                "ref_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": REF_STRENGTH_TIP}),
             },
         }
 
@@ -317,7 +361,7 @@ class NouganMossRefModEncode:
         return True  # combo lists are rebuilt on refresh; missing files raise a clear error at run time
 
     def encode(self, clip, prompt, negative_prompt, refmod_1, refmod_2=NONE, refmod_3=NONE,
-               extra_image=None, vae=None, extra_image_resolution=1024):
+               extra_image=None, vae=None, extra_image_scale=SCALE_KONTEXT, extra_image_resolution=1024, ref_strength=1.0):
         ref_latents, images_vl = [], []
         for rel in (refmod_1, refmod_2, refmod_3):
             if rel and rel != NONE:
@@ -329,7 +373,7 @@ class NouganMossRefModEncode:
             if vae is None:
                 raise ValueError("Connect the MOSS-Image VAE to encode extra_image.")
             for frame in _frames(extra_image):
-                lat, vl, _ = _encode_frame(frame, vae, extra_image_resolution)
+                lat, vl, _ = _encode_frame(frame, vae, extra_image_resolution, extra_image_scale)
                 ref_latents.append(lat)
                 images_vl.append(vl)
 
@@ -339,12 +383,25 @@ class NouganMossRefModEncode:
         device = comfy.model_management.intermediate_device()
         ref_latents = [lat.to(device) for lat in ref_latents]
 
+        # one line so you can compare against Ostris's own encode node (sizes / token budget)
+        if ref_latents:
+            grids = [tuple(lat.shape[-2:]) for lat in ref_latents]
+            print(f"[Nougan MOSS RefMod] {len(ref_latents)} ref(s), latent grids {grids}, "
+                  f"{sum(a * b for a, b in grids)} ref tokens/step, "
+                  f"VL images {[tuple(v.shape[1:3]) for v in images_vl]}")
+
         prefix = _picture_prefix(len(images_vl))
         positive = clip.encode_from_tokens_scheduled(clip.tokenize(prefix + prompt, images=images_vl))
         negative = clip.encode_from_tokens_scheduled(clip.tokenize(prefix + negative_prompt, images=images_vl))
         if ref_latents:
-            positive = node_helpers.conditioning_set_values(positive, {"reference_latents": ref_latents}, append=True)
-            negative = node_helpers.conditioning_set_values(negative, {"reference_latents": ref_latents}, append=True)
+            ref_strength = float(ref_strength)
+            plain_pos, plain_neg = positive, negative   # same text conditioning, no reference latents
+            positive = _schedule(
+                node_helpers.conditioning_set_values(positive, {"reference_latents": ref_latents}, append=True),
+                plain_pos, ref_strength)
+            negative = _schedule(
+                node_helpers.conditioning_set_values(negative, {"reference_latents": ref_latents}, append=True),
+                plain_neg, ref_strength)
         return (positive, negative)
 
 

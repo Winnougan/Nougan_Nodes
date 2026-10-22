@@ -180,8 +180,15 @@ _FEATURES = [
     ("MOSS RefMod", "nougan_moss_refmod", "*"),
     # Bake / Encode for Krea 2 edit LoRAs (needs the Ostris Krea 2 edit patch for generation).
     ("Krea 2 RefMod", "nougan_krea2_refmod", "*"),
+    # Bake / Apply for FLUX.3 (natively reference-capable: no extra patch needed).
+    ("Flux 3 RefMod", "nougan_flux3_refmod", "*"),
     ("Image Converter", "nougan_image_converter", [
         ("NouganImageConverter", "NouganImageConverter", "Nougan Image Converter 🖼️"),
+    ]),
+    # Video / frames -> trimmed + cropped GIF / WebP / MP4 with a visual editor (web/nougan_gif_maker.js).
+    # Needs ffmpeg on PATH or `pip install imageio-ffmpeg`. Registers its own /nougan/gif/* routes.
+    ("GIF Maker", "nougan_gif_maker", [
+        ("NouganGifMaker", "NouganGifMaker", "Nougan GIF Maker 🎞️"),
     ]),
 ]
 
