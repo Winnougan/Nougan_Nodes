@@ -195,6 +195,11 @@ _FEATURES = [
     ("Save Video", "nougan_save_video", [
         ("NouganSaveVideo", "NouganSaveVideo", "Nougan Save Video 🎬"),
     ]),
+    # Duration (seconds) -> frame count: presets (MiniMax H3 17n+5 / 24 / 30 FPS) + lockable custom expression,
+    # live preview (web/nougan_duration_frames.js). Registers /nougan/duration_frames/* routes.
+    ("Duration -> Frames", "nougan_duration_frames", [
+        ("NouganDurationFrames", "NouganDurationFrames", "Nougan Duration → Frames ⏱️"),
+    ]),
     # UI-only button node that reloads the browser tab (web/nougan_refresh_page.js). No inputs or outputs.
     ("Refresh Page", "nougan_refresh_page", [
         ("NouganRefreshPage", "NouganRefreshPage", "Nougan Refresh Page 🔄"),
