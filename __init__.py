@@ -190,6 +190,22 @@ _FEATURES = [
     ("GIF Maker", "nougan_gif_maker", [
         ("NouganGifMaker", "NouganGifMaker", "Nougan GIF Maker 🎞️"),
     ]),
+    # Frames (+ audio) -> H.264 / HEVC / AV1 / VP9 / ProRes / FFV1 with player + scrub bar (web/nougan_save_video.js).
+    # Needs ffmpeg on PATH or `pip install imageio-ffmpeg`. Registers its own /nougan/video_encoders route.
+    ("Save Video", "nougan_save_video", [
+        ("NouganSaveVideo", "NouganSaveVideo", "Nougan Save Video 🎬"),
+    ]),
+    # UI-only button node that reloads the browser tab (web/nougan_refresh_page.js). No inputs or outputs.
+    ("Refresh Page", "nougan_refresh_page", [
+        ("NouganRefreshPage", "NouganRefreshPage", "Nougan Refresh Page 🔄"),
+    ]),
+    # One node, many images: "+" adds a slot and a matching IMAGE output (web/nougan_multi_load_image.js).
+    ("Multi Load Image", "nougan_multi_load_image", [
+        ("NouganMultiLoadImage", "NouganMultiLoadImage", "Nougan Multi Load Image 🖼️➕"),
+    ]),
+    ("Resolution Picker", "resolution_picker", [
+        ("NouganResolutionPicker", "NouganResolutionPicker", "Nougan Resolution Picker"),
+    ]),
 ]
 
 
@@ -236,7 +252,6 @@ for _label, _module, _spec in _FEATURES:
         _failed.append(_label)
         print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow(type(_e).__name__ + ': ' + str(_e))}")
         traceback.print_exc()
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  Routes — always attempted, fully guarded
