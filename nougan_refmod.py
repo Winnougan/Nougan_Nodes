@@ -466,7 +466,9 @@ class NouganRefModApply:
             "scramble_mode": (["shuffle", "subset", "legacy_subset"], {"default": "shuffle"}),
             "scramble_keep": ("INT", {"default": 1, "min": 1, "max": 80}),
         })
-        return {"required": required}
+        optional = {"extra_mods": ("H3_REF_MODS", {
+            "tooltip": "Optional. Plug in 'mods' from Nougan Tail RefMod (or a Loader) to use it alongside the picked characters."})}
+        return {"required": required, "optional": optional}
 
     RETURN_TYPES = ("CONDITIONING", "STRING", "STRING")
     RETURN_NAMES = ("conditioning", "prompt_hint", "info")
@@ -488,9 +490,17 @@ class NouganRefModApply:
 
     def apply(self, conditioning, retention=0.85, max_total_tokens=0, curve_direction="constant",
               curve_shape="linear", curve_value=1.0, scramble_seed=-1, scramble_mode="shuffle",
-              scramble_keep=1, **kw):
+              scramble_keep=1, extra_mods=None, **kw):
         up = _upstream()
         loads, hint, info = _collect(kw, max_total_tokens, False, "Nougan RefMod Apply")
+        if extra_mods:
+            extra = list(extra_mods)
+            loads = list(loads) + extra
+            total = up.nodes._check_token_budget(loads, max_total_tokens)
+            extra_hint = up.nodes._prompt_hint(extra)
+            hint = "\n".join(h for h in (hint, extra_hint) if h)
+            info += "\n" + "\n".join(f"{m.name} [{m.kind}] strength {s:.2f} - {m.token_count} tokens (extra)"
+                                     for m, s in extra) + f"\ntotal incl. extra: {total} tokens"
         if not loads:
             print("[Nougan RefMod Apply] no character selected - conditioning passed through unchanged.")
             return (conditioning, hint, info)
@@ -503,13 +513,253 @@ class NouganRefModApply:
         return (out[0], hint, info)
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Node 4: Tail -> RefMod (take the end of a finished clip, use it as a reference for the next one)
+# ─────────────────────────────────────────────────────────────────────────
+H3_FPS = 24
+H3_STRIDE = 17          # valid H3 reference lengths are 5, 22, 39, 56 ... = 17k + 5
+
+
+def _valid_len(n):
+    """Largest valid H3 frame count <= n (never below the 5-frame minimum)."""
+    if n < 5:
+        return 5
+    return ((n - 5) // H3_STRIDE) * H3_STRIDE + 5
+
+
+def _build_tail(images, vae, tail_seconds, source_fps, audio, audio_vae, audio_type,
+                ref_resolution, max_visual_tokens, visual_budget, description, name):
+    """Slice the tail of a clip, encode it (+ optional audio). Returns (mods, frames, length, has_audio)."""
+    import torch
+    up = _upstream()
+    n = up.nodes
+
+    total = int(images.shape[0])
+    if total < 2:
+        raise ValueError("Nougan Tail RefMod: need at least 2 frames.")
+    if audio is not None and audio_vae is None:
+        raise ValueError("Nougan Tail RefMod: audio is connected but audio_vae is not (use the H3 AUDIO VAE).")
+
+    # last tail_seconds of the source, resampled to 24 fps, trimmed to a valid H3 length
+    want = max(5, round(tail_seconds * H3_FPS))
+    length = _valid_len(want)
+    n_src = min(total, max(2, round(tail_seconds * source_fps)))
+    window = images[total - n_src:]
+    idx = torch.linspace(0, n_src - 1, want).round().long()
+    frames = window[idx][-length:]
+
+    mods = []
+    out = n.MiniMaxH3RefModExtract.execute(
+        name=name + "_visual", mode="Full Reference",
+        refs_image=None, refs_video={"ref_video_1": frames}, refs_bundle=None,
+        vae=vae, ref_resolution=ref_resolution, max_tokens=max_visual_tokens,
+        description=description, save=False, concept_type="identity",
+        extraction_preset="identity_encode", budget_policy=visual_budget)
+    mods.extend(out[0])
+
+    has_audio = audio is not None
+    if has_audio:
+        wf = audio["waveform"]
+        sr = int(audio["sample_rate"])
+        cut = max(1, round(tail_seconds * sr))
+        tail_audio = {"waveform": wf[..., -cut:], "sample_rate": sr}
+        mods.append((up.audio.make_audio_mod(
+            audio_vae, tail_audio, name + "_audio", tail_seconds + 0.5, 5120,
+            "error", description, audio_type), 1.0))
+    return mods, frames, length, has_audio
+
+
+class NouganTailRefMod:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE", {"tooltip": "Decoded frames of the clip you just made [T,H,W,C]."}),
+                "vae": ("VAE", {"tooltip": "MiniMax H3 VIDEO VAE."}),
+                "tail_seconds": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 10.0, "step": 0.05,
+                    "tooltip": "How much of the end of the clip to use. Resampled to 24 fps and trimmed to a valid H3 length (5, 22, 39, 56 frames)."}),
+                "source_fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.5,
+                    "tooltip": "fps of the incoming frames."}),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "Strength of the tail ref. Apply's retention and curve still act on top of this."}),
+            },
+            "optional": {
+                "audio": ("AUDIO", {"tooltip": "Optional: audio of the same clip. Its last tail_seconds are used."}),
+                "audio_vae": ("VAE", {"tooltip": "MiniMax H3 AUDIO VAE. Needed if audio is connected."}),
+                "audio_type": (AUDIO_CONCEPTS, {"default": "voice", "tooltip": "Metadata label only."}),
+                "ref_resolution": ("INT", {"default": 512, "min": 256, "max": 2048, "step": 64,
+                    "tooltip": "Short edge for the encode. Lower = fewer tokens."}),
+                "max_visual_tokens": ("INT", {"default": 16384, "min": 0, "max": 2147483647, "step": 512,
+                    "tooltip": "0 = no cap."}),
+                "visual_budget": (["truncate", "error"], {"default": "truncate"}),
+                "description": ("STRING", {"default": "", "multiline": True,
+                    "tooltip": "Optional. Shows up in the prompt_hint."}),
+                "save_name": ("STRING", {"default": "tail_latest",
+                    "tooltip": "Scratch file in models/refmods/_tail, overwritten every run. Give it a unique name to keep the tail as a normal RefMod."}),
+            },
+        }
+
+    RETURN_TYPES = ("H3_REF_MODS", "STRING", "IMAGE")
+    RETURN_NAMES = ("mods", "info", "tail_frames")
+    FUNCTION = "make"
+    CATEGORY = "Nougan/RefMod"
+    DESCRIPTION = ("Take the last few frames (and audio) of a finished clip, encode them as a RefMod and "
+                   "output them for Nougan RefMod Apply (extra_mods). A reference, not a true continuation: "
+                   "expect the same look, not the same pose.")
+
+    def make(self, images, vae, tail_seconds=1.0, source_fps=24.0, strength=1.0, audio=None, audio_vae=None,
+             audio_type="voice", ref_resolution=512, max_visual_tokens=16384, visual_budget="truncate",
+             description="", save_name="tail_latest"):
+        up = _upstream()
+        name = up.nodes._sanitize_name(save_name or "tail_latest")
+        mods, frames, length, has_audio = _build_tail(
+            images, vae, tail_seconds, source_fps, audio, audio_vae, audio_type,
+            ref_resolution, max_visual_tokens, visual_budget, description, name)
+
+        # same path as Bake: save + reload so downstream gets path/bundle_index set
+        path = up.common.mod_output_path(name, "_tail")
+        up.bundle.save_bundle(path, name, mods)
+        loaded = up.bundle.load_bundle(path)
+
+        total_tokens = sum(m.token_count for m, _ in loaded)
+        info = (f"tail: {length} frames @ {H3_FPS} fps from the last {tail_seconds:.2f}s"
+                f"{' + audio' if has_audio else ''} - {total_tokens} tokens -> {path}.safetensors")
+        print(f"[Nougan Tail RefMod] {info}")
+        return ([(m, float(s) * float(strength)) for m, s in loaded], info, frames)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Nodes 5 + 6: Tail Capture / Tail Load  (one chain, no second graph, no cycle)
+#   Capture: output node on the decode IMAGE. Saves the clip's tail AFTER the clip is made.
+#   Load:    feeds Apply.extra_mods with the tail saved by the PREVIOUS queue run.
+# Capture alternates two files (_a / _b) so it never overwrites a file Load may still hold
+# open (Windows locks memory-mapped files).
+# ─────────────────────────────────────────────────────────────────────────
+def _tail_slots(save_name):
+    up = _upstream()
+    base = up.nodes._sanitize_name(save_name or "tail_latest")
+    return [up.common.mod_output_path(base + s, "_tail") for s in ("_a", "_b")]
+
+
+def _tail_newest(save_name):
+    """(path, mtime) of the most recently written existing slot, or (None, 0)."""
+    best, best_t = None, 0
+    for p in _tail_slots(save_name):
+        f = p + ".safetensors"
+        if os.path.isfile(f):
+            t = os.stat(f).st_mtime_ns
+            if t > best_t:
+                best, best_t = p, t
+    return best, best_t
+
+
+class NouganTailCapture:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE", {"tooltip": "Plug the decoded frames of the clip being made. Runs after the clip finishes."}),
+                "vae": ("VAE", {"tooltip": "MiniMax H3 VIDEO VAE."}),
+                "tail_seconds": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 10.0, "step": 0.05}),
+                "source_fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.5}),
+            },
+            "optional": {
+                "audio": ("AUDIO", {"tooltip": "Optional: the clip's audio. Needs audio_vae."}),
+                "audio_vae": ("VAE", {"tooltip": "MiniMax H3 AUDIO VAE."}),
+                "audio_type": (AUDIO_CONCEPTS, {"default": "voice"}),
+                "ref_resolution": ("INT", {"default": 512, "min": 256, "max": 2048, "step": 64}),
+                "max_visual_tokens": ("INT", {"default": 16384, "min": 0, "max": 2147483647, "step": 512}),
+                "visual_budget": (["truncate", "error"], {"default": "truncate"}),
+                "description": ("STRING", {"default": "", "multiline": True}),
+                "save_name": ("STRING", {"default": "tail_latest",
+                    "tooltip": "Must match Nougan Tail Load. Files go to models/refmods/_tail/<name>_a / _b."}),
+            },
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "capture"
+    OUTPUT_NODE = True
+    CATEGORY = "Nougan/RefMod"
+    DESCRIPTION = ("Saves the last seconds of this clip as a RefMod once the clip is done. "
+                   "Nougan Tail Load picks it up on the next run. No loop, no second chain.")
+
+    def capture(self, images, vae, tail_seconds=1.0, source_fps=24.0, audio=None, audio_vae=None,
+                audio_type="voice", ref_resolution=512, max_visual_tokens=16384, visual_budget="truncate",
+                description="", save_name="tail_latest"):
+        up = _upstream()
+        name = up.nodes._sanitize_name(save_name or "tail_latest")
+        mods, _frames, length, has_audio = _build_tail(
+            images, vae, tail_seconds, source_fps, audio, audio_vae, audio_type,
+            ref_resolution, max_visual_tokens, visual_budget, description, name)
+
+        # write to the slot that is NOT the newest one
+        slot_a, slot_b = _tail_slots(save_name)
+        newest, _t = _tail_newest(save_name)
+        path = slot_b if newest == slot_a else slot_a
+        up.bundle.save_bundle(path, os.path.basename(path), mods)
+
+        tokens = sum(m.token_count for m, _ in mods)
+        info = (f"captured tail: {length} frames @ {H3_FPS} fps{' + audio' if has_audio else ''}, "
+                f"{tokens} tokens -> {path}.safetensors")
+        print(f"[Nougan Tail Capture] {info}")
+        return {"ui": {"text": [info]}}
+
+
+class NouganTailLoad:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "enabled": ("BOOLEAN", {"default": True,
+                    "tooltip": "Off = no tail reference (use for the first clip of a new sequence)."}),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            },
+            "optional": {
+                "save_name": ("STRING", {"default": "tail_latest", "tooltip": "Must match Nougan Tail Capture."}),
+            },
+        }
+
+    RETURN_TYPES = ("H3_REF_MODS", "STRING")
+    RETURN_NAMES = ("mods", "info")
+    FUNCTION = "load"
+    CATEGORY = "Nougan/RefMod"
+    DESCRIPTION = ("Loads the tail saved by Nougan Tail Capture on the previous run and outputs it for "
+                   "Nougan RefMod Apply (extra_mods). If nothing is saved yet it outputs nothing.")
+
+    @classmethod
+    def IS_CHANGED(cls, enabled=True, strength=1.0, save_name="tail_latest"):
+        try:
+            _p, t = _tail_newest(save_name)
+        except Exception:
+            return float("nan")
+        return f"{bool(enabled)}|{strength}|{t}"
+
+    def load(self, enabled=True, strength=1.0, save_name="tail_latest"):
+        if not enabled:
+            return ([], "tail off")
+        path, _t = _tail_newest(save_name)
+        if path is None:
+            return ([], "no tail saved yet (first clip)")
+        loaded = _upstream().bundle.load_bundle(path)
+        tokens = sum(m.token_count for m, _ in loaded)
+        info = f"tail loaded: {tokens} tokens from {os.path.basename(path)}"
+        print(f"[Nougan Tail Load] {info}")
+        return ([(m, float(s) * float(strength)) for m, s in loaded], info)
+
+
 NODE_CLASS_MAPPINGS = {
     "NouganRefModBake": NouganRefModBake,
     "NouganRefModLoader": NouganRefModLoader,
     "NouganRefModApply": NouganRefModApply,
+    "NouganTailRefMod": NouganTailRefMod,
+    "NouganTailCapture": NouganTailCapture,
+    "NouganTailLoad": NouganTailLoad,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganRefModBake": "Nougan RefMod Bake (Character)",
     "NouganRefModLoader": "Nougan RefMod Loader",
     "NouganRefModApply": "Nougan RefMod Apply",
+    "NouganTailRefMod": "Nougan Tail RefMod",
+    "NouganTailCapture": "Nougan Tail Capture",
+    "NouganTailLoad": "Nougan Tail Load",
 }

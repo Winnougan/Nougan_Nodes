@@ -2,7 +2,8 @@
 
 Pick a size either from an aspect ratio + megapixels, or from a prebuilt
 WIDTHxHEIGHT preset. Outputs width and height as INT, so it can replace
-ComfyUI's ResolutionSelector without rewiring.
+ComfyUI's ResolutionSelector without rewiring. It also outputs an empty LATENT at the chosen
+size, so you can feed a KSampler directly.
 
 The ratio and preset lists are plain labels. Both this file and the browser
 preview (web/nougan_resolution_picker.js) read the numbers out of the labels,
@@ -18,6 +19,14 @@ MODES = [MODE_RATIO, MODE_PRESET]
 
 # 1.0 MP means 1024 x 1024 pixels, the same convention as ComfyUI's ResolutionSelector.
 PIXELS_PER_MP = 1024 * 1024
+
+# Empty latent layouts: label -> (channels, spatial downscale factor).
+LATENT_TYPES = {
+    "SD / SDXL (4ch, /8)": (4, 8),
+    "SD3 / Flux / Qwen (16ch, /8)": (16, 8),
+    "Flux2 / Klein (128ch, /16)": (128, 16),
+}
+DEFAULT_LATENT_TYPE = "SD3 / Flux / Qwen (16ch, /8)"
 
 # Label format: "<w>:<h> (Name)". Decimals are fine, e.g. "2.39:1".
 RATIOS = [
@@ -129,6 +138,23 @@ def _nearest_ratio_text(width, height):
     return best or f"{math.floor(width / height * 100 + 0.5) / 100:.2f}:1"
 
 
+def make_latent(width, height, latent_type, batch_size):
+    """Empty latent dict ({"samples": zeros}) at width x height for the chosen model family."""
+    import torch
+
+    channels, factor = LATENT_TYPES.get(latent_type, LATENT_TYPES[DEFAULT_LATENT_TYPE])
+    try:
+        import comfy.model_management as mm
+        device = mm.intermediate_device()
+    except Exception:  # running outside ComfyUI (tests)
+        device = "cpu"
+    samples = torch.zeros(
+        [max(1, int(batch_size)), channels, max(1, height // factor), max(1, width // factor)],
+        device=device,
+    )
+    return {"samples": samples, "downscale_ratio_spacial": factor}
+
+
 def resolve(mode, aspect_ratio, megapixels, multiple, preset_resolution,
             custom_ratio_w, custom_ratio_h, swap_orientation, snap_presets):
     """Return (width, height, ratio_text). Pure function, no ComfyUI needed."""
@@ -157,11 +183,11 @@ def resolve(mode, aspect_ratio, megapixels, multiple, preset_resolution,
 class NouganResolutionPicker:
     CATEGORY = "Nougan"
     FUNCTION = "pick"
-    RETURN_TYPES = ("INT", "INT", "FLOAT", "STRING")
-    RETURN_NAMES = ("width", "height", "megapixels", "info")
+    RETURN_TYPES = ("INT", "INT", "LATENT", "STRING")
+    RETURN_NAMES = ("width", "height", "latent", "info")
     DESCRIPTION = (
         "Pick a size from an aspect ratio and megapixels, or from a prebuilt resolution. "
-        "Connect only the outputs you need."
+        "Outputs width, height, and an empty latent at that size. Connect only what you need."
     )
 
     @classmethod
@@ -177,15 +203,20 @@ class NouganResolutionPicker:
                 "snap_presets": ("BOOLEAN", {"default": True, "label_on": "snap to multiple", "label_off": "exact preset"}),
                 "multiple": ("INT", {"default": 32, "min": 1, "max": 256, "step": 1}),
                 "swap_orientation": ("BOOLEAN", {"default": False, "label_on": "portrait/landscape swapped", "label_off": "as listed"}),
+                "latent_type": (list(LATENT_TYPES.keys()), {"default": DEFAULT_LATENT_TYPE}),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
             }
         }
 
     def pick(self, mode, aspect_ratio, custom_ratio_w, custom_ratio_h, megapixels,
-             preset_resolution, snap_presets, multiple, swap_orientation):
+             preset_resolution, snap_presets, multiple, swap_orientation,
+             latent_type=DEFAULT_LATENT_TYPE, batch_size=1):
         width, height, ratio_text = resolve(
             mode, aspect_ratio, megapixels, multiple, preset_resolution,
             custom_ratio_w, custom_ratio_h, swap_orientation, snap_presets,
         )
         actual_mp = width * height / PIXELS_PER_MP
-        info = f"{width}x{height} | {ratio_text} | {actual_mp:.2f} MP"
-        return (width, height, round(actual_mp, 4), info)
+        latent = make_latent(width, height, latent_type, batch_size)
+        shape = tuple(latent["samples"].shape)
+        info = f"{width}x{height} | {ratio_text} | {actual_mp:.2f} MP | latent {shape[0]}x{shape[1]}x{shape[2]}x{shape[3]}"
+        return (width, height, latent, info)
