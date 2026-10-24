@@ -43,7 +43,7 @@ SOCIALS = [
     ("YouTube",     "https://www.youtube.com/@Winnougan",         _red),
     ("Discord",     "https://discord.gg/CJv5wceJaN",              _magenta),
     ("HuggingFace", "https://huggingface.co/Winnougan",           _yellow),
-    ("GitHub",      "https://github.com/Winnougan/Nougan_No",     _green),
+    ("GitHub",      "https://github.com/Winnougan/Nougan_Nodes",     _green),
 ]
 
 
@@ -182,6 +182,16 @@ _FEATURES = [
     ("Krea 2 RefMod", "nougan_krea2_refmod", "*"),
     # Bake / Apply for FLUX.3 (natively reference-capable: no extra patch needed).
     ("Flux 3 RefMod", "nougan_flux3_refmod", "*"),
+    ("Album Cover Maker", "nougan_album_cover", [
+        ("NouganAlbumCoverMaker", "NouganAlbumCoverMaker", "Nougan Album Cover Maker 💿"),
+    ]),
+    ("Layout LLM Prompt", "nougan_layout_llm", [
+        ("NouganLayoutLLMPrompt", "NouganLayoutLLMPrompt", "Nougan Layout LLM Prompt 🧱"),
+    ]),
+    # Bake / Encode for FIBO 2 (own NODE_CLASS_MAPPINGS in the module)
+    ("FIBO 2 RefMod", "nougan_fibo2_refmod", "*"),
+    # Older/alternate video saver, has its own mappings. Remove if it's a leftover.
+    ("Video Save (legacy)", "nougan_video_save", "*"),
     ("Image Converter", "nougan_image_converter", [
         ("NouganImageConverter", "NouganImageConverter", "Nougan Image Converter 🖼️"),
     ]),
@@ -210,6 +220,11 @@ _FEATURES = [
     ]),
     ("Resolution Picker", "resolution_picker", [
         ("NouganResolutionPicker", "NouganResolutionPicker", "Nougan Resolution Picker"),
+    ]),
+    # Mirrors KJNodes' Model Preview Override live preview on its own node (web/nougan_preview_mirror.js).
+    # Needs KJNodes installed. No model input = follow any preview; connect a model to follow just that one.
+    ("Model Preview Mirror", "nougan_preview_mirror", [
+        ("NouganModelPreviewMirror", "NouganModelPreviewMirror", "Nougan Model Preview Mirror 🪞"),
     ]),
 ]
 
