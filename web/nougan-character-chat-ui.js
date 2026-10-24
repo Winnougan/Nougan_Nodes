@@ -1,4 +1,5 @@
 // nougan-character-chat-ui.js -- chat panel for the Nougan Character Chat node (classic LiteGraph DOM widget, no Nodes 2.0)
+// v2: ambient WebGPU background (WebGL2 fallback) tinted from the avatar, pop-in messages, dialogue highlight, per-message copy.
 //
 // Characters come from V2/V3 card PNGs, card JSONs, or refmod .safetensors files with a baked character
 // (made by Nougan Refmod Baker); the backend lists and reads all three, this panel just shows them.
@@ -24,6 +25,8 @@ function fmt(text) {
     return esc(text)
         .replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>")
         .replace(/\*(.+?)\*/gs, '<i class="act">$1</i>')
+        .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+        .replace(/&quot;(.+?)&quot;/gs, '<span class="q">&quot;$1&quot;</span>')
         .replace(/\n/g, "<br>");
 }
 
@@ -103,15 +106,15 @@ function styles() {
 
     const s = document.createElement("style");
     s.textContent = `
-.nbc{--bg:#12141a;--card:#1a1d26;--card2:#20242f;--line:#2a2f3c;--fg:#e8ebf2;--dim:#8a93a6;--acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;
+.nbc{--bg:#12141a;--card:#1a1d26;--card2:#20242f;--line:#2a2f3c;--fg:#e8ebf2;--dim:#8a93a6;--acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;--cA:245,165,36;--cB:255,122,24;
   font:12.5px/1.4 'Inter','Segoe UI',system-ui,sans-serif;color:var(--fg);box-sizing:border-box;width:100%;padding:10px;border-radius:12px;
-  border:1px solid var(--line);background:radial-gradient(120% 80% at 0% 0%,rgba(245,165,36,.07),transparent 55%),var(--bg);
+  border:1px solid var(--line);background:radial-gradient(120% 80% at 0% 0%,rgba(var(--cA),.10),transparent 55%),var(--bg);
   box-shadow:0 8px 26px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.04)}
 .nbc *{box-sizing:border-box}
 .nbc button{font:inherit;color:inherit}
 
 .nbc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.nbc-hav{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--acc);background:#0d0f14;flex:none;box-shadow:0 0 12px rgba(245,165,36,.3)}
+.nbc-hav{width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgb(var(--cA));background:#0d0f14;flex:none;box-shadow:0 0 14px rgba(var(--cA),.45);transition:box-shadow .4s,border-color .4s}
 .nbc-hi{min-width:0;flex:1}
 .nbc-name{font-weight:800;font-size:14px;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nbc-sub{font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -121,13 +124,13 @@ function styles() {
 .nbc-tb.on{color:#1a1206;background:linear-gradient(180deg,#ffc35c,var(--acc));border-color:#c9821a}
 .nbc-tb.warn{color:#fff;background:var(--neg);border-color:var(--neg)}
 
-.nbc-log{min-height:160px;max-height:${MSG_MAX_H}px;overflow-y:auto;padding:8px 6px;border-radius:9px;background:#0d0f14;border:1px solid #232834;
+.nbc-log{min-height:160px;max-height:${MSG_MAX_H}px;overflow-y:auto;padding:8px 6px;border-radius:9px;position:relative;z-index:1;background:transparent;
   display:flex;flex-direction:column;gap:9px;scrollbar-width:thin;scrollbar-color:#3a4150 transparent;user-select:text}
 .nbc-m{display:flex;gap:7px;align-items:flex-end;max-width:100%}
 .nbc-m.user{flex-direction:row-reverse}
 .nbc-av{width:26px;height:26px;border-radius:50%;object-fit:cover;flex:none;background:#20242f;border:1px solid #333948}
 .nbc-b{position:relative;max-width:82%;padding:7px 10px 8px;border-radius:12px;word-break:break-word}
-.nbc-m.assistant .nbc-b{background:var(--card);border:1px solid #2a2f3c;border-bottom-left-radius:3px}
+.nbc-m.assistant .nbc-b{background:rgba(26,29,38,.8);backdrop-filter:blur(6px);border:1px solid rgba(var(--cA),.22);border-bottom-left-radius:3px}
 .nbc-m.user .nbc-b{background:linear-gradient(180deg,rgba(245,165,36,.22),rgba(255,122,24,.16));border:1px solid rgba(245,165,36,.4);border-bottom-right-radius:3px}
 .nbc-t i.act{color:#aeb7cb}
 .nbc-t b{color:#fff}
@@ -143,7 +146,7 @@ function styles() {
 .nbc-sw span.n{cursor:pointer;padding:0 5px;border-radius:5px;background:var(--card2);color:var(--fg)}
 .nbc-sw span.n:hover{color:var(--acc)}
 .nbc-dots{display:inline-flex;gap:4px;padding:3px 2px}
-.nbc-dots i{width:6px;height:6px;border-radius:50%;background:var(--acc);animation:nbc-bounce 1s infinite ease-in-out}
+.nbc-dots i{width:6px;height:6px;border-radius:50%;background:rgb(var(--cA));animation:nbc-bounce 1s infinite ease-in-out}
 .nbc-dots i:nth-child(2){animation-delay:.15s}.nbc-dots i:nth-child(3){animation-delay:.3s}
 @keyframes nbc-bounce{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
 .nbc-empty{margin:auto;color:var(--dim);text-align:center;padding:20px 10px;font-size:12px}
@@ -159,8 +162,329 @@ function styles() {
 .nbc-send:disabled{opacity:.5;cursor:default}
 .nbc-foot{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
 .nbc-sp{flex:1}
+.nbc-stage{position:relative;border-radius:9px;overflow:hidden;background:#0d0f14;border:1px solid #232834}
+.nbc-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0;transition:opacity .8s;z-index:0}
+.nbc-fx.live{opacity:1}
+.nbc-fx.off{display:none}
+.nbc-m.nbc-pop{animation:nbc-pop .28s cubic-bezier(.2,.9,.3,1.2) both}
+@keyframes nbc-pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.nbc-t .q{color:#ffe3ad}
+.nbc-t code{background:rgba(255,255,255,.08);padding:0 4px;border-radius:4px;font:11.5px ui-monospace,Consolas,monospace}
+.nbc.busy .nbc-hav{animation:nbc-ring 1.4s ease-in-out infinite}
+@keyframes nbc-ring{0%,100%{box-shadow:0 0 10px rgba(var(--cA),.35)}50%{box-shadow:0 0 22px 3px rgba(var(--cA),.75)}}
+.nbc-think{font-size:10.5px;color:var(--dim);margin-left:6px;font-style:italic;vertical-align:middle}
+@media (prefers-reduced-motion:reduce){.nbc *{animation:none!important;transition:none!important}}
 `;
     document.head.appendChild(s);
+}
+
+
+// -- ambient FX: WebGPU shader background (falls back to WebGL2, then to nothing) ----------------------
+// A soft flowing-nebula shader sits behind the chat log, tinted from the character's avatar. It speeds up and
+// pulses while the character is "thinking". Rendered at ~60% resolution, capped at 30 fps, and paused when the
+// node is off-screen or the tab is hidden. WebGPU needs a secure context (localhost / 127.0.0.1 / https).
+
+const FX_A = [0.96, 0.65, 0.14], FX_B = [1.0, 0.48, 0.09];       // default amber -> orange
+
+const WGSL = `
+struct U { res: vec2f, time: f32, busy: f32, colA: vec4f, colB: vec4f }
+@group(0) @binding(0) var<uniform> u: U;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
+
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
+    var tri = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+    var o: VO;
+    o.pos = vec4f(tri[i], 0.0, 1.0);
+    o.uv = tri[i] * 0.5 + 0.5;
+    return o;
+}
+
+fn hsh(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+
+fn vnoise(p: vec2f) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let w = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hsh(i), hsh(i + vec2f(1.0, 0.0)), w.x),
+               mix(hsh(i + vec2f(0.0, 1.0)), hsh(i + vec2f(1.0, 1.0)), w.x), w.y);
+}
+
+fn fbm(p0: vec2f) -> f32 {
+    var p = p0;
+    var a = 0.5;
+    var s = 0.0;
+    for (var k = 0; k < 4; k++) {
+        s += a * vnoise(p);
+        p = p * 2.02 + vec2f(17.0, 9.0);
+        a *= 0.5;
+    }
+    return s;
+}
+
+@fragment fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
+    let asp = u.res.x / u.res.y;
+    let p = (uv - 0.5) * vec2f(asp, 1.0) * 2.4;
+    let t = u.time * (0.05 + 0.14 * u.busy);
+    let q = vec2f(fbm(p + vec2f(t, -t * 0.7)), fbm(p + vec2f(-t * 0.6, t) + 5.2));
+    let n = fbm(p + 2.0 * q + t);
+    let col = mix(u.colA.rgb, u.colB.rgb, smoothstep(0.25, 0.85, n));
+    let vig = smoothstep(1.3, 0.2, length(uv - 0.5) * 1.7);
+    let pulse = 0.5 + 0.5 * sin(u.time * 3.0);
+    let glow = 0.30 + 0.45 * u.busy * pulse;
+    let a = clamp(n * n * 2.0 * glow * vig, 0.0, 0.85);
+    return vec4f(col * a, a);
+}`;
+
+const GLSL_VS = `#version 300 es
+void main() {
+    vec2 p = vec2((gl_VertexID == 1) ? 3.0 : -1.0, (gl_VertexID == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(p, 0.0, 1.0);
+}`;
+
+const GLSL_FS = `#version 300 es
+precision highp float;
+uniform vec2 res; uniform float time; uniform float busy; uniform vec3 colA; uniform vec3 colB;
+out vec4 o;
+float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p); vec2 w = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hsh(i), hsh(i + vec2(1.0, 0.0)), w.x), mix(hsh(i + vec2(0.0, 1.0)), hsh(i + vec2(1.0, 1.0)), w.x), w.y);
+}
+float fbm(vec2 p) {
+    float a = 0.5; float s = 0.0;
+    for (int k = 0; k < 4; k++) { s += a * vnoise(p); p = p * 2.02 + vec2(17.0, 9.0); a *= 0.5; }
+    return s;
+}
+void main() {
+    vec2 uv = gl_FragCoord.xy / res;
+    float asp = res.x / res.y;
+    vec2 p = (uv - 0.5) * vec2(asp, 1.0) * 2.4;
+    float t = time * (0.05 + 0.14 * busy);
+    vec2 q = vec2(fbm(p + vec2(t, -t * 0.7)), fbm(p + vec2(-t * 0.6, t) + 5.2));
+    float n = fbm(p + 2.0 * q + t);
+    vec3 col = mix(colA, colB, smoothstep(0.25, 0.85, n));
+    float vig = smoothstep(1.3, 0.2, length(uv - 0.5) * 1.7);
+    float pulse = 0.5 + 0.5 * sin(time * 3.0);
+    float glow = 0.30 + 0.45 * busy * pulse;
+    float a = clamp(n * n * 2.0 * glow * vig, 0.0, 0.85);
+    o = vec4(col * a, a);
+}`;
+
+// Uniform layout (12 floats): res.xy, time, busy | colA.rgb,1 | colB.rgb,1
+async function webgpuBackend(canvas) {
+    if (!navigator.gpu) throw new Error("WebGPU not available");
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "low-power" });
+    if (!adapter) throw new Error("no WebGPU adapter");
+    const device = await adapter.requestDevice();
+
+    try {
+        const module = device.createShaderModule({ code: WGSL });
+        const info = await module.getCompilationInfo();
+        if (info.messages.some(m => m.type === "error")) throw new Error(info.messages.map(m => m.message).join("; "));
+
+        const format = navigator.gpu.getPreferredCanvasFormat();
+        const pipeline = device.createRenderPipeline({
+            layout: "auto",
+            vertex: { module, entryPoint: "vs" },
+            fragment: { module, entryPoint: "fs", targets: [{ format }] },
+            primitive: { topology: "triangle-list" },
+        });
+        const ubuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+
+        const ctx = canvas.getContext("webgpu");
+        if (!ctx) throw new Error("no WebGPU canvas context");
+        ctx.configure({ device, format, alphaMode: "premultiplied" });
+
+        let lost = false;
+        device.lost.then(() => { lost = true; });
+
+        return {
+            draw(u) {
+                if (lost) return false;
+                device.queue.writeBuffer(ubuf, 0, u);
+                const enc = device.createCommandEncoder();
+                const pass = enc.beginRenderPass({
+                    colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } }],
+                });
+                pass.setPipeline(pipeline);
+                pass.setBindGroup(0, bind);
+                pass.draw(3);
+                pass.end();
+                device.queue.submit([enc.finish()]);
+                return true;
+            },
+            destroy() { try { device.destroy(); } catch { } },
+        };
+    } catch (e) {
+        try { device.destroy(); } catch { }
+        throw e;
+    }
+}
+
+function webglBackend(canvas) {
+    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: "low-power" });
+    if (!gl) throw new Error("no WebGL2");
+
+    const mk = (type, src) => {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh) || "shader compile failed");
+        return sh;
+    };
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, mk(gl.VERTEX_SHADER, GLSL_VS));
+    gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, GLSL_FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || "link failed");
+
+    const vao = gl.createVertexArray();
+    const L = Object.fromEntries(["res", "time", "busy", "colA", "colB"].map(n => [n, gl.getUniformLocation(prog, n)]));
+
+    return {
+        draw(u, w, h) {
+            if (gl.isContextLost()) return false;
+            gl.viewport(0, 0, w, h);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.useProgram(prog);
+            gl.bindVertexArray(vao);
+            gl.uniform2f(L.res, u[0], u[1]);
+            gl.uniform1f(L.time, u[2]);
+            gl.uniform1f(L.busy, u[3]);
+            gl.uniform3f(L.colA, u[4], u[5], u[6]);
+            gl.uniform3f(L.colB, u[8], u[9], u[10]);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            return true;
+        },
+        destroy() { try { gl.getExtension("WEBGL_lose_context")?.loseContext(); } catch { } },
+    };
+}
+
+function createFX(canvas, onStatus) {
+    const S = {
+        on: false, dead: false, backend: "", inst: null, initP: null,
+        busy: 0, busyT: 0, a: FX_A, b: FX_B, ca: [...FX_A], cb: [...FX_B],
+        raf: 0, last: 0, vis: true, t0: performance.now(),
+    };
+    const u = new Float32Array(12);
+
+    const io = typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(es => { S.vis = es[es.length - 1].isIntersecting; })
+        : { observe() { }, disconnect() { } };
+    io.observe(canvas);
+
+    function init() {
+        if (S.initP) return S.initP;
+        S.initP = (async () => {
+            try { S.inst = await webgpuBackend(canvas); S.backend = "WebGPU"; }
+            catch (e1) {
+                console.info("[Nougan Chat] WebGPU unavailable, trying WebGL2:", e1?.message || e1);
+                try { S.inst = webglBackend(canvas); S.backend = "WebGL2"; }
+                catch (e2) { S.inst = null; S.backend = "off"; console.info("[Nougan Chat] ambient FX disabled:", e2?.message || e2); }
+            }
+            if (S.dead && S.inst) { S.inst.destroy(); S.inst = null; }
+            onStatus?.(S.backend);
+        })();
+        return S.initP;
+    }
+
+    function frame(now) {
+        S.raf = 0;
+        if (!S.on || S.dead || !S.inst) return;
+        S.raf = requestAnimationFrame(frame);
+
+        if (document.hidden || !S.vis || !canvas.isConnected) return;
+        if (now - S.last < 33) return;                              // ~30 fps is plenty for a soft background
+        S.last = now;
+
+        const w = canvas.clientWidth, h = canvas.clientHeight;
+        if (w < 4 || h < 4) return;
+        const tw = Math.round(w * 0.6), th = Math.round(h * 0.6);
+        if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+
+        S.busyT += (S.busy - S.busyT) * 0.1;
+        for (let k = 0; k < 3; k++) {
+            S.ca[k] += (S.a[k] - S.ca[k]) * 0.08;                   // ease toward the new character's colours
+            S.cb[k] += (S.b[k] - S.cb[k]) * 0.08;
+        }
+
+        u[0] = tw; u[1] = th; u[2] = (now - S.t0) / 1000; u[3] = S.busyT;
+        u[4] = S.ca[0]; u[5] = S.ca[1]; u[6] = S.ca[2]; u[7] = 1;
+        u[8] = S.cb[0]; u[9] = S.cb[1]; u[10] = S.cb[2]; u[11] = 1;
+
+        if (S.inst.draw(u, tw, th) === false) { S.inst = null; S.backend = "off"; onStatus?.("off"); }
+    }
+
+    return {
+        get backend() { return S.backend; },
+        setColors(a, b) { S.a = a; S.b = b; },
+        setBusy(v) { S.busy = v ? 1 : 0; },
+        enable(on) {
+            S.on = !!on;
+            if (!S.on) { if (S.raf) cancelAnimationFrame(S.raf); S.raf = 0; return; }
+            if (S.dead) return;
+            init().then(() => { if (S.on && S.inst && !S.raf) S.raf = requestAnimationFrame(frame); });
+        },
+        destroy() {
+            S.dead = true; S.on = false;
+            if (S.raf) cancelAnimationFrame(S.raf);
+            S.raf = 0;
+            io.disconnect();
+            S.inst?.destroy();
+            S.inst = null;
+        },
+    };
+}
+
+// -- avatar -> two theme colours ---------------------------------------------
+
+function rgb2hsl(r, g, b) {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+    const s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+    let h = 0;
+    if (d) {
+        if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+        h /= 6; if (h < 0) h += 1;
+    }
+    return [h, s, l];
+}
+
+function hsl2rgb(h, s, l) {
+    const f = (n) => { const k = (n + h * 12) % 12; return l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    return [f(0), f(8), f(4)];
+}
+
+// Saturation-weighted average colour of the avatar, then a second colour a little further round the hue wheel.
+async function themeFromImage(url) {
+    const img = new Image();
+    img.decoding = "async";
+    await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error("avatar load failed")); img.src = url; });
+
+    const c = document.createElement("canvas");
+    c.width = c.height = 24;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 0, 0, 24, 24);
+    const d = g.getImageData(0, 0, 24, 24).data;
+
+    let r = 0, gr = 0, b = 0, wsum = 0;
+    for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) continue;
+        const R = d[i] / 255, G = d[i + 1] / 255, B = d[i + 2] / 255;
+        const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+        const sat = mx ? (mx - mn) / mx : 0;
+        const wt = sat * sat * mx + 0.01;
+        r += R * wt; gr += G * wt; b += B * wt; wsum += wt;
+    }
+    if (!wsum) throw new Error("empty avatar");
+
+    const [h, s, l] = rgb2hsl(r / wsum, gr / wsum, b / wsum);
+    if (s < 0.12) return { a: FX_A, b: FX_B };                      // grey / near-monochrome avatar -> keep the default look
+
+    const s2 = Math.max(s, 0.55), l2 = Math.min(0.62, Math.max(0.5, l));
+    return { a: hsl2rgb(h, s2, l2), b: hsl2rgb((h + 0.09) % 1, s2, Math.min(0.68, l2 + 0.05)) };
 }
 
 
@@ -193,10 +517,11 @@ function buildPanel(node) {
             <div class="nbc-hi"><div class="nbc-name">No character</div><div class="nbc-sub">Pick a card or refmod below, or upload one</div></div>
             <button class="nbc-tb nbc-up" title="Upload a character card (PNG/JSON) or a character refmod (.safetensors) into input/characters">⬆ Card</button>
             <button class="nbc-tb nbc-rf" title="Refresh the card and refmod list">↻</button>
+            <button class="nbc-tb nbc-fxb" title="Ambient background">✨</button>
             <button class="nbc-tb nbc-set" title="Show / hide sampling settings">⚙</button>
             <input type="file" class="nbc-file" accept=".png,.json,.safetensors" hidden>
         </div>
-        <div class="nbc-log"></div>
+        <div class="nbc-stage"><canvas class="nbc-fx"></canvas><div class="nbc-log"></div></div>
         <div class="nbc-in">
             <textarea class="nbc-ta" rows="2" placeholder="Say something…  (Enter = send, Shift+Enter = new line)"></textarea>
             <button class="nbc-send">Send</button>
@@ -210,6 +535,8 @@ function buildPanel(node) {
 
     const $ = (s) => root.querySelector(s);
     const logEl = $(".nbc-log"), ta = $(".nbc-ta"), sendBtn = $(".nbc-send");
+    const fxCanvas = $(".nbc-fx"), fxBtn = $(".nbc-fxb");
+    const fx = createFX(fxCanvas, () => { fxCanvas.classList.toggle("live", !!fx.backend && fx.backend !== "off"); refreshFxUI(); });
 
     root.addEventListener("pointerdown", e => e.stopPropagation());
     root.addEventListener("keydown", e => { if (e.target.closest?.("input, textarea")) e.stopPropagation(); });
@@ -236,6 +563,7 @@ function buildPanel(node) {
         $(".nbc-sub").title = i?.creator_notes || "";
         const img = $(".nbc-hav");
         if (i) { img.src = avatarUrl(); img.style.visibility = "visible"; } else { img.removeAttribute("src"); img.style.visibility = "hidden"; }
+        if (i) applyTheme(); else resetTheme();
     }
 
     function greetings() {
@@ -309,6 +637,7 @@ function buildPanel(node) {
             if (!st.busy) {
                 acts.push(`<span class="nbc-a" data-a="edit" title="Edit">✎</span>`);
                 if (m.role === "assistant" && last && st.history.length > 1) acts.push(`<span class="nbc-a" data-a="regen" title="Regenerate">⟳</span>`);
+                acts.push(`<span class="nbc-a" data-a="copy" title="Copy">⎘</span>`);
                 acts.push(`<span class="nbc-a x" data-a="del" title="Delete">✕</span>`);
             }
             b.innerHTML = `<div class="nbc-t">${fmt(m.content)}</div>${acts.length ? `<div class="nbc-act">${acts.join("")}</div>` : ""}`;
@@ -327,6 +656,7 @@ function buildPanel(node) {
                 if (a === "edit") { st.editing = i; render(); }
                 else if (a === "del") { st.history.splice(i, 1); save(); render(); }
                 else if (a === "regen") regenerate();
+                else if (a === "copy") { try { navigator.clipboard?.writeText(m.content); } catch { } }
                 else if (a === "prev" || a === "next") {
                     const gs = greetings();
                     st.swipe = (st.swipe + (a === "next" ? 1 : gs.length - 1)) % gs.length;
@@ -351,12 +681,18 @@ function buildPanel(node) {
             logEl.appendChild(e);
         }
 
-        st.history.forEach((m, i) => logEl.appendChild(bubble(m, i)));
+        const prevN = st.rendered;
+        st.history.forEach((m, i) => {
+            const row = bubble(m, i);
+            if (prevN != null && i >= prevN) row.classList.add("nbc-pop");
+            logEl.appendChild(row);
+        });
+        st.rendered = st.history.length;
 
         if (st.busy) {
             const row = document.createElement("div");
             row.className = "nbc-m assistant";
-            row.innerHTML = `<img class="nbc-av" src="${avatarUrl()}" alt=""><div class="nbc-b"><span class="nbc-dots"><i></i><i></i><i></i></span></div>`;
+            row.innerHTML = `<img class="nbc-av" src="${avatarUrl()}" alt=""><div class="nbc-b"><span class="nbc-dots"><i></i><i></i><i></i></span><span class="nbc-think">${esc(st.info?.name || "…")} is thinking…</span></div>`;
             logEl.appendChild(row);
         }
 
@@ -368,6 +704,8 @@ function buildPanel(node) {
         }
 
         logEl.scrollTop = logEl.scrollHeight;
+        root.classList.toggle("busy", st.busy);
+        fx.setBusy(st.busy);
         ta.disabled = st.busy;
         sendBtn.disabled = st.busy;
         $(".nbc-count").textContent = st.history.length ? `${st.history.length} messages` : "";
@@ -530,12 +868,63 @@ function buildPanel(node) {
         node.setDirtyCanvas(true, true);
     }
 
+    // -- ambient FX + avatar theme --
+    let themeSeq = 0;
+
+    function resetTheme() {
+        ++themeSeq;
+        root.style.removeProperty("--cA");
+        root.style.removeProperty("--cB");
+        fx.setColors(FX_A, FX_B);
+    }
+
+    async function applyTheme() {
+        const seq = ++themeSeq;
+        try {
+            const t = await themeFromImage(avatarUrl());
+            if (seq !== themeSeq) return;
+            const css = (c) => c.map(v => Math.round(v * 255)).join(",");
+            root.style.setProperty("--cA", css(t.a));
+            root.style.setProperty("--cB", css(t.b));
+            fx.setColors(t.a, t.b);
+        } catch { if (seq === themeSeq) resetTheme(); }
+    }
+
+    function fxWanted() {
+        const v = node.properties?.nbc_fx;
+        if (v !== undefined) return !!v;
+        return !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    function refreshFxUI() {
+        const on = fxWanted();
+        fxBtn.classList.toggle("on", on);
+        fxBtn.title = on
+            ? `Ambient background: ${fx.backend || "starting…"} (click to turn off)`
+            : "Ambient background is off (click to turn on)";
+    }
+
+    function applyFX() {
+        const on = fxWanted();
+        fxCanvas.classList.toggle("off", !on);
+        fx.enable(on);
+        refreshFxUI();
+    }
+
+    fxBtn.onclick = () => {
+        node.properties = node.properties || {};
+        node.properties.nbc_fx = !fxWanted();
+        applyFX();
+    };
+
     // -- hooks used by the extension --
     node.__nbcRender = render;
     node.__nbcLoadInfo = loadInfo;
     node.__nbcApplySettings = applySettings;
     node.__nbcFail = fail;
     node.__nbcSave = save;
+    node.__nbcApplyFX = applyFX;
+    node.__nbcDestroy = () => fx.destroy();
 
     node.__nbcOnExecuted = (message) => {
         const raw = message?.nbc_chat?.[0];
@@ -600,6 +989,7 @@ function buildUI(node) {
     }
 
     node.__nbcApplySettings();
+    node.__nbcApplyFX();
     node.__nbcRender();
     node.__nbcLoadInfo(false);
     setTimeout(() => fit(node), 60);
@@ -655,7 +1045,9 @@ app.registerExtension({
                 } catch { st.history = []; }
 
                 st.busy = false;
+                st.rendered = undefined;
                 this.__nbcApplySettings();
+                this.__nbcApplyFX?.();
                 this.__nbcRender();
                 this.__nbcLoadInfo(false);
                 setTimeout(() => fit(this), 60);
@@ -663,6 +1055,14 @@ app.registerExtension({
             } catch (e) {
                 console.warn("[Nougan Chat] onConfigure failed", e);
             }
+        };
+
+        const orm = nodeType.prototype.onRemoved;
+
+        nodeType.prototype.onRemoved = function () {
+            orm?.apply(this, arguments);
+
+            try { this.__nbcDestroy?.(); } catch { }
         };
 
         const oex = nodeType.prototype.onExecuted;
