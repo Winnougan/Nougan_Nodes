@@ -226,6 +226,11 @@ _FEATURES = [
     ("Model Preview Mirror", "nougan_preview_mirror", [
         ("NouganModelPreviewMirror", "NouganModelPreviewMirror", "Nougan Model Preview Mirror 🪞"),
     ]),
+    # ClownsharK + built-in samplers, bongmath toggle, VAE encode/decode, image/video + audio out, live preview + WebGPU progress bar
+    # (web/nougan_ultimate_ksampler.js). RES4LYF and KJNodes are soft dependencies.
+    ("Ultimate KSampler", "nougan_ultimate_ksampler", [
+        ("NouganUltimateKSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler 🦈"),
+    ]),
 ]
 
 
