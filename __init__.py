@@ -174,22 +174,15 @@ _FEATURES = [
     ]),
     # Bake / Loader / Apply — vendored MiniMaxH3Mod engine (MIT, Luisa).
     ("RefMod Toolkit", "nougan_refmod", "*"),
-    # Bake / Encode for Qwen Image 2.1 (own file format, no engine dependency).
-    ("Qwen 2.1 RefMod", "nougan_qwen_refmod", "*"),
-    # Bake / Encode for MOSS-Image edit models (needs the Ostris edit patch for generation).
-    ("MOSS RefMod", "nougan_moss_refmod", "*"),
-    # Bake / Encode for Krea 2 edit LoRAs (needs the Ostris Krea 2 edit patch for generation).
-    ("Krea 2 RefMod", "nougan_krea2_refmod", "*"),
-    # Bake / Apply for FLUX.3 (natively reference-capable: no extra patch needed).
-    ("Flux 3 RefMod", "nougan_flux3_refmod", "*"),
+    # ONE Bake + ONE Apply for Qwen 2.1, MOSS-Image, Flux 3, Fibo 2 and LTX-2.5 (registry of handlers;
+    # add a model by adding a Handler class). Reads the old per-model file formats unchanged.
+    ("RefMods (unified)", "nougan_refmods", "*"),
     ("Album Cover Maker", "nougan_album_cover", [
         ("NouganAlbumCoverMaker", "NouganAlbumCoverMaker", "Nougan Album Cover Maker 💿"),
     ]),
     ("Layout LLM Prompt", "nougan_layout_llm", [
         ("NouganLayoutLLMPrompt", "NouganLayoutLLMPrompt", "Nougan Layout LLM Prompt 🧱"),
     ]),
-    # Bake / Encode for FIBO 2 (own NODE_CLASS_MAPPINGS in the module)
-    ("FIBO 2 RefMod", "nougan_fibo2_refmod", "*"),
     # Older/alternate video saver, has its own mappings. Remove if it's a leftover.
     ("Video Save (legacy)", "nougan_video_save", "*"),
     ("Image Converter", "nougan_image_converter", [
@@ -231,6 +224,22 @@ _FEATURES = [
     ("Ultimate KSampler", "nougan_ultimate_ksampler", [
         ("NouganUltimateKSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler 🦈"),
     ]),
+    # Batch stopwatch: elapsed / progress / avg per item / ETA / finish time, WebGPU shader backdrop
+    # (web/nougan_timer.js). Registers /nougan_timer/state and /nougan_timer/reset routes.
+    ("Timer", "nougan_timer", [
+        ("NouganTimer", "NouganTimer", "Nougan Timer ⏱️"),
+    ]),
+]
+
+# Frontend-only features: no Python module, no nodes, just a script in WEB_DIRECTORY that ComfyUI
+# serves and loads on its own. Listed here so the banner confirms the file is actually present.
+#  (label, filename inside ./web)
+_WEB_ONLY = [
+    # Hold Z and drag across wires to bundle them into zip-tie ribbons. Based on safzan's ZipTies;
+    # stands down if the original safzan.ZipTies extension is also installed.
+    ("Zip Ties", "nougan_zip_ties.js"),
+    # Hold B and slash across nodes to bypass them (or mute, see settings); slash again to restore.
+    ("Bypass Slash", "nougan_bypass_slash.js"),
 ]
 
 
@@ -277,6 +286,15 @@ for _label, _module, _spec in _FEATURES:
         _failed.append(_label)
         print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow(type(_e).__name__ + ': ' + str(_e))}")
         traceback.print_exc()
+
+_web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), WEB_DIRECTORY)
+for _label, _file in _WEB_ONLY:
+    if os.path.isfile(os.path.join(_web_dir, _file)):
+        _loaded += 1
+        print(f"  {OK} {_bold(_label)} {_dim('(web extension)')}")
+    else:
+        _failed.append(_label)
+        print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow('missing web/' + _file)}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  Routes — always attempted, fully guarded
