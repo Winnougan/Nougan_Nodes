@@ -19,3 +19,4 @@ One page per node family.
 | [Character Chat 💬](character-chat.md) | Chat with V1/V2/V3 character cards · Qwen3.5 · chat panel · lorebooks · sampling settings · outputs · troubleshooting |
 | [RefMod 🧬](refmod.md) | MiniMax H3 character references · Bake (portraits + audio → one file) · Loader · Apply · card UI · curves and scramble · credits |
 | [GIF Maker 🎞️](gif-maker.md) | Video to GIF / WebP / MP4 · visual timeline trim · on-video crop · social presets · live size estimate · frames output · HTTP endpoints · troubleshooting |
+| [Canvas Tools 🖱️](canvas-tools.md) | Zip Ties · Bypass Slash · Smart Guides + tidy by dependency · Subgraph Box · hold-a-key gestures · key map · troubleshooting |
