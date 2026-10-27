@@ -244,6 +244,8 @@ _WEB_ONLY = [
     ("Smart Guides", "nougan_smart_guides.js"),
     # Hold V and drag a box over nodes to make a subgraph; box a subgraph to unpack it.
     ("Subgraph Box", "nougan_subgraph_box.js"),
+    # Hold G and drag a box over nodes to wrap them in a group; box a whole group to ungroup it.
+    ("Group Box", "nougan_group_box.js"),
 ]
 
 
