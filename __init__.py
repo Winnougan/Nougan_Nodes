@@ -240,6 +240,10 @@ _WEB_ONLY = [
     ("Zip Ties", "nougan_zip_ties.js"),
     # Hold B and slash across nodes to bypass them (or mute, see settings); slash again to restore.
     ("Bypass Slash", "nougan_bypass_slash.js"),
+    # Figma-style alignment guides + snapping while dragging nodes; Alt+L / canvas menu tidies nodes into columns by dependency depth.
+    ("Smart Guides", "nougan_smart_guides.js"),
+    # Hold V and drag a box over nodes to make a subgraph; box a subgraph to unpack it.
+    ("Subgraph Box", "nougan_subgraph_box.js"),
 ]
 
 
