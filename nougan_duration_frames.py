@@ -34,6 +34,7 @@ DEFAULT_PRESET = "MiniMax H3 (24 FPS)"
 MAX_EXPR_LEN = 300
 MAX_NODES = 200
 MAX_POW = 64
+MAX_POW_BITS = 1024
 MAX_FRAMES = 1_000_000
 
 
@@ -42,6 +43,9 @@ MAX_FRAMES = 1_000_000
 def _pow(x, y):
     if abs(y) > MAX_POW:
         raise ValueError("exponent too large")
+    if isinstance(x, int) and isinstance(y, int) and abs(y) > 1 and abs(x) > 1:
+        if abs(x).bit_length() * abs(y) > MAX_POW_BITS:
+            raise ValueError("result too large")
     return x ** y
 
 
