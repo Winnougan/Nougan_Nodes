@@ -11,10 +11,9 @@ import { app } from "/scripts/app.js";
 //   - no nodes                                                          -> nothing happens
 // The box, a dashed frame of the group to come, and a label preview which one you are about to get.
 //
-// With the default colour this runs ComfyUI's own "Group Selected Nodes" command, so the padding
-// setting and the type-the-name-right-away title editor behave exactly as with Ctrl+G. If you pick a
-// colour (or the command is missing) the group is built directly so title and colour land in the
-// same single undo step.
+// The group is built directly (the same way ComfyUI's Group Selected Nodes does it), so it does not
+// depend on the canvas selection state. The held key is swallowed so no other ComfyUI shortcut bound
+// to that letter fires while you draw. ComfyUI's own command is only a fallback.
 //
 // Classic ComfyUI canvas only. Preview and flash are a DOM/SVG overlay; nothing touches the draw loop.
 
@@ -22,6 +21,7 @@ const KEY_SETTING = "Nougan.GroupBox.Key";
 const CAPTURE_SETTING = "Nougan.GroupBox.Capture";
 const COLOR_SETTING = "Nougan.GroupBox.Color";
 const TITLE_SETTING = "Nougan.GroupBox.Title";
+const RENAME_SETTING = "Nougan.GroupBox.Rename";
 const OTHER_KEYS = [
     ["Nougan.ZipTies.Key", "Z"],
     ["Nougan.BypassSlash.Key", "B"],
@@ -358,8 +358,8 @@ function direct(canvas, graph, fn) {
 }
 
 function buildGroup(canvas, graph, nodes, color) {
-    const Group = window.LiteGraph?.LGraphGroup;
-    if (!Group) return null;
+    const Group = window.LiteGraph?.LGraphGroup ?? groupsOf(graph)[0]?.constructor;
+    if (typeof Group !== "function") return null;
     const title = String(setting(TITLE_SETTING, "Group") || "Group");
     let made = null;
     direct(canvas, graph, () => {
@@ -378,25 +378,44 @@ function buildGroup(canvas, graph, nodes, color) {
     return made;
 }
 
-async function makeGroup(canvas, graph, nodes) {
-    const before = new Set(groupsOf(graph));
-    const color = chosenColor();
-    let made = false;
+/** Best effort: ask the frontend to open its title editor on the new group, like double-clicking it. */
+function renameNow(canvas, group, e) {
+    if (!group || !setting(RENAME_SETTING, true)) return;
+    try {
+        canvas.canvas.dispatchEvent(
+            new CustomEvent("litegraph:canvas", {
+                bubbles: true,
+                detail: { subType: "group-double-click", originalEvent: e, group },
+            }),
+        );
+    } catch { /* optional */ }
+}
 
-    if (!color) {
-        selectOnly(canvas, nodes);
-        await runCommand(CMD_GROUP);
-        made = groupsOf(graph).some((g) => !before.has(g));
+async function makeGroup(canvas, graph, nodes, e) {
+    const color = chosenColor();
+    let group = null;
+    try {
+        group = buildGroup(canvas, graph, nodes, color);
+    } catch (err) {
+        console.warn("[Nougan.GroupBox] direct build failed, trying the native command", err);
     }
-    if (!made) made = !!buildGroup(canvas, graph, nodes, color);
-    if (!made) toast("Couldn't create a group. This needs a ComfyUI frontend with groups available.");
+    if (group) {
+        renameNow(canvas, group, e);
+        return;
+    }
+    // Fallback: ComfyUI's own command, after giving the selection a moment to settle.
+    const before = new Set(groupsOf(graph));
+    selectOnly(canvas, nodes);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await runCommand(CMD_GROUP);
+    if (!groupsOf(graph).some((g) => !before.has(g))) toast("Couldn't create a group. This needs a ComfyUI frontend with groups available.");
 }
 
 function removeGroup(canvas, graph, group) {
     direct(canvas, graph, () => graph.remove(group));
 }
 
-async function applyBox(canvas, graph, start, end) {
+async function applyBox(canvas, graph, start, end, e) {
     if (Math.hypot(end[0] - start[0], end[1] - start[1]) < 6 / canvas.ds.scale) return; // a click, not a box
     const nodes = capture(graph, start, end);
     const plan = planFor(graph, nodes);
@@ -404,7 +423,7 @@ async function applyBox(canvas, graph, start, end) {
 
     flash(canvas, plan.kind === "ungroup" ? [groupRect(plan.group)] : nodes.map(nodeRect), COLORS[plan.kind]);
     try {
-        if (plan.kind === "group") await makeGroup(canvas, graph, nodes);
+        if (plan.kind === "group") await makeGroup(canvas, graph, nodes, e);
         else removeGroup(canvas, graph, plan.group);
     } catch (err) {
         console.warn("[Nougan.GroupBox]", err);
@@ -450,14 +469,20 @@ function installInput(canvas) {
             if (state.stroke) endStroke(canvas);
             if (state.armed) setArmed(canvas, false);
         }
-        if (keyActive() && e.code === `Key${keyName()}` && !hasModifier(e) && !isTyping(e) && !state.keyHeld) {
-            state.keyHeld = true;
-            refreshHint(canvas);
+        if (keyActive() && e.code === `Key${keyName()}` && !hasModifier(e) && !isTyping(e)) {
+            // Swallow the key (including auto-repeat) so no other ComfyUI shortcut bound to it fires.
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (!state.keyHeld) {
+                state.keyHeld = true;
+                refreshHint(canvas);
+            }
         }
     }, true);
 
     window.addEventListener("keyup", (e) => {
         if (e.code === `Key${keyName()}` && state.keyHeld) {
+            e.stopImmediatePropagation();
             state.keyHeld = false;
             refreshHint(canvas);
         }
@@ -504,7 +529,7 @@ function installInput(canvas) {
         e.stopImmediatePropagation();
         const start = s.start;
         endStroke(canvas);
-        if (e.type === "pointerup" && canvas.graph) applyBox(canvas, canvas.graph, start, graphPoint(canvas, e));
+        if (e.type === "pointerup" && canvas.graph) applyBox(canvas, canvas.graph, start, graphPoint(canvas, e), e);
     };
     window.addEventListener("pointerup", end, true);
     window.addEventListener("pointercancel", end, true);
@@ -538,7 +563,7 @@ app.registerExtension({
             id: COLOR_SETTING,
             category: ["Nougan", "Group Box", "Colour"],
             name: "Colour of new groups",
-            tooltip: "Default uses ComfyUI's own Group Selected Nodes (type the name right away). Picking a colour builds the group directly with the title below.",
+            tooltip: "Default keeps ComfyUI's standard group colour.",
             type: "combo",
             options: Object.keys(COLORS_BY_NAME),
             defaultValue: "Default",
@@ -546,9 +571,17 @@ app.registerExtension({
         {
             id: TITLE_SETTING,
             category: ["Nougan", "Group Box", "Title"],
-            name: "Title of new groups (when a colour is chosen)",
+            name: "Title of new groups",
             type: "text",
             defaultValue: "Group",
+        },
+        {
+            id: RENAME_SETTING,
+            category: ["Nougan", "Group Box", "Rename"],
+            name: "Open the title editor on the new group",
+            tooltip: "Lets you type the group's name right away, like double-clicking its title. Best effort; turn it off if it ever misbehaves on your frontend version.",
+            type: "boolean",
+            defaultValue: true,
         },
     ],
 
