@@ -34,6 +34,7 @@ DEFAULT_PRESET = "MiniMax H3 (24 FPS)"
 MAX_EXPR_LEN = 300
 MAX_NODES = 200
 MAX_POW = 64
+MAX_BITS = 256          # largest integer the evaluator will ever hold or produce (about 1e77)
 MAX_FRAMES = 1_000_000
 
 
@@ -42,7 +43,20 @@ MAX_FRAMES = 1_000_000
 def _pow(x, y):
     if abs(y) > MAX_POW:
         raise ValueError("exponent too large")
+    # Bound the size of an integer result *before* computing it. A cap on the exponent alone is not
+    # enough: ((9**64)**64)**64 ... stays within it at every step while the number grows exponentially.
+    if isinstance(x, int) and isinstance(y, int) and y > 0 and abs(x).bit_length() * y > MAX_BITS:
+        raise ValueError("number too large")
     return x ** y
+
+
+def _check(value):
+    """Every value the evaluator produces goes through here, so no operand or intermediate can get big."""
+    if isinstance(value, complex):
+        raise ValueError("result is not a real number")
+    if isinstance(value, int) and value.bit_length() > MAX_BITS:
+        raise ValueError("number too large")
+    return value
 
 
 _BIN = {
@@ -62,6 +76,10 @@ _CONSTS = {"pi": math.pi, "e": math.e}
 
 
 def _walk(node, env, budget):
+    return _check(_walk_node(node, env, budget))
+
+
+def _walk_node(node, env, budget):
     budget[0] += 1
     if budget[0] > MAX_NODES:
         raise ValueError("expression too complex")
