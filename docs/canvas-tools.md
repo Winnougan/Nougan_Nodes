@@ -2,7 +2,7 @@
 
 # 🖱️ Canvas Tools
 
-Four frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
+Five frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
 
 | Tool | Gesture | What it does |
 |------|---------|--------------|
@@ -10,6 +10,7 @@ Four frontend-only extensions for ComfyUI's classic canvas. They add no nodes an
 | [Bypass Slash](#-bypass-slash) | Hold **B**, drag across nodes | Bypasses (or mutes) them; slash again to restore |
 | [Smart Guides](#-smart-guides) | Just drag a node | Figma-style alignment lines and snapping, plus one-click tidy by dependency |
 | [Subgraph Box](#-subgraph-box) | Hold **V**, drag a box | Boxed nodes become a subgraph; box a subgraph to unpack it |
+| [Group Box](#-group-box) | Hold **G**, drag a box | Boxed nodes get wrapped in a group; box a whole group to remove it |
 
 All settings live under **Settings → Nougan**.
 
@@ -26,7 +27,8 @@ Nougan_Nodes/
     ├── nougan_zip_ties.js
     ├── nougan_bypass_slash.js
     ├── nougan_smart_guides.js
-    └── nougan_subgraph_box.js
+    ├── nougan_subgraph_box.js
+    └── nougan_group_box.js
 ```
 
 `__init__.py` lists them in `_WEB_ONLY`, so the startup banner confirms each one is present:
@@ -37,6 +39,7 @@ _WEB_ONLY = [
     ("Bypass Slash", "nougan_bypass_slash.js"),
     ("Smart Guides", "nougan_smart_guides.js"),
     ("Subgraph Box", "nougan_subgraph_box.js"),
+    ("Group Box", "nougan_group_box.js"),
 ]
 ```
 
@@ -171,6 +174,34 @@ Other ways in and out: right-click the canvas → **Box subgraph** arms the next
 
 ---
 
+## ▢ Group Box
+
+Hold **G** with your left hand and drag a box with the mouse. Release and the boxed nodes are wrapped in a group. Box exactly the nodes of an existing group and the group is removed again; the nodes stay where they are.
+
+With the default colour this runs ComfyUI's own *Group Selected Nodes* command, so padding and the "type the name right away" title editor behave exactly like **Ctrl+G**. If you pick a colour, the group is built directly with your default title and colour, still as one undo step.
+
+### Using it
+
+1. Hold **G**. A hint pill appears and the cursor becomes a crosshair.
+2. Drag a box. The preview tells you what will happen when you let go:
+   - **Blue**: GROUP. One or more nodes will be wrapped; a dashed frame shows roughly where the group will sit.
+   - **Red**: UNGROUP. The captured nodes are exactly the nodes inside an existing group, so that group will be removed.
+   - **Dashed white**: nothing will happen (no nodes captured).
+3. Release. The nodes flash and the change is applied as **one undo step**.
+
+The rule is decided by what is inside the box: exactly one existing group's nodes means ungroup; anything else with at least one node means make a group (so you can nest groups, or group a subset of a group). If several groups wrap the same nodes, the innermost one is removed. A tiny drag counts as a click and is ignored.
+
+Other ways in and out: right-click the canvas → **Box group** arms the next drag with no key. **Esc** cancels. The gesture is ignored while a modifier is down, and while you're typing in a text field.
+
+### Settings (Nougan → Group Box)
+
+- **Key to hold while boxing nodes**: G, E, D, S or A, all left-hand letters ComfyUI doesn't bind on its own. If you pick the same key as Zip Ties, Bypass Slash or Subgraph Box, those keep it and this one is inactive.
+- **Which nodes the box captures**: *Fully enclosed* (default) or *Anything touched*.
+- **Colour of new groups**: *Default* (native behaviour with the title editor) or one of ComfyUI's group colours.
+- **Title of new groups**: used when a colour is chosen.
+
+---
+
 ## Key map at a glance
 
 | Key | Used by | Notes |
@@ -179,10 +210,11 @@ Other ways in and out: right-click the canvas → **Box subgraph** arms the next
 | **B** (hold) | Bypass Slash | Configurable: B X C G T Y |
 | **Ctrl/Cmd or Shift** (while dragging a node) | Smart Guides | Disables snapping |
 | **V** (hold) | Subgraph Box | Configurable: V E D S A |
+| **G** (hold) | Group Box | Configurable: G E D S A |
 | **Alt+L** | Smart Guides | Tidy by dependency; rebindable |
 | **Esc** | Bypass Slash | Cancels a stroke or armed mode |
 
-Zip Ties, Bypass Slash and Subgraph Box all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash.
+Zip Ties, Bypass Slash, Subgraph Box and Group Box all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash, then Subgraph Box.
 
 ---
 
@@ -197,6 +229,6 @@ Zip Ties, Bypass Slash and Subgraph Box all read a held letter key. Pick differe
 
 ## Credits
 
-Zip Ties is based on **safzan**'s *ZipTies* ComfyUI extension. Bypass Slash, Smart Guides and Subgraph Box are original to the Nougan suite.
+Zip Ties is based on **safzan**'s *ZipTies* ComfyUI extension. Bypass Slash, Smart Guides, Subgraph Box and Group Box are original to the Nougan suite.
 
 Made by **Winnougan**.
