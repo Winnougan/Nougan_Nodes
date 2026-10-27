@@ -246,6 +246,8 @@ _WEB_ONLY = [
     ("Subgraph Box", "nougan_subgraph_box.js"),
     # Hold G and drag a box over nodes to wrap them in a group; box a whole group to ungroup it.
     ("Group Box", "nougan_group_box.js"),
+    # Hold S and click a group's title (or slash across several) to bypass everything inside; again to restore.
+    ("Group Switch", "nougan_group_switch.js"),
 ]
 
 
