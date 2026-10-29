@@ -1,10 +1,10 @@
 > 🌀 **Nougan Suite** · [← Back to docs](README.md)
 
-# 🪟 Live Settings Panel
+# 🪟 Automagic 2222: Live Panel
 
-A floating, dockable panel that shows the settings you actually touch while generating — **checkpoint, CLIP, VAE, resolution, duration, every sampler and every LoRA** — in one small window, and edits the *real* nodes live. No cables, no hunting across a huge graph.
+**Automagic 2222: Live Panel** (a nod to the Automatic1111 days) is a floating, dockable panel that shows the settings you actually touch while generating: **checkpoint, CLIP, VAE, resolution, duration, every sampler and every LoRA**, all in one small window, and edits the *real* nodes live. No cables, no hunting across a huge graph.
 
-![Live Settings panel](images/live-panel.png)
+![Automagic 2222: Live Panel](images/live-panel.png)
 
 > **It is a frontend extension, not a node.** There is nothing to add to the canvas — the panel appears on its own the moment ComfyUI loads.
 
@@ -34,10 +34,10 @@ The panel ships with the Nougan Suite. It needs two files:
 Restart ComfyUI and hard-refresh the browser tab. The console banner confirms it:
 
 ```
-✔ Live Settings Panel (web extension)
+✔ Automagic 2222: Live Panel (web extension)
 ```
 
-If either file is missing, the banner shows `✘ Live Settings Panel NOT loaded — missing web/…` and names the missing file.
+If either file is missing, the banner shows `✘ Automagic 2222: Live Panel NOT loaded — missing web/…` and names the missing file.
 
 ---
 
@@ -98,9 +98,9 @@ One card per LoRA, for both the standard `lora_name` loaders and the **rgthree P
 | **Dock** | Click **⇥** to cycle right → left → floating, or drag the panel to the edge of the canvas |
 | **Resize** | Drag the bottom-right corner (floating only) |
 | **Collapse / expand** | **−** / **+** in the header, or double-click the header |
-| **Minimize** | **×** shrinks the panel to a small **⚙ Live** box at the top right of the canvas. Click the box to bring the panel back. |
+| **Minimize** | **×** shrinks the panel to a small **⚙ 2222** box at the top right of the canvas. Click the box to bring the panel back. |
 | **Nudge a number** | Click a number field and use the mouse wheel |
-| **Turn it off completely** | Settings → **Nougan Live Panel: enabled**. Off removes the panel *and* the box. |
+| **Turn it off completely** | Settings → **Automagic 2222: Live Panel: enabled**. Off removes the panel *and* the box. |
 
 Position, size, dock side, collapsed / minimized state and theme are remembered in your browser.
 
@@ -167,7 +167,7 @@ The panel checks the graph about every 0.4 s and pauses while the tab is hidden 
 
 | Problem | Fix |
 |---|---|
-| **No panel at all** | Look for the small **⚙ Live** box (you minimized it) and click it. Then check Settings → *Nougan Live Panel: enabled*. Finally check the console banner for `✘ Live Settings Panel NOT loaded` and make sure both files are in place. |
+| **No panel at all** | Look for the small **⚙ 2222** box (you minimized it) and click it. Then check Settings → *Automagic 2222: Live Panel: enabled*. Finally check the console banner for `✘ Automagic 2222: Live Panel NOT loaded` and make sure both files are in place. |
 | **A loader is missing** | It may be bypassed or muted, driven by a link from another node, or use a widget name that is not in the lists above. Check **Default** in case you hid it. |
 | **Everything is hidden** | Press **Default** (twice). |
 | **A new LoRA isn't in the list** | Press **Reload**. |
