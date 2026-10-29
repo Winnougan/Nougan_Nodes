@@ -1,7 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to docs](README.md)
 
 # 🪟 Automagic 2222: Live Panel
-
+<img width="1672" height="941" alt="automagic_2222" src="https://github.com/user-attachments/assets/27c224a2-abad-4686-adac-5c84fb139bb4" />
 **Automagic 2222: Live Panel** (a nod to the Automatic1111 days) is a floating, dockable panel that shows the settings you actually touch while generating: **checkpoint, CLIP, VAE, resolution, duration, every sampler and every LoRA**, all in one small window, and edits the *real* nodes live. No cables, no hunting across a huge graph.
 
 ![Automagic 2222: Live Panel](images/live-panel.png)
