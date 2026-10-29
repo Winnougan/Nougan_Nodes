@@ -3,6 +3,7 @@
 # 🪟 Automagic 2222: Live Panel
 
 **Automagic 2222: Live Panel** (a nod to the Automatic1111 days) is a floating, dockable panel that shows the settings you actually touch while generating: **checkpoint, CLIP, VAE, resolution, duration, every sampler and every LoRA**, all in one small window, and edits the *real* nodes live. No cables, no hunting across a huge graph.
+<img width="1672" height="941" alt="automagic_2222" src="https://github.com/user-attachments/assets/e60e13cb-9062-4c49-b210-1041d1052101" />
 
 ![Automagic 2222: Live Panel](images/live-panel.png)
 
