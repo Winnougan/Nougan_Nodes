@@ -1,7 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to docs](README.md)
 
 # 🪟 Automagic 2222: Live Panel
-<img width="1672" height="941" alt="automagic_2222" src="https://github.com/user-attachments/assets/27c224a2-abad-4686-adac-5c84fb139bb4" />
+
 **Automagic 2222: Live Panel** (a nod to the Automatic1111 days) is a floating, dockable panel that shows the settings you actually touch while generating: **checkpoint, CLIP, VAE, resolution, duration, every sampler and every LoRA**, all in one small window, and edits the *real* nodes live. No cables, no hunting across a huge graph.
 
 ![Automagic 2222: Live Panel](images/live-panel.png)
@@ -19,16 +19,18 @@
 - **Skips what doesn't run.** Bypassed and muted nodes are ignored, and so are saver nodes.
 - **Make it yours.** Rename, hide and reorder anything; layouts are saved with the workflow.
 - **Visual presets.** Seven colour themes, borrowed from the Aimdo visualizer.
+- **Built-in live preview.** An optional strip at the top of the panel shows the sampling preview, σ/Δ graph, step time and audio spectrogram from KJNodes' *Model Preview Override*. No extra node needed, and off by default.
 
 ---
 
 ## 📦 Install
 
-The panel ships with the Nougan Suite. It needs two files:
+The panel ships with the Nougan Suite. It needs three files:
 
 | File | Location |
 |---|---|
 | `nougan_live_panel.js` | `web/` |
+| `nougan_panel_preview.js` | `web/` (next to `nougan_live_panel.js`) |
 | `nougan_live_panel.css` | `web/css/` |
 
 Restart ComfyUI and hard-refresh the browser tab. The console banner confirms it:
@@ -99,10 +101,11 @@ One card per LoRA, for both the standard `lora_name` loaders and the **rgthree P
 | **Resize** | Drag the bottom-right corner (floating only) |
 | **Collapse / expand** | **−** / **+** in the header, or double-click the header |
 | **Minimize** | **×** shrinks the panel to a small **⚙ 2222** box at the top right of the canvas. Click the box to bring the panel back. |
+| **Live preview on / off** | Click **▶** in the header (see [Live preview](#-live-preview)) |
 | **Nudge a number** | Click a number field and use the mouse wheel |
 | **Turn it off completely** | Settings → **Automagic 2222: Live Panel: enabled**. Off removes the panel *and* the box. |
 
-Position, size, dock side, collapsed / minimized state and theme are remembered in your browser.
+Position, size, dock side, collapsed / minimized state, theme, and the live preview's on/off state and height are remembered in your browser.
 
 ---
 
@@ -128,9 +131,44 @@ The **Reload** button in the footer does what pressing **R** in ComfyUI does: it
 
 ---
 
+## 📺 Live preview
+
+The panel can show what the sampler is doing, right inside the panel, so you can watch a generation without hunting for a preview node on the canvas. It is the same feature the *Model Preview Mirror* node used to provide, built in.
+
+> **Requires [KJNodes](https://github.com/kijai/ComfyUI-KJNodes).** The panel does not create previews; it displays the ones KJNodes' **Model Preview Override** node already broadcasts while sampling.
+
+**Turn it on:** click **▶** in the panel header. The button lights up in the theme accent colour and a preview strip appears between the header and the settings. Click **▶** again to turn it off. It is **off by default**.
+
+| Part | What it shows |
+|---|---|
+| **Preview** | The live image or video of the current step. Animated WebP and MP4 previews play in a loop. |
+| **Scrub bar** | Seek through a video preview. Click the preview to pause / resume. |
+| **σ / Δ graph** | The sigma schedule (dashed) and the per-step change (filled). Hover to inspect a step, click to lock it (🔒), click again to unlock. |
+| **Step time** | Time per step. Click it to switch between ms and seconds. |
+| **Header line** | Output size, current step, average step time and ETA |
+| **Audio spectrogram** | Appears for previews that carry audio. **🔇 / 🔊** mutes or unmutes the preview sound. |
+
+**Controls**
+
+| Action | How |
+|---|---|
+| **Resize** | Drag the grip at the bottom of the strip |
+| **Pause / resume** | Click the preview, or press **Space** while the mouse is over it |
+| **Step through** | **← / →** while the mouse is over the preview (locks that step) |
+
+**Good to know**
+
+- **Nothing runs while it is off.** There is no listener and no frame decoding. The preview also switches itself off while the panel is collapsed, minimized or disabled in settings, and comes back with it.
+- It follows the preview node that **most recently started a run** and ignores other preview nodes during that run.
+- If you turn it on **mid-run**, the σ graph stays empty until the next run (the sigma data is only sent at step 0).
+- Keyboard shortcuts are ignored while you are typing in a field.
+- It replaces the old *Model Preview Mirror* node. You can remove that node's files (`nougan_preview_mirror.js` / `.py`) and any copies of the node from your workflows.
+
+---
+
 ## 🎨 Visual presets
 
-Click **◐** in the header to pick a theme. It repaints the whole panel, its dropdowns, and the minimized box — and nothing else in ComfyUI.
+Click **◐** in the header to pick a theme. It repaints the whole panel, its dropdowns, the live preview and the minimized box — and nothing else in ComfyUI.
 
 | Preset | Look |
 |---|---|
@@ -175,6 +213,9 @@ The panel checks the graph about every 0.4 s and pauses while the tab is hidden 
 | **CFG / Denoise shows `NA`** | The sampler chain has no such value (e.g. a guider without CFG). |
 | **My layout is gone after reopening a workflow** | The layout lives in the workflow file. Save the workflow after changing it. |
 | **Dropdown text is hard to read** | Switch theme with **◐**. *Comfy* follows ComfyUI's own colours. |
+| **The preview strip stays on "waiting for sample…"** | Make sure KJNodes is installed and a **Model Preview Override** is in the sampling chain, then queue a run. The preview only fills while sampling. |
+| **No ▶ button, or an import error in the console** | `nougan_panel_preview.js` must sit in `web/` next to `nougan_live_panel.js`. Hard-refresh the tab (Ctrl+F5) after copying it. |
+| **The σ graph is empty** | You turned the preview on mid-run. It fills from the next run. |
 
 ---
 
