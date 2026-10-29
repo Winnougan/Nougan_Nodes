@@ -250,7 +250,7 @@ _WEB_ONLY = [
     ("Group Switch", "nougan_group_switch.js"),
     # Floating, dockable panel: reads the loaded checkpoint / CLIP / VAE / every sampler / LoRAs and edits
     # the real node values live (no cables). Stylesheet lives in web/css/.
-    ("Live Settings Panel", "nougan_live_panel.js", "css/nougan_live_panel.css"),
+    ("Automagic 2222: Live Panel", "nougan_live_panel.js", "css/nougan_live_panel.css"),
 ]
 
 
