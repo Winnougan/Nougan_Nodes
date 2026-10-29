@@ -1,7 +1,7 @@
 > 🌀 **Nougan Suite** · [← Back to docs](README.md)
 
 # 🖱️ Canvas Tools
-
+<img width="1672" height="940" alt="canvas nodes" src="https://github.com/user-attachments/assets/3f2504c7-e748-4bfc-938f-3c568c33c057" />
 Six frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
 
 | Tool | Gesture | What it does |
