@@ -233,7 +233,7 @@ _FEATURES = [
 
 # Frontend-only features: no Python module, no nodes, just a script in WEB_DIRECTORY that ComfyUI
 # serves and loads on its own. Listed here so the banner confirms the file is actually present.
-#  (label, filename inside ./web)
+#  (label, filename inside ./web, [extra files that must sit beside it, e.g. a stylesheet])
 _WEB_ONLY = [
     # Hold Z and drag across wires to bundle them into zip-tie ribbons. Based on safzan's ZipTies;
     # stands down if the original safzan.ZipTies extension is also installed.
@@ -248,6 +248,9 @@ _WEB_ONLY = [
     ("Group Box", "nougan_group_box.js"),
     # Hold S and click a group's title (or slash across several) to bypass everything inside; again to restore.
     ("Group Switch", "nougan_group_switch.js"),
+    # Floating, dockable panel: reads the loaded checkpoint / CLIP / VAE / every sampler / LoRAs and edits
+    # the real node values live (no cables). Stylesheet lives in web/css/.
+    ("Live Settings Panel", "nougan_live_panel.js", "css/nougan_live_panel.css"),
 ]
 
 
@@ -296,13 +299,14 @@ for _label, _module, _spec in _FEATURES:
         traceback.print_exc()
 
 _web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), WEB_DIRECTORY)
-for _label, _file in _WEB_ONLY:
-    if os.path.isfile(os.path.join(_web_dir, _file)):
+for _label, _file, *_extra in _WEB_ONLY:
+    _missing = [f for f in (_file, *_extra) if not os.path.isfile(os.path.join(_web_dir, f))]
+    if not _missing:
         _loaded += 1
         print(f"  {OK} {_bold(_label)} {_dim('(web extension)')}")
     else:
         _failed.append(_label)
-        print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow('missing web/' + _file)}")
+        print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow('missing web/' + ', web/'.join(_missing))}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  Routes — always attempted, fully guarded
