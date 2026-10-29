@@ -3,6 +3,15 @@
 # 🌀 Winnougan (Nougan's Nodes)
 <img width="1672" height="941" alt="Nougan poster" src="https://github.com/user-attachments/assets/20f56fbe-e2cf-4094-94c2-1b14dce04e5f" />
 
+<br>
+
+[![YouTube](https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/@Winnougan)
+[![Patreon](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/c/Winnougan)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/winnougan)
+[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/CJv5wceJaN)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/Winnougan)
+[![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Winnougan/Nougan_Nodes)
+
 ### Custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
 **Twenty-five nodes across nine families — loaders, LoRA tooling, masking, layout boxes, smart image saving, dataset captioning, remote data, temporal video prompts, and a local LLM bridge — every one with its own themed, live UI.**
