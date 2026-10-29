@@ -412,6 +412,8 @@ function sync(node) {
             on: e.on, name: e.name, model: e.model, clip: e.split ? e.clip : e.model, split: e.split,
         })),
     });
+
+    node.__lzLast = w.value;   // what this node itself last wrote
 }
 
 function loadStack(node) {
@@ -437,6 +439,22 @@ function loadStack(node) {
     } catch { stack = []; }
 
     node.__stack = stack;
+    node.__lzLast = dataW(node)?.value;
+}
+
+// Something other than this node (the Live Panel, a script...) changed `lora_data`.
+// Reload the stack from it and redraw, so the node UI, the saved workflow and the run all agree.
+function pullFromWidget(node) {
+    const w = dataW(node);
+    if (!w || typeof w.value !== "string" || w.value === node.__lzLast) return;
+
+    try {
+        const p = JSON.parse(w.value);
+        if (!Array.isArray(p) && !Array.isArray(p?.loras)) return;   // not a stack: ignore
+    } catch { return; }
+
+    loadStack(node);
+    node.__lzRender?.();
 }
 
 
@@ -799,6 +817,17 @@ function buildUI(node) {
 
     hideWidget(dataW(node));
     loadStack(node);
+
+    const dw0 = dataW(node);
+    if (dw0 && !dw0._lzCb) {
+        dw0._lzCb = true;
+        const prev = dw0.callback;
+        dw0.callback = function () {
+            const r = prev?.apply(this, arguments);
+            try { pullFromWidget(node); } catch (e) { console.warn("[Nougan Lora] pull failed", e); }
+            return r;
+        };
+    }
 
     const panel = buildPanel(node);
 

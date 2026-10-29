@@ -4,10 +4,11 @@
 // (checkpoint, CLIP, VAE, every sampler, LoRAs) and lets you edit the values on
 // the real nodes. No cables: it only reads and writes widget values.
 //
-// Put this file in web/ and nougan_live_panel.css in web/css/.
+// Put this file and nougan_panel_preview.js in web/, and nougan_live_panel.css in web/css/.
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { createPanelPreview } from "./nougan_panel_preview.js";
 
 const STORAGE_KEY = "nougan_live_panel_state";
 const SETTING_ID = "Nougan.LivePanel.Enabled";
@@ -37,7 +38,7 @@ const THEME_VARS = {
 };
 
 const state = Object.assign(
-    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy" },
+    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260 },
     loadState()
 );
 if (!THEMES[state.theme]) state.theme = "comfy";
@@ -233,11 +234,74 @@ function loraProxies(w) {
     return p;
 }
 
+// Nougan Lora Loader: the whole stack lives in ONE string widget, `lora_data`:
+//   {"loras":[{"on":true,"name":"x.safetensors","model":1,"clip":1,"split":false}, ...]}
+// Each item gets the same widget-like proxies as the rgthree loader, but reads and
+// writes go through JSON.parse / JSON.stringify on that one widget.
+const nlProxyCache = new WeakMap();
+function nouganLoraList(w) {
+    if (typeof w.value !== "string") return null;
+    try {
+        const d = JSON.parse(w.value);
+        return Array.isArray(d?.loras) ? d.loras : null;
+    } catch { return null; }
+}
+function nouganLoraProxies(w, idx) {
+    let arr = nlProxyCache.get(w);
+    if (!arr) nlProxyCache.set(w, (arr = []));
+    if (arr[idx]) return arr[idx];
+    const field = (key, type, options, fallbackKey) => ({
+        name: `${w.name}.${idx}.${key}`,
+        type,
+        options,
+        get value() {
+            const it = nouganLoraList(w)?.[idx];
+            if (!it) return undefined;
+            return it[key] ?? (fallbackKey ? it[fallbackKey] : undefined);
+        },
+        set value(x) {
+            let d;
+            try { d = JSON.parse(w.value); } catch { return; }
+            if (!Array.isArray(d?.loras) || !d.loras[idx]) return;
+            d.loras[idx] = { ...d.loras[idx], [key]: x };
+            const s = JSON.stringify(d);
+            w.value = s;
+            // let the node's own UI know the stack changed
+            try { w.callback?.(s); } catch (e) { console.warn("nougan-live-panel: lora_data callback failed", e); }
+        },
+    });
+    const num = { min: -10, max: 10, precision: 2, step: 1 };
+    arr[idx] = {
+        on: field("on", "toggle", {}),
+        lora: field("name", "combo", { values: () => loraNames }),
+        strength: field("model", "number", num),
+        strengthClip: field("clip", "number", num, "model"),
+    };
+    return arr[idx];
+}
+
 function collectLoras(nodes) {
     const out = [];
     for (const n of nodes) {
         if (EXCLUDE_TYPES.test(nodeType(n))) continue;
         for (const w of n.widgets || []) {
+            // Nougan Lora Loader (JSON string in `lora_data`)
+            if (w.name === "lora_data" || (typeof w.value === "string" && w.value.startsWith('{"loras"'))) {
+                const list = nouganLoraList(w);
+                if (list) {
+                    list.forEach((it, idx) => {
+                        const p = nouganLoraProxies(w, idx);
+                        out.push({
+                            node: n,
+                            on: { node: n, w: p.on },
+                            name: { node: n, w: p.lora },
+                            strength: { node: n, w: p.strength },
+                            strengthClip: it?.split ? { node: n, w: p.strengthClip } : null,
+                        });
+                    });
+                    continue;
+                }
+            }
             if (/^lora_\d+$/.test(w.name) && w.value && typeof w.value === "object" && "lora" in w.value) {
                 const p = loraProxies(w);
                 const two = n.properties?.["Show Strengths"] === "Separate Model & Clip";
@@ -419,42 +483,156 @@ function linkedHint(ctrl, ref) {
     }
 }
 
+// ---- searchable dropdown (replaces the plain <select>) ----
+// Click the field and type to filter. Every word you type has to match somewhere in the
+// path (so "ltx ingr" finds "ltx-2.5-22b-ic-lora-ingredients"). Up/Down + Enter to pick,
+// Esc to cancel. The list is a fixed-position popup on <body>, so the panel never clips it.
+let comboList = null;   // { owner, close } for the one popup that can be open at a time
+function closeComboList() { comboList?.close(); }
+const normKey = (s) => String(s).toLowerCase().replace(/\\/g, "/");
+const COMBO_MAX = 300;  // rows drawn at once; keep typing to narrow the rest
+
 function makeCombo(ref) {
     const { node, w } = ref;
-    const sel = el("select", "nlp-select");
-    linkedHint(sel, ref);
-    let listKey = null;
+    const wrap = el("div", "nlp-combo");
+    const input = el("input", "nlp-select");
+    input.type = "text";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    wrap.append(input);
+    linkedHint(input, ref);
     let lastRaw = [];
+    let justFocused = false;
 
-    function sync(force) {
-        if (!force && document.activeElement === sel) return;
+    const getRaw = () => {
         const v = w.options?.values;
         const raw = (typeof v === "function" ? v(w, node) : v) || [];
-        lastRaw = Array.isArray(raw) ? raw : [];
-        const list = lastRaw.map(String);
+        return Array.isArray(raw) ? raw : [];
+    };
+
+    function sync(force) {
+        if (!force && document.activeElement === input) return;
         const cur = String(w.value);
-        const key = list.join("\u0001") + "\u0002" + (list.includes(cur) ? "" : cur);
-        if (key !== listKey) {
-            listKey = key;
-            sel.textContent = "";
-            const items = list.includes(cur) ? list : [cur, ...list];
-            for (const s of items) {
-                const op = el("option", null, s);
-                op.value = s;
-                sel.append(op);
+        if (input.value !== cur) input.value = cur;
+        if (!ref.linked) input.title = cur;
+    }
+
+    function open() {
+        if (ref.linked || comboList?.owner === input) return;
+        closeComboList();
+        lastRaw = getRaw();
+        const all = lastRaw.map(String);
+        const keys = all.map(normKey);
+        const cur = String(w.value);
+        let typed = false, matches = [], hi = 0;
+
+        const box = el("div", "nlp-menu nlp-combo-list");
+        applyTheme(box);
+
+        function filter() {
+            const toks = typed ? normKey(input.value).split(/\s+/).filter(Boolean) : [];
+            matches = [];
+            for (let i = 0; i < all.length; i++) {
+                if (toks.every((t) => keys[i].includes(t))) matches.push(i);
             }
         }
-        sel.value = cur;
-        if (!ref.linked) sel.title = cur;
+        const lastRow = () => Math.min(matches.length, COMBO_MAX) - 1;
+        function setHi(n) {
+            box.children[hi]?.classList.remove("nlp-active");
+            hi = n;
+            const c = box.children[hi];
+            if (c) { c.classList.add("nlp-active"); c.scrollIntoView?.({ block: "nearest" }); }
+        }
+        function paint(resetHi) {
+            filter();
+            if (resetHi) hi = Math.max(0, typed ? 0 : matches.findIndex((i) => all[i] === cur));
+            box.textContent = "";
+            if (!matches.length) { box.append(el("div", "nlp-combo-note", "No matches")); return; }
+            const shown = matches.slice(0, COMBO_MAX);
+            shown.forEach((i, n) => {
+                const str = all[i];
+                const item = el("div", "nlp-combo-item"
+                    + (n === hi ? " nlp-active" : "") + (str === cur ? " nlp-current" : ""));
+                const cut = Math.max(str.lastIndexOf("/"), str.lastIndexOf("\\"));
+                item.append(el("span", "nlp-combo-base", cut >= 0 ? str.slice(cut + 1) : str));
+                if (cut >= 0) item.append(el("span", "nlp-combo-dir", str.slice(0, cut)));
+                item.title = str;
+                item.addEventListener("mousemove", () => { if (hi !== n) setHi(n); });
+                item.addEventListener("click", () => pick(i));
+                box.append(item);
+            });
+            if (matches.length > shown.length) {
+                box.append(el("div", "nlp-combo-note", `${matches.length - shown.length} more, keep typing to narrow`));
+            }
+            box.children[hi]?.scrollIntoView?.({ block: "nearest" });
+        }
+        function place() {
+            const r = input.getBoundingClientRect();
+            const width = Math.min(Math.max(r.width, 260), window.innerWidth - 8);
+            const left = Math.max(4, Math.min(r.left, window.innerWidth - width - 4));
+            const below = window.innerHeight - r.bottom - 8;
+            const above = r.top - 8;
+            const up = below < 180 && above > below;
+            const st = box.style;
+            st.left = left + "px";
+            st.width = width + "px";
+            st.maxHeight = Math.max(120, Math.min(320, up ? above : below)) + "px";
+            if (up) { st.top = "auto"; st.bottom = (window.innerHeight - r.top + 2) + "px"; }
+            else { st.bottom = "auto"; st.top = (r.bottom + 2) + "px"; }
+        }
+
+        function pick(i) {
+            const str = all[i];
+            const orig = lastRaw.find((x) => String(x) === str);
+            setWidgetValue(node, w, orig !== undefined ? orig : str);
+            finish();
+        }
+        function finish() { close(); input.blur(); }
+        function close() {
+            input.removeEventListener("input", onInput);
+            input.removeEventListener("keydown", onKey);
+            input.removeEventListener("blur", close);
+            window.removeEventListener("resize", close);
+            document.removeEventListener("scroll", onScroll, true);
+            box.remove();
+            if (comboList?.owner === input) comboList = null;
+            sync(true);
+        }
+        function onInput() { typed = true; paint(true); }
+        function onScroll(e) { if (e.target !== box && !box.contains(e.target)) close(); }
+        function onKey(e) {
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault(); e.stopPropagation();
+                if (lastRow() >= 0) setHi(e.key === "ArrowDown" ? Math.min(lastRow(), hi + 1) : Math.max(0, hi - 1));
+            } else if (e.key === "Enter") {
+                e.preventDefault(); e.stopPropagation();
+                if (matches.length) pick(matches[hi]); else finish();
+            } else if (e.key === "Escape") {
+                e.preventDefault(); e.stopPropagation();
+                finish();
+            }
+        }
+
+        // keep focus in the text field while the mouse is over the list
+        box.addEventListener("mousedown", (e) => e.preventDefault());
+        input.addEventListener("input", onInput);
+        input.addEventListener("keydown", onKey);
+        input.addEventListener("blur", close);
+        window.addEventListener("resize", close);
+        document.addEventListener("scroll", onScroll, true);
+        document.body.append(box);
+        comboList = { owner: input, close };
+        paint(true);
+        place();
     }
-    sel.addEventListener("change", () => {
-        const orig = lastRaw.find((x) => String(x) === sel.value);
-        setWidgetValue(node, w, orig !== undefined ? orig : sel.value);
-        sync(true);
-    });
+
+    input.addEventListener("focus", () => { justFocused = true; open(); input.select(); });
+    input.addEventListener("mouseup", (e) => { if (justFocused) { e.preventDefault(); justFocused = false; } });
+    input.addEventListener("click", () => { if (comboList?.owner !== input) open(); });
+
     bindings.push({ sync });
     sync(true);
-    return sel;
+    return wrap;
 }
 
 function makeToggle(ref) {
@@ -716,6 +894,7 @@ function fill(sec, id, items) {
 }
 
 function render(m) {
+    closeComboList();
     bindings = [];
     body.textContent = "";
 
@@ -975,6 +1154,16 @@ function updateVisibility() {
     if (panel) panel.style.display = visible && !state.minimized ? "" : "none";
     if (launcher) launcher.style.display = visible && state.minimized ? "" : "none";
     if (visible && state.minimized) placeLauncher();
+    syncPreview();
+}
+
+// The preview only listens (and decodes frames) while it is switched on AND the panel
+// is actually showing. Collapsed, minimized or disabled = no listener, no memory.
+let preview = null, previewBtn = null;
+function syncPreview() {
+    const on = !!state.preview && visible && !state.minimized && !state.collapsed;
+    preview?.setEnabled(on);
+    previewBtn?.classList.toggle("nlp-btn-on", !!state.preview);
 }
 function setVisible(v) {
     visible = !!v;
@@ -1020,6 +1209,7 @@ function createPanel() {
         collapseBtn.textContent = state.collapsed ? "+" : "\u2212";
         applyLayout();
         saveState();
+        syncPreview();
         if (!state.collapsed) { lastSig = null; tick(); }
     }
     const dockBtn = mkBtn("\u21E5", "Dock: click to cycle right, left, floating (or drag to a canvas edge)", () => {
@@ -1034,7 +1224,17 @@ function createPanel() {
     });
     const themeBtn = mkBtn("\u25D0", "Visual presets (theme)", () => openThemeMenu(themeBtn));
     themeBtn.classList.add("nlp-theme-btn");
-    header.append(el("span", "nlp-grip"), el("span", "nlp-title", "Automagic 2222: Live Panel"), el("span", "nlp-spacer"), themeBtn, dockBtn, collapseBtn, hideBtn);
+    previewBtn = mkBtn("\u25B6", "Live preview on/off (mirrors Model Preview Override from KJNodes)", () => {
+        state.preview = !state.preview;
+        saveState();
+        syncPreview();
+    });
+    header.append(el("span", "nlp-grip"), el("span", "nlp-title", "Automagic 2222: Live Panel"), el("span", "nlp-spacer"), previewBtn, themeBtn, dockBtn, collapseBtn, hideBtn);
+
+    preview = createPanelPreview({
+        height: state.previewH,
+        onResize: (h) => { state.previewH = Math.round(h); saveState(); },
+    });
     header.addEventListener("dblclick", (e) => { if (!e.target.closest(".nlp-btn")) toggleCollapse(); });
 
     body = el("div", "nlp-body");
@@ -1060,7 +1260,7 @@ function createPanel() {
         resetCfg();
     });
     footer.append(hiddenNote, el("span", "nlp-spacer"), reloadBtn, defBtn);
-    panel.append(header, body, footer);
+    panel.append(header, preview.host, body, footer);
     document.body.appendChild(panel);
 
     launcher = el("div", "nlp-launcher", "\u2699 2222");
@@ -1127,7 +1327,40 @@ function createPanel() {
     applyThemeAll();
     window.addEventListener("resize", () => { applyLayout(); placeLauncher(); });
     applyLayout();
-    updateVisibility();
+    updateVisibility();   // also starts the preview if it was left on
+}
+
+// ---- Queue-time fix for the Nougan Lora Loader ------------------------------
+// The panel writes the stack into the node's `lora_data` widget. If the node's own
+// JS re-serializes from a private copy of the stack, the queued prompt can carry
+// the OLD stack and the panel's On/Off never reaches the run. Right after the
+// prompt is built, put the widget's current value into it.
+function patchPromptLoras(res) {
+    const out = res?.output;
+    if (!out || !app.graph) return;
+    for (const n of collectNodes(app.graph)) {
+        const w = n.widgets?.find((x) => x.name === "lora_data");
+        if (!w) continue;                      // match by widget, not by class name
+        const entry = out[String(n.id)];
+        if (!entry || !entry.inputs || typeof entry.inputs.lora_data !== "string") continue;
+        const cur = typeof w.value === "string" ? w.value
+            : (w.value && typeof w.value === "object" ? JSON.stringify(w.value) : null);
+        if (cur == null) continue;
+        if (entry.inputs.lora_data !== cur) {
+            console.warn(`nougan-live-panel: node ${n.id} queued a stale lora_data, using the widget value instead`);
+            entry.inputs.lora_data = cur;
+        }
+    }
+}
+function hookGraphToPrompt() {
+    if (app.__nouganGtpHooked || typeof app.graphToPrompt !== "function") return;
+    app.__nouganGtpHooked = true;
+    const orig = app.graphToPrompt;
+    app.graphToPrompt = async function (...args) {
+        const res = await orig.apply(this, args);
+        try { patchPromptLoras(res); } catch (e) { console.warn("nougan-live-panel: prompt patch failed", e); }
+        return res;
+    };
 }
 
 app.registerExtension({
@@ -1142,6 +1375,7 @@ app.registerExtension({
     async setup() {
         await cssLoaded;
         try { visible = app.ui.settings.getSettingValue(SETTING_ID) !== false; } catch {}
+        hookGraphToPrompt();
         createPanel();
         loadLoraNames();
         setInterval(loadLoraNames, 30000);
