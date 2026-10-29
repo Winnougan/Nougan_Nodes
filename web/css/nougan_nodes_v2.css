@@ -1,0 +1,215 @@
+/* Nougan Nodes UI V2 - modern dark-glass UI for DOM widgets */
+
+.nougan-panel {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px 10px 12px;
+    border-radius: 12px;
+    background:
+        radial-gradient(120% 140% at 0% 0%, rgba(122, 92, 255, 0.16), transparent 55%),
+        radial-gradient(120% 140% at 100% 0%, rgba(56, 205, 255, 0.12), transparent 55%),
+        rgba(16, 18, 28, 0.88);
+    border: 1px solid rgba(140, 150, 255, 0.22);
+    box-shadow:
+        0 6px 18px rgba(0, 0, 0, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(6px);
+    font-family: inherit;
+    color: #e8eaf6;
+    user-select: none;
+}
+
+.nougan-panel * {
+    box-sizing: border-box;
+}
+
+/* ---------- header ---------- */
+
+.nougan-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-bottom: 8px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid rgba(140, 150, 255, 0.18);
+}
+
+.nougan-header-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    background: linear-gradient(90deg, #ffd76a, #b48bff 45%, #5cd6ff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.nougan-header-sub {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: rgba(232, 234, 246, 0.55);
+}
+
+/* ---------- video panel ---------- */
+
+.nougan-video-panel {
+    --nougan-theme-bg: #3d124d;
+    --nougan-theme-title: #19124d;
+    --nougan-theme-frame: #ffffff;
+}
+
+.nougan-video-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 2px 2px;
+}
+
+.nougan-video-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    background: rgba(30, 34, 52, 0.55);
+    border: 1px solid rgba(140, 150, 255, 0.12);
+    transition: border-color 0.15s ease;
+}
+
+.nougan-video-row:hover {
+    border-color: color-mix(in srgb, var(--nougan-theme-frame) 45%, transparent);
+}
+
+.nougan-video-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: rgba(232, 234, 246, 0.82);
+    white-space: nowrap;
+}
+
+/* ---------- select / dropdown trigger ---------- */
+
+.nougan-select {
+    flex: 1 1 auto;
+    min-width: 120px;
+    padding: 6px 24px 6px 9px;
+    border-radius: 7px;
+    border: 1px solid rgba(140, 150, 255, 0.22);
+    background: rgba(8, 10, 18, 0.7);
+    color: #e8eaf6;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+    outline: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+}
+
+.nougan-select::after {
+    content: "▾";
+    position: absolute;
+    right: 7px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 9px;
+    color: rgba(232, 234, 246, 0.45);
+    pointer-events: none;
+}
+
+.nougan-select:hover {
+    border-color: color-mix(in srgb, var(--nougan-theme-frame) 60%, transparent);
+}
+
+.nougan-select:focus,
+.nougan-select.open {
+    border-color: var(--nougan-theme-frame, rgba(92, 214, 255, 0.8));
+}
+
+/* ---------- floating dropdown ---------- */
+
+.nougan-dropdown {
+    z-index: 99999;
+    border-radius: 9px;
+    background: rgba(16, 18, 28, 0.97);
+    border: 1px solid rgba(140, 150, 255, 0.3);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 560px;
+}
+
+.nougan-dropdown-list {
+    overflow-y: auto;
+    max-height: 520px;
+}
+
+.nougan-dropdown-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.nougan-dropdown-list::-webkit-scrollbar-thumb {
+    background: rgba(122, 92, 255, 0.5);
+    border-radius: 3px;
+}
+
+.nougan-dropdown-list::-webkit-scrollbar-track {
+    background: rgba(8, 10, 18, 0.5);
+    border-radius: 3px;
+}
+
+.nougan-dropdown-item {
+    padding: 6px 10px;
+    font-size: 11px;
+    color: rgba(232, 234, 246, 0.8);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.1s ease;
+}
+
+.nougan-dropdown-item:hover {
+    background: rgba(122, 92, 255, 0.18);
+}
+
+.nougan-dropdown-item.active {
+    background: rgba(122, 92, 255, 0.28);
+    color: #fff;
+}
+
+.nougan-dropdown-item.selected {
+    color: var(--nougan-theme-frame, #5cd6ff);
+    font-weight: 700;
+}
+
+/* ---------- value inputs ---------- */
+
+.nougan-value-input {
+    width: 70px;
+    padding: 5px 7px;
+    border-radius: 6px;
+    border: 1px solid rgba(140, 150, 255, 0.22);
+    background: rgba(8, 10, 18, 0.7);
+    color: #e8eaf6;
+    font-size: 11px;
+    font-family: inherit;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.nougan-value-input:focus {
+    border-color: var(--nougan-theme-frame, rgba(92, 214, 255, 0.8));
+}
+
+.nougan-value-input::-webkit-inner-spin-button,
+.nougan-value-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
