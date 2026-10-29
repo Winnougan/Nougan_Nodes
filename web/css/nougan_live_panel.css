@@ -64,6 +64,7 @@
     border-radius: 3px;
 }
 .nlp-btn:hover { color: var(--nlp-fg); background: var(--nlp-input); }
+.nlp-btn.nlp-btn-on { color: var(--nlp-accent); }
 
 /* ---------- body ---------- */
 .nlp-body {
@@ -273,3 +274,31 @@
 
 /* long title: let it shrink instead of pushing the header buttons out */
 .nlp-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- searchable dropdown ---------- */
+.nlp-combo { position: relative; display: block; min-width: 0; }
+.nlp-combo::after {
+    content: "\25BE";
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--nlp-dim);
+    font-size: 10px;
+    pointer-events: none;
+}
+.nlp-combo .nlp-select { padding-right: 18px; cursor: text; }
+
+.nlp-combo-list { z-index: 1003; padding: 3px 0; overflow-y: auto; scrollbar-width: thin; min-width: 0; }
+.nlp-combo-item {
+    display: block;
+    padding: 3px 10px;
+    cursor: pointer;
+    white-space: normal;
+    word-break: break-all;
+}
+.nlp-combo-item.nlp-active { background: var(--nlp-card); }
+.nlp-combo-item.nlp-current .nlp-combo-base { color: var(--nlp-accent); font-weight: 600; }
+.nlp-combo-dir { display: block; margin-top: 1px; color: var(--nlp-dim); font-size: 9px; }
+.nlp-combo-note { padding: 4px 10px; color: var(--nlp-dim); font-style: italic; }
+
