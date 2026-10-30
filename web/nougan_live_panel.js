@@ -4,11 +4,16 @@
 // (checkpoint, CLIP, VAE, every sampler, LoRAs) and lets you edit the values on
 // the real nodes. No cables: it only reads and writes widget values.
 //
+// Extras: seed row (value, dice, fixed/increment/decrement/randomize) on every sampler,
+// "pin any widget" (header pin button, or right-click a node), and a run bar with
+// Queue / Stop, progress, queue count and a VRAM / RAM meter with per-run VRAM peak.
+//
 // Put this file and nougan_panel_preview.js in web/, and nougan_live_panel.css in web/css/.
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { createPanelPreview } from "./nougan_panel_preview.js";
+import { createProgress } from "./nougan_panel_progress.js";
 
 const STORAGE_KEY = "nougan_live_panel_state";
 const SETTING_ID = "Nougan.LivePanel.Enabled";
@@ -38,10 +43,11 @@ const THEME_VARS = {
 };
 
 const state = Object.assign(
-    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260 },
+    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto" },
     loadState()
 );
 if (!THEMES[state.theme]) state.theme = "comfy";
+if (state.progressFx !== "dom") state.progressFx = "auto";
 function loadState() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
 }
@@ -175,24 +181,91 @@ function collectSamplers(nodes) {
                 sampler: resolve(n, "sampler_name"),
                 scheduler: resolve(n, "scheduler"),
                 denoise: resolve(n, "denoise"),
+                seed: resolve(n, "seed") || resolve(n, "noise_seed"),
             };
         } else if (hasIn("sigmas") && hasIn("sampler")) {
             // SamplerCustom / SamplerCustomAdvanced: settings live on upstream nodes
             const guider = upstream(n, "guider");
             const smp = chase(n, "sampler", "sampler_name");
             const sig = chase(n, "sigmas", "steps");
+            const noise = chase(n, "noise", "noise_seed");
             f = {
                 steps: resolve(sig, "steps"),
                 cfg: resolve(n, "cfg") || resolve(guider, "cfg") || resolve(guider, "cfg_conds"),
                 sampler: resolve(smp, "sampler_name"),
                 scheduler: resolve(sig, "scheduler"),
                 denoise: resolve(sig, "denoise"),
+                seed: resolve(n, "noise_seed") || resolve(noise, "noise_seed"),
             };
         }
-        if (f) out.push({ node: n, ...f });
+        if (f) out.push({ node: n, ...f, seedCtl: seedControl(f.seed) });
     }
     out.sort((a, b) => Number(a.node.id) - Number(b.node.id));
     return out;
+}
+
+// The "control after generate" combo that sits next to a seed widget (fixed / increment /
+// decrement / randomize). Primitive-style seed nodes carry their own copy.
+function seedControl(ref) {
+    if (!ref || ref.linked) return null;
+    const ws = ref.node?.widgets || [];
+    const i = ws.indexOf(ref.w);
+    if (i < 0) return null;
+    let c = ws[i + 1]?.name === "control_after_generate" ? ws[i + 1] : null;
+    if (!c) c = ws.find((x) => x.name === "control_after_generate");
+    return c ? { node: ref.node, w: c } : null;
+}
+
+// ---- pinned widgets ----
+// Which control a pinned widget gets, or null when it can't be shown (buttons, images...).
+function pinKind(ref) {
+    const w = ref?.w;
+    if (!w || w.hidden || w.name === "control_after_generate") return null;
+    const t = String(w.type);
+    if (t === "button" || t.startsWith("converted")) return null;
+    if (t === "combo") return "combo";
+    if (typeof w.value === "boolean" || t === "toggle") return "toggle";
+    if (typeof w.value === "number" || t === "number" || t === "slider") {
+        return /seed/i.test(w.name) && seedControl(ref) ? "seed" : "number";
+    }
+    if (typeof w.value === "string") {
+        return (w.options?.multiline || t === "customtext" || w.inputEl?.tagName === "TEXTAREA") ? "textarea" : "text";
+    }
+    return null;
+}
+const isPinned = (node, name) =>
+    (readCfg().pins || []).some((p) => p.k === nkey(node) && p.name === name);
+
+function togglePin(node, name) {
+    const k = nkey(node);
+    editCfg((c) => {
+        c.pins = c.pins || [];
+        const i = c.pins.findIndex((p) => p.k === k && p.name === name);
+        if (i >= 0) {
+            c.pins.splice(i, 1);
+            const key = `pin:${k}:${name}`;
+            delete c.names[key];
+            if (c.order.pins) c.order.pins = c.order.pins.filter((x) => x !== key);
+        } else {
+            c.pins.push({ k, name });
+        }
+    });
+}
+
+function collectPins(nodes) {
+    const pins = readCfg().pins || [];
+    const live = [];
+    let missing = 0;
+    if (!pins.length) return { live, missing };
+    const byKey = new Map(nodes.map((n) => [nkey(n), n]));
+    for (const p of pins) {
+        const n = byKey.get(p.k);
+        const ref = n ? resolve(n, p.name) : null;
+        const kind = ref ? pinKind(ref) : null;
+        if (!ref || !kind) { missing++; continue; }   // node deleted, bypassed or widget gone
+        live.push({ key: `pin:${p.k}:${p.name}`, k: p.k, name: p.name, ref, kind });
+    }
+    return { live, missing };
 }
 
 // ---- LoRA name list (for loaders whose widgets are not plain combos) ----
@@ -394,7 +467,7 @@ function buildModel() {
     }
     for (const k in loaders) loaders[k].sort(byId);
 
-    return { ...loaders, samplers: collectSamplers(nodes), loras: collectLoras(nodes), out: collectOutput(nodes) };
+    return { ...loaders, samplers: collectSamplers(nodes), loras: collectLoras(nodes), out: collectOutput(nodes), pins: collectPins(nodes) };
 }
 
 // Structure signature: when it changes we rebuild the DOM, otherwise we only
@@ -412,11 +485,12 @@ function signature(m) {
     return [
         L(m.ckpt), L(m.clip), L(m.vae),
         m.samplers.map((s) => `${s.node.id}:${s.node.title}:` +
-            ["steps", "cfg", "sampler", "scheduler", "denoise"].map((k) => rsig(s[k])).join("/")).join(";"),
+            ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl"].map((k) => rsig(s[k])).join("/")).join(";"),
         m.loras.map((l) => `${l.node.id}:${rsig(l.on)}/${rsig(l.name)}/${rsig(l.strength)}/${rsig(l.strengthClip)}`).join(";"),
         m.out.res.map((r) => `${r.node.id}:${rsig(r.aspect)}/${rsig(r.mp)}/${rsig(r.multiple)}`).join(";"),
         m.out.sizes.map((r) => `${r.node.id}:${rsig(r.width)}/${rsig(r.height)}`).join(";"),
         m.out.durs.map((r) => `${r.node.id}:${rsig(r.value)}`).join(";"),
+        m.pins.live.map((p) => `${p.key}:${rsig(p.ref)}:${p.kind}`).join(";") + `#${m.pins.missing}`,
         JSON.stringify(readCfg()),
     ].join("|");
 }
@@ -442,21 +516,28 @@ function touchWorkflow() {
 // ---- user layout: renamed labels, hidden items, custom order ----
 // Stored inside the workflow itself (graph.extra.nougan_live_panel), so it
 // travels with the file and each workflow keeps its own layout.
-const EMPTY_CFG = { names: {}, hidden: {}, order: {} };
+const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [] };
 const readCfg = () => app.graph?.extra?.nougan_live_panel || EMPTY_CFG;
 function editCfg(fn) {
     const g = app.graph;
     if (!g) return;
     g.extra = g.extra || {};
     const c = g.extra.nougan_live_panel || (g.extra.nougan_live_panel = {});
-    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {};
+    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || [];
     fn(c);
     touchWorkflow();
     rebuild();
 }
 function resetCfg() {
     const g = app.graph;
-    if (g?.extra?.nougan_live_panel) { delete g.extra.nougan_live_panel; touchWorkflow(); }
+    const cur = g?.extra?.nougan_live_panel;
+    if (cur) {
+        // pins are content, not layout: Default keeps them
+        const pins = Array.isArray(cur.pins) ? cur.pins.slice() : [];
+        if (pins.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins };
+        else delete g.extra.nougan_live_panel;
+        touchWorkflow();
+    }
     rebuild();
 }
 function rebuild() { lastSig = null; tick(); }
@@ -703,14 +784,89 @@ function makeNumber(ref, withSlider, opts = {}) {
     }, { passive: false });
     if (slider) slider.addEventListener("input", () => commit(slider.value));
 
+    wrap.__sync = sync;
     bindings.push({ sync });
     sync(true);
     return wrap;
 }
 
+const SEED_MODES = ["fixed", "increment", "decrement", "randomize"];
+
+function randomSeed(w) {
+    const lo = Number.isFinite(w.options?.min) ? w.options.min : 0;
+    const hi = Math.min(Number.isFinite(w.options?.max) ? w.options.max : 2 ** 50, 2 ** 50);
+    return lo + Math.floor(Math.random() * Math.max(1, hi - lo));
+}
+
+// Seed value + dice + control-after-generate mode, in one row.
+function makeSeed(ref, ctl) {
+    const { node, w } = ref;
+    const wrap = el("div", "nlp-seedwrap");
+    const num = makeNumber(ref, false, { prec: 0, step: 1 });
+    const dice = el("span", "nlp-btn nlp-dice", "\uD83C\uDFB2");
+    dice.title = "Roll a new random seed";
+    if (ref.linked) dice.classList.add("nlp-btn-off");
+    dice.addEventListener("click", () => {
+        if (ref.linked) return;
+        setWidgetValue(node, w, randomSeed(w));
+        num.__sync?.(true);
+    });
+    wrap.append(num, dice);
+
+    if (ctl) {
+        const sel = el("select", "nlp-select nlp-mode");
+        sel.title = "Seed mode: what happens to the seed after each run";
+        const raw = ctl.w.options?.values;
+        const vals = (typeof raw === "function" ? raw(ctl.w, ctl.node) : raw);
+        for (const v of (Array.isArray(vals) && vals.length ? vals : SEED_MODES)) sel.append(new Option(String(v), String(v)));
+        sel.addEventListener("change", () => setWidgetValue(ctl.node, ctl.w, sel.value));
+        const sync = (force) => {
+            if (!force && document.activeElement === sel) return;
+            const cur = String(ctl.w.value);
+            if (sel.value !== cur) sel.value = cur;
+        };
+        bindings.push({ sync });
+        sync(true);
+        wrap.append(sel);
+    }
+    return wrap;
+}
+
+// Text widget: single-line input, or a textarea for multiline widgets (prompt boxes).
+// Writes on every keystroke so you can hit Ctrl+Enter without leaving the box.
+function makeText(ref, multiline) {
+    const { node, w } = ref;
+    const input = el(multiline ? "textarea" : "input", "nlp-text");
+    if (multiline) input.rows = 3; else input.type = "text";
+    input.spellcheck = false;
+    linkedHint(input, ref);
+    function sync(force) {
+        if (!force && document.activeElement === input) return;
+        const cur = w.value == null ? "" : String(w.value);
+        if (input.value !== cur) input.value = cur;
+    }
+    input.addEventListener("input", () => {
+        if (ref.linked) return;
+        w.value = input.value;
+        try { w.callback?.(input.value, app.canvas, node, app.canvas?.graph_mouse, undefined); }
+        catch (e) { console.warn("nougan-live-panel: widget callback failed", e); }
+        try { app.canvas?.setDirty?.(true, true); } catch {}
+    });
+    input.addEventListener("change", touchWorkflow);
+    // keep typing away from ComfyUI hotkeys, but let Ctrl/Cmd+Enter through so it still queues
+    const stop = (e) => { if (!((e.ctrlKey || e.metaKey) && e.key === "Enter")) e.stopPropagation(); };
+    input.addEventListener("keydown", stop);
+    input.addEventListener("keyup", stop);
+    bindings.push({ sync });
+    sync(true);
+    return input;
+}
+
 function makeControl(ref, kind, opts) {
     if (kind === "combo") return makeCombo(ref);
     if (kind === "toggle") return makeToggle(ref);
+    if (kind === "seed") return makeSeed(ref, opts?.ctl);
+    if (kind === "text") return makeText(ref, false);
     return makeNumber(ref, kind === "strength", opts);
 }
 
@@ -793,14 +949,43 @@ function wireSection(sec) {
     sec.addEventListener("drop", (e) => e.preventDefault());
 }
 
-function xBtn(key) {
+function xBtn(key, onClick, title) {
     const b = el("span", "nlp-x", "\u00D7");
-    b.title = "Remove from this panel (the Default button brings everything back)";
+    b.title = title || "Remove from this panel (the Default button brings everything back)";
     b.addEventListener("click", (e) => {
         e.stopPropagation();
-        editCfg((c) => { c.hidden[key] = true; });
+        if (onClick) onClick();
+        else editCfg((c) => { c.hidden[key] = true; });
     });
     return b;
+}
+
+// One pinned widget: a normal row, or label-over-textarea for multiline text.
+function pinItem(p, label) {
+    const key = p.key;
+    const unpin = () => editCfg((c) => {
+        c.pins = (c.pins || []).filter((x) => !(x.k === p.k && x.name === p.name));
+        delete c.names[key];
+        if (c.order.pins) c.order.pins = c.order.pins.filter((x) => x !== key);
+    });
+    const x = xBtn(key, unpin, "Unpin from this panel");
+    if (p.kind === "textarea") {
+        const it = el("div", "nlp-item nlp-textitem");
+        it.dataset.key = key;
+        const head = el("div", "nlp-texthead");
+        const l = nameEl(key, label, "nlp-label nlp-handle", p.ref.node);
+        arm(it, l);
+        head.append(l, x);
+        it.append(head, makeText(p.ref, true));
+        return it;
+    }
+    const rw = el("div", "nlp-row nlp-item");
+    rw.dataset.key = key;
+    const l = nameEl(key, label, "nlp-label nlp-handle", p.ref.node);
+    arm(rw, l);
+    const opts = p.kind === "seed" ? { ctl: seedControl(p.ref) } : undefined;
+    rw.append(l, makeControl(p.ref, p.kind, opts), x);
+    return rw;
 }
 
 // Single click = jump to the node, double click = rename. The jump is delayed a
@@ -916,10 +1101,17 @@ function render(m) {
     const smps = keep(m.samplers, K.smp);
     const loras = keep(m.loras, K.lora);
     const res = keep(m.out.res, K.res), sizes = keep(m.out.sizes, K.size), durs = keep(m.out.durs, K.dur);
-    hiddenNote.textContent = hiddenCount ? `${hiddenCount} hidden` : "";
+    const pinned = m.pins.live;
+    const note = [];
+    if (hiddenCount) note.push(`${hiddenCount} hidden`);
+    if (m.pins.missing) note.push(`${m.pins.missing} pin${m.pins.missing > 1 ? "s" : ""} off`);
+    hiddenNote.textContent = note.join(" \u00B7 ");
+    hiddenNote.title = m.pins.missing
+        ? "Some pinned widgets are not shown: their node was deleted, bypassed or muted"
+        : "";
 
     const total = ckpt.length + clip.length + vae.length + smps.length + loras.length
-        + res.length + sizes.length + durs.length;
+        + res.length + sizes.length + durs.length + pinned.length;
     if (!total) {
         body.append(el("div", "nlp-empty", hiddenCount
             ? "Everything is hidden. Press Default to bring it all back."
@@ -987,6 +1179,7 @@ function render(m) {
                 const pair = el("div", "nlp-pair");
                 pair.append(cell("Steps", s.steps, "number"), cell("CFG", s.cfg, "number"));
                 card.append(pair);
+                if (s.seed) row(card, "Seed", s.seed, "seed", null, { ctl: s.seedCtl });
                 row(card, "Sampler", s.sampler, "combo");
                 row(card, "Scheduler", s.scheduler, "combo");
                 if (s.denoise) row(card, "Denoise", s.denoise, "number");
@@ -1009,6 +1202,16 @@ function render(m) {
             } };
         });
         fill(section("LoRAs", "loras"), "loras", items);
+    }
+
+    if (pinned.length) {
+        const count = {};
+        for (const p of pinned) count[p.name] = (count[p.name] || 0) + 1;
+        const items = pinned.map((p) => {
+            const label = count[p.name] > 1 ? `${p.name} #${p.ref.node.id}` : p.name;
+            return { key: p.key, build: () => pinItem(p, label) };
+        });
+        fill(section("Pinned", "pins"), "pins", items);
     }
 }
 
@@ -1138,6 +1341,19 @@ function openThemeMenu(anchor) {
         });
         menu.append(item);
     }
+    menu.append(el("div", "nlp-menu-sep"), el("div", "nlp-menu-label", "Progress bar"));
+    const opt = (label, on, note, fn) => {
+        const item = el("div", "nlp-menu-item");
+        item.append(el("span", "nlp-menu-check", on ? "\u2713" : ""), el("span", null, label));
+        if (note) item.append(el("span", "nlp-menu-note", note));
+        item.addEventListener("click", () => { fn(); saveState(); closeThemeMenu(); });
+        menu.append(item);
+    };
+    opt("Show progress bar", state.progress, "", () => { state.progress = !state.progress; syncProgress(); });
+    opt("WebGPU effects", state.progressFx === "auto", `now: ${progress?.renderer() || "dom"}`, () => {
+        state.progressFx = state.progressFx === "auto" ? "dom" : "auto";
+        progress?.setFx(state.progressFx);
+    });
     document.body.append(menu);
     themeMenu = menu;
     applyTheme(menu);
@@ -1155,6 +1371,7 @@ function updateVisibility() {
     if (launcher) launcher.style.display = visible && state.minimized ? "" : "none";
     if (visible && state.minimized) placeLauncher();
     syncPreview();
+    syncProgress();
 }
 
 // The preview only listens (and decodes frames) while it is switched on AND the panel
@@ -1229,7 +1446,15 @@ function createPanel() {
         saveState();
         syncPreview();
     });
-    header.append(el("span", "nlp-grip"), el("span", "nlp-title", "Automagic 2222: Live Panel"), el("span", "nlp-spacer"), previewBtn, themeBtn, dockBtn, collapseBtn, hideBtn);
+    const pinBtn = mkBtn("\uD83D\uDCCC", "Pin widgets from the selected node(s) to this panel", () => {
+        if (popMenu) { closePopMenu(); return; }
+        const r = pinBtn.getBoundingClientRect();
+        const sel = selectedNodes();
+        showPopMenu(sel.length ? pinMenuItems(sel)
+            : [{ label: "Select a node on the canvas first", disabled: true }], r.left, r.bottom + 4);
+    });
+    pinBtn.classList.add("nlp-pin-btn");
+    header.append(el("span", "nlp-grip"), el("span", "nlp-title", "Automagic 2222: Live Panel"), el("span", "nlp-spacer"), previewBtn, pinBtn, themeBtn, dockBtn, collapseBtn, hideBtn);
 
     preview = createPanelPreview({
         height: state.previewH,
@@ -1246,7 +1471,7 @@ function createPanel() {
     reloadBtn.addEventListener("click", () => doReload(reloadBtn));
     const defBtn = el("button", "nlp-fbtn", "Default");
     defBtn.type = "button";
-    defBtn.title = "Show everything again and clear all renames and custom ordering (click twice to confirm)";
+    defBtn.title = "Show everything again and clear all renames and custom ordering. Pins stay. (click twice to confirm)";
     let armedTimer = null;
     defBtn.addEventListener("click", () => {
         if (!armedTimer) {
@@ -1260,7 +1485,7 @@ function createPanel() {
         resetCfg();
     });
     footer.append(hiddenNote, el("span", "nlp-spacer"), reloadBtn, defBtn);
-    panel.append(header, preview.host, body, footer);
+    panel.append(header, buildRunBar(), preview.host, body, footer);
     document.body.appendChild(panel);
 
     launcher = el("div", "nlp-launcher", "\u2699 2222");
@@ -1330,6 +1555,218 @@ function createPanel() {
     updateVisibility();   // also starts the preview if it was left on
 }
 
+// ============================ pin menu =======================================
+
+function nodeByKey(k) {
+    return collectNodes(app.graph).find((n) => nkey(n) === k) || null;
+}
+
+function selectedNodes() {
+    const c = app.canvas;
+    let list = [];
+    try { list = [...(c?.selectedItems || [])]; } catch {}
+    if (!list.length) { try { list = Object.values(c?.selected_nodes || {}); } catch {} }
+    return list.filter((n) => n && Array.isArray(n.widgets)).slice(0, 4);
+}
+
+function pinMenuItems(nodes) {
+    const items = [];
+    for (const n of nodes) {
+        const ws = (n.widgets || []).filter((w) => pinKind({ node: n, w }));
+        if (!ws.length) continue;
+        items.push({ head: n.title || nodeType(n) });
+        for (const w of ws) {
+            items.push({
+                label: w.label || w.name,
+                checked: () => isPinned(n, w.name),
+                onClick: () => togglePin(n, w.name),
+            });
+        }
+    }
+    if (!items.length) items.push({ label: "No pinnable widgets on this node", disabled: true });
+    return items;
+}
+
+let popMenu = null;
+function closePopMenu() {
+    if (!popMenu) return;
+    popMenu.remove();
+    popMenu = null;
+    document.removeEventListener("pointerdown", onPopOutside, true);
+    document.removeEventListener("keydown", onPopKey, true);
+}
+function onPopOutside(e) {
+    if (popMenu && !popMenu.contains(e.target) && !e.target.closest?.(".nlp-pin-btn")) closePopMenu();
+}
+function onPopKey(e) { if (e.key === "Escape") closePopMenu(); }
+
+// items: { head } | { label, checked?: () => bool, onClick?, disabled? }. Stays open after a
+// click so you can pin several widgets in a row; Esc or a click elsewhere closes it.
+function showPopMenu(items, x, y) {
+    closePopMenu();
+    closeThemeMenu();
+    const menu = el("div", "nlp-menu nlp-popmenu");
+    const paints = [];
+    for (const it of items) {
+        if (it.head) { menu.append(el("div", "nlp-menu-head", it.head)); continue; }
+        const r = el("div", "nlp-menu-item" + (it.disabled ? " nlp-disabled" : ""));
+        const chk = el("span", "nlp-menu-check", "");
+        r.append(chk, el("span", null, it.label));
+        const paint = () => { chk.textContent = it.checked?.() ? "\u2713" : ""; };
+        paint();
+        paints.push(paint);
+        if (!it.disabled) r.addEventListener("click", () => { it.onClick?.(); paints.forEach((f) => f()); });
+        menu.append(r);
+    }
+    document.body.append(menu);
+    popMenu = menu;
+    applyTheme(menu);
+    menu.style.left = Math.max(4, Math.min(x, window.innerWidth - menu.offsetWidth - 4)) + "px";
+    menu.style.top = Math.max(4, Math.min(y, window.innerHeight - menu.offsetHeight - 4)) + "px";
+    document.addEventListener("pointerdown", onPopOutside, true);
+    document.addEventListener("keydown", onPopKey, true);
+}
+
+// Node right-click menu: pin the widget under the cursor, or pick from the node's widgets.
+// Needs a frontend that supports the getNodeMenuItems hook; the header pin button always works.
+function nodeMenuItems(node) {
+    try {
+        let hover = null;
+        try {
+            const gm = app.canvas?.graph_mouse;
+            const hw = gm && node.getWidgetOnPos ? node.getWidgetOnPos(gm[0], gm[1]) : null;
+            if (hw && pinKind({ node, w: hw })) hover = hw;
+        } catch {}
+        const any = (node.widgets || []).some((w) => pinKind({ node, w }));
+        if (!hover && !any) return [];
+        const out = [null];
+        if (hover) {
+            const on = isPinned(node, hover.name);
+            out.push({
+                content: `${on ? "Unpin" : "Pin"} \u201C${hover.label || hover.name}\u201D ${on ? "from" : "to"} Live Panel`,
+                callback: () => togglePin(node, hover.name),
+            });
+        }
+        if (any) {
+            out.push({
+                content: "Pin widgets to Live Panel\u2026",
+                callback: (_v, _o, e) => showPopMenu(pinMenuItems([node]), e?.clientX ?? 120, e?.clientY ?? 120),
+            });
+        }
+        return out;
+    } catch { return []; }
+}
+
+// ============================ run feedback ===================================
+// Queue / Stop, progress of the node that is running, queue count, and a VRAM / RAM meter
+// from /system_stats. The tick on the VRAM bar marks the highest use seen during the last run.
+
+const run = { running: false, peak: 0 };
+let stats = null;
+let runEls = null;
+let progress = null;   // nougan_panel_progress.js: label, step n/N, ETA, queue depth, WebGPU or DOM bar
+
+async function doQueue() {
+    try { await app.extensionManager.command.execute("Comfy.QueuePrompt"); return; } catch {}
+    try { await app.queuePrompt(0, 1); } catch (e) { console.warn("nougan-live-panel: queue failed", e); }
+}
+async function doInterrupt() {
+    try { await app.extensionManager.command.execute("Comfy.Interrupt"); return; } catch {}
+    try { await api.interrupt(); } catch (e) { console.warn("nougan-live-panel: interrupt failed", e); }
+}
+
+function buildRunBar() {
+    const host = el("div", "nlp-run");
+    const top = el("div", "nlp-run-top");
+    const qBtn = el("button", "nlp-fbtn nlp-runbtn", "\u25B6 Queue");
+    qBtn.type = "button";
+    qBtn.title = "Queue the workflow (same as the Run button)";
+    qBtn.addEventListener("click", doQueue);
+    const sBtn = el("button", "nlp-fbtn nlp-runbtn", "\u25A0 Stop");
+    sBtn.type = "button";
+    sBtn.title = "Interrupt the running generation";
+    sBtn.addEventListener("click", doInterrupt);
+    top.append(qBtn, sBtn);
+
+    progress = createProgress({ fx: state.progressFx });
+
+    const meters = el("div", "nlp-meters");
+    const mk = (name) => {
+        const m = el("div", "nlp-meter");
+        const t = el("span", "nlp-meter-text", name);
+        const b = el("div", "nlp-bar nlp-bar-thin");
+        const f = el("i");
+        const pk = el("i", "nlp-peak");
+        b.append(f, pk);
+        m.append(t, b);
+        m.style.display = "none";
+        return { m, t, b, f, pk };
+    };
+    const vram = mk("VRAM"), ram = mk("RAM");
+    meters.append(vram.m, ram.m);
+
+    host.append(top, progress.el, meters);
+    runEls = { vram, ram };
+    return host;
+}
+
+// the progress module only listens while it is switched on AND the panel is showing
+function syncProgress() {
+    progress?.setEnabled(!!state.progress && visible && !state.minimized);
+}
+
+const GB = 1073741824;
+function paintMeter(m, name, total, free, peak) {
+    if (!total) { m.m.style.display = "none"; return; }
+    m.m.style.display = "";
+    const used = Math.max(0, total - free);
+    const pct = Math.min(100, used / total * 100);
+    const s = `${name} ${(used / GB).toFixed(1)}/${(total / GB).toFixed(1)} GB`;
+    if (m.t.textContent !== s) m.t.textContent = s;
+    m.f.style.width = pct + "%";
+    m.b.classList.toggle("nlp-hot", pct > 90);
+    if (peak > 0) {
+        m.pk.style.display = "";
+        m.pk.style.left = Math.min(100, peak / total * 100) + "%";
+    } else m.pk.style.display = "none";
+    m.m.title = peak > 0 ? `Peak during the last run: ${(peak / GB).toFixed(1)} GB` : "";
+}
+
+function paintRun() {
+    if (!runEls || !stats) return;
+    paintMeter(runEls.vram, "VRAM", stats.vramT, stats.vramF, run.peak);
+    paintMeter(runEls.ram, "RAM", stats.ramT, stats.ramF, 0);
+}
+
+// only tracks "is a run active" (for faster VRAM polling + peak); the progress module does the rest
+function hookRunEvents() {
+    const on = (name, fn) => { try { api.addEventListener(name, fn); } catch {} };
+    on("execution_start", () => { run.running = true; run.peak = 0; pollStats(); });
+    for (const n of ["execution_success", "execution_error", "execution_interrupted"]) {
+        on(n, () => { run.running = false; });
+    }
+}
+
+let statsTimer = null, statsBusy = false;
+async function pollStats() {
+    clearTimeout(statsTimer);
+    if (statsBusy) return;                // the call in flight reschedules itself
+    statsBusy = true;
+    try {
+        if (panel && visible && !state.minimized && !document.hidden) {
+            const r = await api.fetchApi("/system_stats");
+            const j = await r.json();
+            const d = (j.devices || []).find((x) => x.type !== "cpu");
+            const sys = j.system || {};
+            stats = { vramT: d?.vram_total || 0, vramF: d?.vram_free || 0, ramT: sys.ram_total || 0, ramF: sys.ram_free || 0 };
+            if (run.running && stats.vramT) run.peak = Math.max(run.peak, stats.vramT - stats.vramF);
+            paintRun();
+        }
+    } catch {}
+    statsBusy = false;
+    statsTimer = setTimeout(pollStats, run.running ? 1000 : 4000);
+}
+
 // ---- Queue-time fix for the Nougan Lora Loader ------------------------------
 // The panel writes the stack into the node's `lora_data` widget. If the node's own
 // JS re-serializes from a private copy of the stack, the queued prompt can carry
@@ -1372,11 +1809,14 @@ app.registerExtension({
         defaultValue: true,
         onChange: (v) => setVisible(v !== false),
     }],
+    getNodeMenuItems(node) { return nodeMenuItems(node); },
     async setup() {
         await cssLoaded;
         try { visible = app.ui.settings.getSettingValue(SETTING_ID) !== false; } catch {}
         hookGraphToPrompt();
         createPanel();
+        hookRunEvents();
+        pollStats();
         loadLoraNames();
         setInterval(loadLoraNames, 30000);
         setInterval(tick, POLL_MS);

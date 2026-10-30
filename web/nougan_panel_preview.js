@@ -16,33 +16,50 @@ const STYLE_ID = "nlp-preview-stylesheet";
 const EVENT = "kj_preview_override";
 const PAD = 4;
 
+const SVG = (body) => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ICON_VOL = SVG('<path d="M2.5 6.25h2.2L8 3.5v9L4.7 9.75H2.5z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5"/><path d="M12.4 3.7a6 6 0 0 1 0 8.6"/>');
+const ICON_MUTE = SVG('<path d="M2.5 6.25h2.2L8 3.5v9L4.7 9.75H2.5z"/><path d="M10.75 6l3 4M13.75 6l-3 4"/>');
+const ICON_EMPTY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M10 9.5v5l4.2-2.5z"/></svg>';
+
 const CSS = `
 .nlp-pv-host{flex:0 0 auto;border-bottom:1px solid var(--nlp-border,#3a3a3a)}
 .nlp-collapsed .nlp-pv-host{display:none}
-.nlp-pv{position:relative;display:flex;flex-direction:column;min-height:120px;overflow:hidden;
-  background:var(--nlp-input,#121212);color:var(--nlp-fg,#d4d4d4);font:11px/1.3 system-ui,sans-serif;user-select:none}
-.nlp-pv-area{flex:1 1 auto;min-height:50px;position:relative;background:#0a0a0a;overflow:hidden}
+.nlp-pv{position:relative;display:flex;flex-direction:column;min-height:120px;overflow:hidden;background:var(--nlp-bg,#1e1e1e);color:var(--nlp-fg,#d4d4d4);
+  font:11px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;user-select:none}
+
+.nlp-pv-area{flex:1 1 auto;min-height:50px;position:relative;background:#09090b;overflow:hidden}
 .nlp-pv-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:block}
-.nlp-pv-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#707070;pointer-events:none}
-.nlp-pv-scrub{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.5);cursor:pointer;z-index:5;transition:height 80ms ease}
-.nlp-pv-scrub:hover{height:10px}
+.nlp-pv-ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0 18px;text-align:center;color:var(--nlp-dim,#8a8a8a);pointer-events:none}
+.nlp-pv-ph svg{width:22px;height:22px;opacity:.55;margin-bottom:3px}
+.nlp-pv-ph b{font-weight:600;font-size:11px}
+.nlp-pv-ph span{font-size:10px;opacity:.7;max-width:230px}
+.nlp-pv-scrub{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.55);cursor:pointer;z-index:5;transition:height 80ms ease}
+.nlp-pv-scrub:hover{height:8px}
 .nlp-pv-fill{height:100%;width:0%;background:var(--nlp-accent,#e67e22);pointer-events:none}
 .nlp-pv-scrub.nlp-pv-paused .nlp-pv-fill{background:#707070}
-.nlp-pv-bar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 8px;background:var(--nlp-head,#262626);border-top:1px solid var(--nlp-border,#3a3a3a)}
-.nlp-pv-title{color:var(--nlp-fg,#d4d4d4);white-space:nowrap}
-.nlp-pv-sum{color:var(--nlp-dim,#8a8a8a);font-size:10px;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.nlp-pv-audio{background:var(--nlp-input,#121212);color:var(--nlp-dim,#8a8a8a);border:1px solid var(--nlp-border,#3a3a3a);border-radius:3px;font-size:11px;line-height:1;padding:1px 4px;cursor:pointer}
+
+.nlp-pv-bar{flex:0 0 auto;display:flex;align-items:center;gap:8px;min-height:27px;box-sizing:border-box;padding:4px 10px;background:var(--nlp-head,#262626);border-top:1px solid var(--nlp-border,#3a3a3a)}
+.nlp-pv-title{font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.nlp-pv-src{display:inline-block;padding:0 6px;border-radius:999px;font-size:10px;line-height:16px;color:var(--nlp-accent,#e67e22);
+  background:rgba(128,128,128,.16);background:color-mix(in srgb,var(--nlp-accent,#e67e22) 16%,transparent)}
+.nlp-pv-sum{margin-left:auto;display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;font-size:10px;color:var(--nlp-dim,#8a8a8a)}
+.nlp-pv-sum span+span::before{content:"";display:inline-block;width:3px;height:3px;margin-right:6px;border-radius:50%;background:currentColor;opacity:.45;vertical-align:middle}
+.nlp-pv-audio{display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;padding:0;background:transparent;color:var(--nlp-dim,#8a8a8a);border:1px solid transparent;border-radius:4px;cursor:pointer}
+.nlp-pv-audio:hover{background:var(--nlp-input,#121212);color:var(--nlp-fg,#d4d4d4)}
+.nlp-pv-audio svg{display:block}
 .nlp-pv-audio.nlp-pv-on{color:var(--nlp-accent,#e67e22);border-color:var(--nlp-accent,#e67e22)}
-.nlp-pv-graphs{flex:0 0 auto;display:flex;gap:6px;padding:5px 6px 6px;height:84px;box-sizing:border-box}
-.nlp-pv-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:var(--nlp-bg,#1e1e1e);border:1px solid var(--nlp-border,#3a3a3a);border-radius:3px;overflow:hidden}
-.nlp-pv-ghead{flex:0 0 auto;display:flex;justify-content:space-between;gap:4px;padding:2px 6px;font-size:10px;background:var(--nlp-head,#262626)}
-.nlp-pv-glabel{color:var(--nlp-dim,#8a8a8a)}
+
+.nlp-pv-graphs{flex:0 0 auto;display:flex;gap:8px;padding:8px;height:100px;box-sizing:border-box}
+.nlp-pv-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:var(--nlp-card,#262626);border:1px solid var(--nlp-border,#3a3a3a);border-radius:6px;overflow:hidden}
+.nlp-pv-ghead{flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;gap:6px;padding:5px 8px 0;font-size:10px}
+.nlp-pv-glabel{color:var(--nlp-dim,#8a8a8a);letter-spacing:.02em;white-space:nowrap}
 .nlp-pv-gval{color:var(--nlp-fg,#d4d4d4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
 .nlp-pv-canvas{flex:1 1 auto;display:block;width:100%;min-height:0}
-.nlp-pv-spec{flex:0 0 auto;display:none;flex-direction:column;border-top:1px solid var(--nlp-border,#3a3a3a)}
+.nlp-pv-spec{flex:0 0 auto;display:none;flex-direction:column;margin:0 8px 8px;border:1px solid var(--nlp-border,#3a3a3a);border-radius:6px;background:var(--nlp-card,#262626);overflow:hidden}
 .nlp-pv-spec canvas{display:block;width:100%;height:36px}
-.nlp-pv-grip{flex:0 0 5px;cursor:ns-resize;background:var(--nlp-head,#262626);position:relative}
-.nlp-pv-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:26px;height:2px;background:var(--nlp-dim,#8a8a8a);border-radius:1px;opacity:.6}
+
+.nlp-pv-grip{flex:0 0 7px;cursor:ns-resize;background:var(--nlp-head,#262626);position:relative;border-top:1px solid var(--nlp-border,#3a3a3a)}
+.nlp-pv-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:2px;background:var(--nlp-dim,#8a8a8a);border-radius:1px;opacity:.5}
 .nlp-pv-grip:hover::after{opacity:1}
 `;
 
@@ -235,7 +252,7 @@ export function createPanelPreview({ height = 260, onResize } = {}) {
     let visibleVideo = mkVideo(), pendingVideo = mkVideo();
 
     const placeholder = el("div", "nlp-pv-ph", area);
-    placeholder.textContent = "waiting for sample\u2026";
+    placeholder.innerHTML = ICON_EMPTY + "<b>No sample yet</b><span>Queue a prompt that contains a Model Preview Override node</span>";
     const scrub = el("div", "nlp-pv-scrub", area);
     const scrubFill = el("div", "nlp-pv-fill", scrub);
     scrub.style.display = "none";
@@ -243,14 +260,27 @@ export function createPanelPreview({ height = 260, onResize } = {}) {
     const bar = el("div", "nlp-pv-bar", root);
     const title = el("span", "nlp-pv-title", bar);
     title.textContent = "Preview";
+    const srcChip = el("span", "nlp-pv-src", bar);
+    srcChip.style.display = "none";
+    function setSrc(id) {
+        srcChip.textContent = id == null ? "" : `#${id}`;
+        srcChip.title = id == null ? "" : `Following node ${id}`;
+        srcChip.style.display = id == null ? "none" : "";
+    }
     let audioMuted = true;
     const audioBtn = el("button", "nlp-pv-audio", bar);
     audioBtn.type = "button";
-    audioBtn.textContent = "\uD83D\uDD07";
+    audioBtn.innerHTML = ICON_MUTE;
     audioBtn.title = "Toggle preview audio";
     audioBtn.style.display = "none";
     const summary = el("span", "nlp-pv-sum", bar);
-    summary.textContent = "idle";
+    const sumParts = [0, 1, 2, 3].map(() => el("span", null, summary));
+    const setSummary = (parts) => sumParts.forEach((e, i) => {
+        const t = parts?.[i];
+        e.textContent = t ?? "";
+        e.style.display = t == null ? "none" : "";
+    });
+    setSummary(["Idle"]);
 
     const graphs = el("div", "nlp-pv-graphs", root);
     const makeCell = (label) => {
@@ -328,7 +358,7 @@ export function createPanelPreview({ height = 260, onResize } = {}) {
     function applyMute() {
         visibleVideo.muted = audioMuted;
         pendingVideo.muted = true;
-        audioBtn.textContent = audioMuted ? "\uD83D\uDD07" : "\uD83D\uDD0A";
+        audioBtn.innerHTML = audioMuted ? ICON_MUTE : ICON_VOL;
         audioBtn.classList.toggle("nlp-pv-on", !audioMuted);
     }
 
@@ -383,7 +413,7 @@ export function createPanelPreview({ height = 260, onResize } = {}) {
         if (lastAvg != null && lastTotal != null && lastStep != null) {
             const eta = Math.max(0, lastTotal - lastStep) * lastAvg / 1000;
             const avg = secondsUnit ? `${(lastAvg / 1000).toFixed(2)}s/step` : `${lastAvg.toFixed(0)}ms/step`;
-            summary.textContent = `${lastW}\u00D7${lastH} \u00B7 ${lastStep}/${lastTotal} \u00B7 ${avg} \u00B7 ETA ${eta.toFixed(1)}s`;
+            setSummary([`${lastW}\u00D7${lastH}`, `${lastStep}/${lastTotal}`, avg, `ETA ${eta.toFixed(1)}s`]);
         }
     }
     function updateSdHeader() {
@@ -550,8 +580,8 @@ export function createPanelPreview({ height = 260, onResize } = {}) {
         resetRun();
         sigmas = null; totalSteps = 0; source = null;
         lastAvg = lastTotal = lastStep = lastW = lastH = null;
-        title.textContent = "Preview";
-        summary.textContent = "idle";
+        setSrc(null);
+        setSummary(["Idle"]);
         sd.val.textContent = ""; tm.val.textContent = "";
         const c = accent();
         drawSigmaDelta(sd.canvas, c, null, [], 0, 0, null, null);
@@ -673,11 +703,11 @@ export function createPanelPreview({ height = 260, onResize } = {}) {
                 // a new run: follow this preview node from now on
                 sigmas = data.sigmas;
                 resetRun();
-                if (source !== id) { source = id; title.textContent = `Preview \u2190 ${id}`; }
+                if (source !== id) { source = id; setSrc(id); }
             } else if (source != null && id !== source) {
                 return;   // another preview node, ignore it
             } else if (source == null) {
-                source = id; title.textContent = `Preview \u2190 ${id}`;
+                source = id; setSrc(id);
             }
 
             if (typeof data.image === "string") {
