@@ -6,8 +6,8 @@ ONE Bake node and ONE Apply node for every model that uses baked reference files
   Nougan RefMod Bake   model + images (+ VAE) -> ONE file in models/refmods/<subfolder>/<name>.safetensors
   Nougan RefMod Apply  baked RefMod(s) -> positive / negative / latent, ready for the sampler
 
-Supported models: Qwen 2.1, MOSS-Image, Flux 3, Fibo 2, LTX-2.5.
-(Krea 2 was removed; MiniMax H3 still lives in nougan_refmod.py until it is folded in.)
+Supported models: Qwen 2.1, Flux 3, Fibo 2.
+(MOSS-Image, LTX-2.5 and Krea 2 were removed. MiniMax H3 still lives in nougan_refmod.py.)
 
 Adding a model later
 --------------------
@@ -18,19 +18,18 @@ dropdowns, file listing, baking, loading, validation and auto-detection all come
     class MyModel(Handler):
         key = "mymodel"; label = "My Model"
         format = "nougan_mymodel_refmod"; meta_key = "nougan_mymodel"; subfolder = "mymodel"
-        def encode_frame(self, frame, vae, resolution, scale_mode): ...   # -> dict(lat=, img=, size=)
+        def encode_frame(self, frame, vae, resolution): ...   # -> dict(lat=, img=, size=)
         def check(self, i, lat, img, meta): ...                            # -> bool, is the stored ref sane
         def apply(self, c): ...                                            # -> (positive, negative, latent)
 
 File compatibility
 ------------------
 Every handler keeps the exact FORMAT / metadata key / tensor layout of the node it replaces, so
-RefMods you already baked with the old Qwen 2.1 / MOSS / Flux 3 / Fibo 2 nodes load unchanged.
+RefMods you already baked with the old Qwen 2.1 / Flux 3 / Fibo 2 nodes load unchanged.
 Apply reads the model from the file itself, so `model = auto` just works.
 """
 
 import base64
-import inspect
 import io
 import json
 import math
@@ -51,12 +50,14 @@ import node_helpers
 NONE = "None"
 AUTO = "auto (from refmod)"
 _RESERVED = {"..", ".", "graph_presets", ".git", "__pycache__"}
+# Dropdown of the legacy `extra_image_scale` widget (it used to be MOSS-Image only). The widget is kept, hidden and
+# ignored, purely so saved workflows keep the same widget order (values are stored by position).
+_LEGACY_SCALE = ["kontext (matches Ostris example)", "megapixels"]
 
 REF_STRENGTH_TIP = (
     "How long the references stay active, as a fraction of the denoising steps counted from the start. "
     "1.0 = every step. 0.6 = the references steer the first 60% of the steps, then the prompt alone finishes. "
-    "0 = references off. Lower = looser likeness and more prompt freedom. (Not used by LTX-2.5: its guides are "
-    "part of the latent.)")
+    "0 = references off. Lower = looser likeness and more prompt freedom.")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -125,17 +126,6 @@ def _alpha_over_white(s):
     if s.shape[-1] > 3:
         rgb = rgb * s[:, :, :, 3:] + (1.0 - s[:, :, :, 3:])
     return rgb
-
-
-def _fit_area(samples, max_pixels, snap=1):
-    """(B,C,H,W): downscale (never upscale) to fit max_pixels, keep aspect, snap dims."""
-    h, w = samples.shape[2], samples.shape[3]
-    scale = min(1.0, math.sqrt(max_pixels / (w * h)))
-    nw = max(round(w * scale / snap) * snap, snap)
-    nh = max(round(h * scale / snap) * snap, snap)
-    if (nh, nw) == (h, w):
-        return samples
-    return comfy.utils.common_upscale(samples, nw, nh, "area", "disabled")
 
 
 def _empty_latent(lats, channels, device):
@@ -207,8 +197,6 @@ class Handler:
     max_refs = 8
     latent_channels = 128
     stores_images = False      # file holds img_i (uint8) next to lat_i
-    stores_latents = True
-    needs_vae_to_bake = True
 
     # -- UI metadata (read by web/nougan_refmods.js through /nougan/refmod_lib) --
     accent = "#a78bfa"                      # colour of the model chip and the WebGPU strip
@@ -219,10 +207,10 @@ class Handler:
     bake_uses = frozenset({"vae"})          # Bake widgets that matter (others are hidden)
 
     # -- bake side --
-    def encode_frame(self, frame, vae, resolution, scale_mode):
+    def encode_frame(self, frame, vae, resolution):
         raise NotImplementedError
 
-    def meta_extra(self, refs, resolution, scale_mode):
+    def meta_extra(self, refs, resolution):
         return {"sizes": [list(r["size"]) for r in refs], "resolution": int(resolution)}
 
     # -- load side --
@@ -242,7 +230,7 @@ class Handler:
         if c.extra_image is None:
             return []
         vae = self._vae_for_extra(c)
-        return [self.encode_frame(f, vae, c.extra_image_resolution, c.extra_image_scale)
+        return [self.encode_frame(f, vae, c.extra_image_resolution)
                 for f in _frames(c.extra_image)]
 
 
@@ -268,7 +256,7 @@ class Qwen21(Handler):
     stores_images = True
     downscale = 16
 
-    def encode_frame(self, frame, vae, resolution, scale_mode):
+    def encode_frame(self, frame, vae, resolution):
         s = _resize32(frame, resolution)
         rgb = _alpha_over_white(s)
         lat = vae.encode(s)
@@ -277,7 +265,7 @@ class Qwen21(Handler):
                              f"{tuple(lat.shape)}. Connect the Qwen Image 2.1 VAE.")
         return {"lat": lat, "img": rgb, "size": (int(rgb.shape[2]), int(rgb.shape[1]))}
 
-    def meta_extra(self, refs, resolution, scale_mode):
+    def meta_extra(self, refs, resolution):
         return {"sizes": [list(r["size"]) for r in refs], "latent_channels": self.latent_channels,
                 "downscale": self.downscale, "resolution": int(resolution)}
 
@@ -309,105 +297,6 @@ class Qwen21(Handler):
         return positive, negative, _empty_latent(lats, self.latent_channels, c.device)
 
 
-# ── MOSS-Image ───────────────────────────────────────────────────────────────
-
-SCALE_KONTEXT = "kontext (matches Ostris example)"
-SCALE_MEGAPIXELS = "megapixels"
-# FluxKontextImageScale's presets (core ComfyUI): nearest preset by aspect + CENTER CROP.
-KONTEXT_RESOLUTIONS = [
-    (672, 1568), (688, 1504), (720, 1456), (752, 1392), (800, 1328), (832, 1248),
-    (880, 1184), (944, 1104), (1024, 1024), (1104, 944), (1184, 880), (1248, 832),
-    (1328, 800), (1392, 752), (1456, 720), (1504, 688), (1568, 672),
-]
-
-
-def _picture_prefix(n):
-    return "".join(f"Picture {i}: <|vision_start|><|image_pad|><|vision_end|>" for i in range(1, n + 1))
-
-
-@register
-class Moss(Handler):
-    key = "moss"
-    label = "MOSS-Image"
-    format = "nougan_moss_refmod"
-    meta_key = "nougan_moss"
-    subfolder = "moss"
-    accent = "#a78bfa"
-    apply_needs = ("clip",)
-    apply_uses = frozenset({"clip", "extra_image_scale", "ref_strength", "ref_on_negative"})
-    bake_uses = frozenset({"vae", "scale_mode"})
-    snap = 16
-    vlm_max_pixels = 384 * 384
-    stores_images = True
-
-    def _scale_total(self, frame, resolution):
-        if resolution <= 0:
-            return frame
-        h, w = frame.shape[1], frame.shape[2]
-        scale = math.sqrt(resolution * resolution / (w * h))
-        nw, nh = max(round(w * scale), self.snap), max(round(h * scale), self.snap)
-        if (nh, nw) == (h, w):
-            return frame
-        return comfy.utils.common_upscale(frame.movedim(-1, 1), nw, nh, "lanczos", "disabled").movedim(1, -1)
-
-    def _scale_kontext(self, frame):
-        h, w = frame.shape[1], frame.shape[2]
-        aspect = w / h
-        _, tw, th = min((abs(aspect - pw / ph), pw, ph) for pw, ph in KONTEXT_RESOLUTIONS)
-        return comfy.utils.common_upscale(frame.movedim(-1, 1), tw, th, "lanczos", "center").movedim(1, -1)
-
-    def _snap(self, samples):
-        h, w = samples.shape[2], samples.shape[3]
-        nw, nh = max(round(w / self.snap) * self.snap, self.snap), max(round(h / self.snap) * self.snap, self.snap)
-        if (nh, nw) == (h, w):
-            return samples
-        return comfy.utils.common_upscale(samples, nw, nh, "area", "disabled")
-
-    def encode_frame(self, frame, vae, resolution, scale_mode):
-        frame = frame[:1]
-        scaled = (self._scale_kontext(frame) if scale_mode == SCALE_KONTEXT
-                  else self._scale_total(frame, resolution))[..., :3]
-        samples = scaled.movedim(-1, 1)
-        vl = _fit_area(samples, self.vlm_max_pixels).movedim(1, -1)
-        snapped = self._snap(samples)
-        lat = vae.encode(snapped.movedim(1, -1))
-        rh, rw = snapped.shape[2], snapped.shape[3]
-        if lat.ndim not in (4, 5) or lat.shape[-2] != rh // self.snap or lat.shape[-1] != rw // self.snap:
-            raise ValueError(f"VAE returned {tuple(lat.shape)} for a {rw}x{rh} reference; expected a "
-                             f"{self.snap}x-downscale latent. Connect the MOSS-Image (FLUX.2) VAE.")
-        return {"lat": lat, "img": vl, "size": (int(rw), int(rh))}
-
-    def meta_extra(self, refs, resolution, scale_mode):
-        return {"ref_sizes": [list(r["size"]) for r in refs], "downscale": self.snap,
-                "latent_channels": int(refs[0]["lat"].shape[1]), "resolution": int(resolution),
-                "scale_mode": scale_mode}
-
-    def check(self, i, lat, img, meta):
-        rw, rh = meta["ref_sizes"][i]
-        return (lat is not None and img is not None and lat.ndim in (4, 5) and img.ndim == 4
-                and img.shape[-1] == 3 and lat.shape[-2] == rh // self.snap and lat.shape[-1] == rw // self.snap)
-
-    def apply(self, c):
-        clip = c.need_clip()
-        refs = c.refs + self._extra_refs(c)
-        _tokens_check(len(refs), self.max_refs, "MOSS-Image")
-        lats = [r["lat"].to(c.device) for r in refs]
-        imgs = [r["img"] for r in refs]
-        if lats:
-            grids = [tuple(lat.shape[-2:]) for lat in lats]
-            print(f"[Nougan RefMod/MOSS] {len(lats)} ref(s), latent grids {grids}, "
-                  f"{sum(a * b for a, b in grids)} ref tokens/step, VL images {[tuple(v.shape[1:3]) for v in imgs]}")
-        prefix = _picture_prefix(len(imgs))
-        positive = clip.encode_from_tokens_scheduled(clip.tokenize(prefix + c.prompt, images=imgs))
-        negative = clip.encode_from_tokens_scheduled(clip.tokenize(prefix + c.negative_prompt, images=imgs))
-        if lats:
-            plain_pos, plain_neg = positive, negative   # same text conditioning, no reference latents
-            positive = _schedule(_attach(positive, lats), plain_pos, c.ref_strength)
-            if c.ref_on_negative:
-                negative = _schedule(_attach(negative, lats), plain_neg, c.ref_strength)
-        return positive, negative, _empty_latent(lats, 128, c.device)
-
-
 # ── Fibo 2 ───────────────────────────────────────────────────────────────────
 
 @register
@@ -425,7 +314,7 @@ class Fibo2(Handler):
     stores_images = True
     downscale = 16
 
-    def encode_frame(self, frame, vae, resolution, scale_mode):
+    def encode_frame(self, frame, vae, resolution):
         s = _resize32(frame, resolution)
         rgb = _alpha_over_white(s)
         lat = vae.encode(rgb)
@@ -434,7 +323,7 @@ class Fibo2(Handler):
                              f"{tuple(lat.shape)}. Connect the Flux2 VAE (flux2-vae.safetensors).")
         return {"lat": lat, "img": rgb, "size": (int(rgb.shape[2]), int(rgb.shape[1]))}
 
-    def meta_extra(self, refs, resolution, scale_mode):
+    def meta_extra(self, refs, resolution):
         return {"sizes": [list(r["size"]) for r in refs], "latent_channels": self.latent_channels,
                 "downscale": self.downscale, "resolution": int(resolution)}
 
@@ -477,7 +366,7 @@ class Flux3(Handler):
     max_refs = 16
     latent_channels = 128
 
-    def encode_frame(self, frame, vae, resolution, scale_mode):
+    def encode_frame(self, frame, vae, resolution):
         image = frame[:1][..., :3]
         if resolution > 0:      # same as the old megapixels widget: resolution 1024 == 1.0 MP
             h, w = image.shape[1:3]
@@ -491,7 +380,7 @@ class Flux3(Handler):
                              f"{tuple(lat.shape)}. Connect the Flux 2/3 VAE.")
         return {"lat": lat, "img": None, "size": (int(image.shape[2]), int(image.shape[1]))}
 
-    def meta_extra(self, refs, resolution, scale_mode):
+    def meta_extra(self, refs, resolution):
         return {"latent_channels": self.latent_channels, "shapes": [list(r["lat"].shape) for r in refs],
                 "megapixels": float(resolution * resolution) / (1024.0 * 1024.0)}
 
@@ -511,75 +400,6 @@ class Flux3(Handler):
             if negative is not None and c.ref_on_negative:
                 negative = _schedule(_attach(negative, lats), plain_neg, c.ref_strength)
         return pos, (negative if negative is not None else pos), _empty_latent(lats, self.latent_channels, c.device)
-
-
-# ── LTX-2.5 ──────────────────────────────────────────────────────────────────
-
-def _ltx_add_guide(positive, negative, vae, latent, image, frame_idx, strength):
-    """Run core's LTXVAddGuide on one image. Core owns keyframe_idxs / noise mask / guide attention
-    bookkeeping, which changes between ComfyUI versions, so it is never re-implemented here."""
-    from comfy_extras import nodes_lt
-    node = nodes_lt.LTXVAddGuide
-    fn = getattr(node, "execute", None) or node().generate
-    wanted = dict(positive=positive, negative=negative, vae=vae, latent=latent,
-                  image=image, frame_idx=frame_idx, strength=strength)
-    params = inspect.signature(fn).parameters
-    out = fn(**{k: v for k, v in wanted.items() if k in params})
-    res = getattr(out, "result", None) or getattr(out, "args", None) or out
-    return res[0], res[1], res[2]
-
-
-@register
-class Ltx25(Handler):
-    """
-    LTX-2.5 takes references as guide frames on the video latent (core LTXVAddGuide), and that
-    node needs the latent being sampled, so a RefMod stores the prepared IMAGES (multiples of 32 px)
-    and Apply encodes them with the VAE through LTXVAddGuide. Bake therefore needs no VAE.
-    """
-    key = "ltx25"
-    label = "LTX-2.5"
-    format = "nougan_ltx25_refmod"
-    meta_key = "nougan_ltx25"
-    subfolder = "ltx25"
-    accent = "#34d399"
-    token_downscale = 32
-    apply_needs = ("positive", "latent", "vae")
-    apply_uses = frozenset({"positive", "latent", "vae", "frame_idx", "strength"})
-    bake_needs = ()
-    bake_uses = frozenset()
-    max_refs = 8
-    stores_images = True
-    stores_latents = False
-    needs_vae_to_bake = False
-
-    def encode_frame(self, frame, vae, resolution, scale_mode):
-        rgb = _alpha_over_white(_resize32(frame, resolution))
-        return {"lat": None, "img": rgb, "size": (int(rgb.shape[2]), int(rgb.shape[1]))}
-
-    def meta_extra(self, refs, resolution, scale_mode):
-        return {"sizes": [list(r["size"]) for r in refs], "downscale": 32, "resolution": int(resolution)}
-
-    def check(self, i, lat, img, meta):
-        return img is not None and img.ndim == 4 and img.shape[-1] == 3 and min(img.shape[1:3]) >= 32
-
-    def apply(self, c):
-        pos, neg = c.need_positive(), c.negative
-        if c.latent is None:
-            raise ValueError("LTX-2.5 guides are added to the video latent: connect `latent` (e.g. Empty LTXV Latent).")
-        if c.vae is None:
-            raise ValueError("Connect the LTX-2.5 video VAE: the guide images are encoded at apply time.")
-        refs = c.refs
-        if c.extra_image is not None:
-            refs = refs + [self.encode_frame(f, None, c.extra_image_resolution, c.extra_image_scale)
-                           for f in _frames(c.extra_image)]
-        _tokens_check(len(refs), self.max_refs, "LTX-2.5")
-        neg = neg if neg is not None else pos
-        latent = c.latent
-        if c.ref_strength <= 0.0:
-            refs = []
-        for r in refs:
-            pos, neg, latent = _ltx_add_guide(pos, neg, c.vae, latent, r["img"], c.frame_idx, c.strength)
-        return pos, neg, latent
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -704,27 +524,24 @@ class NouganUnifiedRefModBake:
                                        "tooltip": "References are fitted to about resolution x resolution pixels "
                                                   "(1024 = ~1MP). 0 keeps each image's own size. Every reference "
                                                   "adds tokens to every step."}),
-                "subfolder": ("STRING", {"default": "", "tooltip": "Empty = the model's own folder (qwen21, moss, flux3, fibo2, ltx25)."}),
+                "subfolder": ("STRING", {"default": "", "tooltip": "Empty = the model's own folder (qwen21, flux3, fibo2)."}),
                 "overwrite": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                "vae": ("VAE", {"tooltip": "The model's VAE. Not needed for LTX-2.5."}),
-                "scale_mode": ([SCALE_KONTEXT, SCALE_MEGAPIXELS], {
-                    "tooltip": "MOSS-Image only. kontext = what the Ostris example workflow does (nearest ~1MP "
-                               "preset by aspect, center-cropped). megapixels = keep the full image."}),
+                "vae": ("VAE", {"tooltip": "The model's VAE."}),
                 "image_2": ("IMAGE",), "image_3": ("IMAGE",), "image_4": ("IMAGE",),
             },
         }
 
     def bake(self, model, images, name, resolution, subfolder, overwrite, vae=None,
-             scale_mode=SCALE_KONTEXT, image_2=None, image_3=None, image_4=None):
+             image_2=None, image_3=None, image_4=None, **_legacy):
         h = HANDLERS[model]
         frames = _frames(images, image_2, image_3, image_4)
         if not frames:
             raise ValueError("No images to bake.")
         if len(frames) > h.max_refs:
             raise ValueError(f"{len(frames)} references; {h.label} supports at most {h.max_refs} per RefMod.")
-        if h.needs_vae_to_bake and vae is None:
+        if vae is None:
             raise ValueError(f"Connect the {h.label} VAE to bake.")
         path = _save_path(name, subfolder.strip() or h.subfolder)
         if os.path.exists(path) and not overwrite:
@@ -733,17 +550,16 @@ class NouganUnifiedRefModBake:
                     "Enable overwrite to re-bake, or pick another name.")
             return {"ui": {"text": [note]}, "result": (path,)}
 
-        refs = [h.encode_frame(f, vae, resolution, scale_mode) for f in frames]
+        refs = [h.encode_frame(f, vae, resolution) for f in frames]
         tensors = {}
         for i, r in enumerate(refs):
-            if h.stores_latents:
-                tensors[f"lat_{i}"] = r["lat"].detach().cpu().float().contiguous().clone()
+            tensors[f"lat_{i}"] = r["lat"].detach().cpu().float().contiguous().clone()
             if h.stores_images:
                 img = (r["img"].clamp(0, 1) * 255.0).round().to(torch.uint8)
                 tensors[f"img_{i}"] = img.detach().cpu().contiguous().clone()
 
         meta = {"format": h.format, "version": 1, "name": os.path.basename(path)[:-len(".safetensors")],
-                "count": len(refs), **h.meta_extra(refs, resolution, scale_mode)}
+                "count": len(refs), **h.meta_extra(refs, resolution)}
         try:
             meta["thumb"] = _thumb_b64(frames[0])      # preview for the node UI; ignored by every loader
         except Exception as e:                         # PIL missing etc.: the file is still fine
@@ -783,26 +599,22 @@ class NouganUnifiedRefModApply:
                 "refmod_1": (names,),
             },
             "optional": {
-                # text-encoder models (Qwen 2.1, MOSS-Image, Fibo 2)
-                "clip": ("CLIP", {"tooltip": "Qwen 2.1 / MOSS-Image / Fibo 2: the text encoder."}),
+                # text-encoder models (Qwen 2.1, Fibo 2)
+                "clip": ("CLIP", {"tooltip": "Qwen 2.1 / Fibo 2: the text encoder."}),
                 "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True,
-                                      "tooltip": "Qwen 2.1 / MOSS-Image / Fibo 2: encoded here with the references."}),
+                                      "tooltip": "Qwen 2.1 / Fibo 2: encoded here with the references."}),
                 "negative_prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
-                # conditioning models (Flux 3, LTX-2.5)
-                "positive": ("CONDITIONING", {"tooltip": "Flux 3 / LTX-2.5: your encoded prompt."}),
+                # conditioning models (Flux 3)
+                "positive": ("CONDITIONING", {"tooltip": "Flux 3: your encoded prompt."}),
                 "negative": ("CONDITIONING",),
                 "refmod_2": (names,),
                 "refmod_3": (names,),
                 "extra_image": ("IMAGE", {"tooltip": "Optional plain reference(s), prepared on the fly."}),
-                "vae": ("VAE", {"tooltip": "Needed for extra_image, and always for LTX-2.5."}),
+                "vae": ("VAE", {"tooltip": "Needed for extra_image."}),
                 "extra_image_resolution": ("INT", {"default": 1024, "min": 0, "max": 4096, "step": 16}),
-                "extra_image_scale": ([SCALE_KONTEXT, SCALE_MEGAPIXELS], {"tooltip": "MOSS-Image only."}),
+                "extra_image_scale": (_LEGACY_SCALE, {"tooltip": "Unused. Kept (hidden) so saved workflows keep their widget order."}),
                 "ref_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": REF_STRENGTH_TIP}),
                 "ref_on_negative": ("BOOLEAN", {"default": True, "tooltip": "Also attach the reference latents to the negative (usual for edit models). Turn off if the result looks over-copied."}),
-                # LTX-2.5 only
-                "latent": ("LATENT", {"tooltip": "LTX-2.5: the video latent the guide frames are added to."}),
-                "frame_idx": ("INT", {"default": 0, "min": -9999, "max": 9999, "tooltip": "LTX-2.5: frame the references are placed at."}),
-                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "LTX-2.5: guide strength."}),
             },
         }
 
@@ -816,8 +628,7 @@ class NouganUnifiedRefModApply:
 
     def apply(self, model, refmod_1, clip=None, prompt="", negative_prompt="", positive=None, negative=None,
               refmod_2=NONE, refmod_3=NONE, extra_image=None, vae=None, extra_image_resolution=1024,
-              extra_image_scale=SCALE_KONTEXT, ref_strength=1.0, ref_on_negative=True,
-              latent=None, frame_idx=0, strength=1.0):
+              extra_image_scale=None, ref_strength=1.0, ref_on_negative=True, **_legacy):
         handler = None if model == AUTO else HANDLERS[model]
         refs = []
         for rel in (refmod_1, refmod_2, refmod_3):
@@ -833,9 +644,8 @@ class NouganUnifiedRefModApply:
 
         c = Ctx(handler=handler, refs=refs, clip=clip, prompt=prompt, negative_prompt=negative_prompt,
                 positive=positive, negative=negative, extra_image=extra_image, vae=vae,
-                extra_image_resolution=extra_image_resolution, extra_image_scale=extra_image_scale,
+                extra_image_resolution=extra_image_resolution,
                 ref_strength=float(ref_strength), ref_on_negative=bool(ref_on_negative),
-                latent=latent, frame_idx=int(frame_idx), strength=float(strength),
                 device=comfy.model_management.intermediate_device())
         return handler.apply(c)
 
