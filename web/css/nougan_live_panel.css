@@ -302,3 +302,93 @@
 .nlp-combo-dir { display: block; margin-top: 1px; color: var(--nlp-dim); font-size: 9px; }
 .nlp-combo-note { padding: 4px 10px; color: var(--nlp-dim); font-style: italic; }
 
+
+/* ---------- seed row ---------- */
+.nlp-seedwrap { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.nlp-seedwrap .nlp-numwrap { flex: 1 1 auto; min-width: 0; }
+.nlp-dice { flex: none; font-size: 14px; padding: 0 3px; }
+.nlp-btn-off { opacity: 0.4; cursor: not-allowed; }
+.nlp-mode { flex: none; width: 84px; }
+
+/* ---------- pinned widgets / text boxes ---------- */
+.nlp-text {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 3px 5px;
+    background: var(--nlp-input);
+    color: var(--nlp-fg);
+    border: 1px solid var(--nlp-border);
+    border-radius: 4px;
+    font: inherit;
+    user-select: text;
+}
+input.nlp-text { height: 22px; padding: 0 4px; }
+textarea.nlp-text { display: block; min-height: 54px; resize: vertical; line-height: 1.35; }
+.nlp-text:focus { outline: 1px solid var(--nlp-accent); border-color: var(--nlp-accent); }
+.nlp-text:disabled { opacity: 0.55; cursor: not-allowed; }
+.nlp-textitem { margin: 5px 0; }
+.nlp-texthead { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.nlp-texthead .nlp-label { flex: 1 1 auto; min-width: 0; }
+
+.nlp-popmenu { z-index: 1004; max-height: 60vh; overflow-y: auto; scrollbar-width: thin; }
+.nlp-menu-head { padding: 4px 10px 2px; color: var(--nlp-dim); font-size: 9px; letter-spacing: 0.6px; text-transform: uppercase; }
+.nlp-menu-item.nlp-disabled { color: var(--nlp-dim); font-style: italic; cursor: default; }
+.nlp-menu-item.nlp-disabled:hover { background: transparent; }
+
+/* ---------- run bar: Queue / Stop, progress module, VRAM + RAM ---------- */
+.nlp-run { flex: 0 0 auto; padding: 5px 8px 6px; border-bottom: 1px solid var(--nlp-border); }
+.nlp-run-top { display: flex; align-items: center; gap: 6px; }
+.nlp-runbtn { padding: 1px 8px; }
+.nlp-run .nlp-pg { margin: 5px -8px 0; border-bottom: none; background: transparent; }
+
+.nlp-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 5px; }
+.nlp-meter-text { color: var(--nlp-dim); font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nlp-bar {
+    position: relative;
+    height: 4px;
+    margin-top: 2px;
+    background: var(--nlp-input);
+    border: 1px solid var(--nlp-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.nlp-bar > i { display: block; height: 100%; width: 0; background: var(--nlp-accent); transition: width 0.15s linear; }
+.nlp-bar.nlp-hot > i:first-child { background: #e5534b; }
+.nlp-bar > i.nlp-peak { position: absolute; top: 0; width: 2px; margin-left: -1px; background: var(--nlp-fg); opacity: 0.8; transition: none; }
+
+
+/* ---------- subgraph cards ---------- */
+.nlp-sg {
+    margin-top: 5px;
+    padding: 5px 8px 6px;
+    background: var(--nlp-card);
+    border: 1px solid var(--nlp-border);
+    border-radius: 6px;
+}
+.nlp-sg .nlp-card-head { margin-bottom: 3px; }
+.nlp-sg-chev { flex: none; padding: 0 3px; font-size: 11px; }
+.nlp-sg-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0 1px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--nlp-border);
+}
+.nlp-card-head + .nlp-sg-node { margin-top: 2px; padding-top: 0; border-top: none; }
+.nlp-sg-node .nlp-label { flex: 1 1 auto; min-width: 0; color: var(--nlp-fg); font-weight: 600; cursor: pointer; }
+
+/* ---------- drag a node from the canvas onto the panel ---------- */
+.nlp.nlp-drop-hot { outline: 2px dashed var(--nlp-accent); outline-offset: -3px; }
+.nlp.nlp-drop-hot::after {
+    content: "Drop node to add";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--nlp-accent);
+    font-weight: 600;
+    pointer-events: none;
+}
