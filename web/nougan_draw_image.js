@@ -9,6 +9,7 @@ const SUBFOLDER = "nougan_draw";
 const MAX_UNDO = 25;
 const MAX_LAYERS = 12;
 const SAVE_DELAY = 700;
+const MAX_ZOOM = 40;   // relative to "fit"
 const SWATCHES = ["#000000", "#ffffff", "#e53935", "#fb8c00", "#fdd835", "#43a047", "#1e88e5", "#8e24aa"];
 const BG_CLEAR = { white: [1, 1, 1, 1], black: [0, 0, 0, 1], transparent: [0, 0, 0, 0] };
 
@@ -35,6 +36,19 @@ const CSS = `
 .nd-canvas{display:block;max-width:none;box-shadow:0 0 0 1px #555}
 .nd-checker{background-color:#fff;background-image:linear-gradient(45deg,#bbb 25%,transparent 25%,transparent 75%,#bbb 75%),
   linear-gradient(45deg,#bbb 25%,transparent 25%,transparent 75%,#bbb 75%);background-size:16px 16px;background-position:0 0,8px 8px}
+.nd-view{display:flex;transform-origin:50% 50%;will-change:transform}
+.nd-canvas.nd-pix{image-rendering:pixelated}
+.nd-stage.pan{cursor:grab}
+.nd-stage.panning{cursor:grabbing}
+.nd-zoom{display:flex;align-items:center;gap:3px}
+.nd-zlabel{min-width:38px;text-align:center;font-variant-numeric:tabular-nums}
+.nd-toast{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;
+  padding:3px 10px;border-radius:12px;pointer-events:none;font-size:11px;z-index:3}
+.nd-menu{position:fixed;z-index:100000;min-width:190px;padding:4px 0;background:#232323;color:#ddd;
+  border:1px solid #555;border-radius:7px;box-shadow:0 6px 20px rgba(0,0,0,.6);font:12px sans-serif;user-select:none}
+.nd-mi{padding:5px 14px;cursor:pointer;white-space:nowrap}
+.nd-mi:hover{background:#5b4bd6;color:#fff}
+.nd-msep{height:1px;margin:4px 0;background:#444}
 .nd-ring{position:absolute;pointer-events:none;border:1px solid #000;border-radius:50%;
   box-shadow:0 0 0 1px #fff;transform:translate(-50%,-50%);display:none}
 .nd-side{width:150px;display:flex;flex-direction:column;gap:6px;min-height:0}
@@ -196,6 +210,9 @@ class DrawEditor {
     this.chain = Promise.resolve();
     this.loadToken = 0;
     this.loading = false;
+    this.zoom = 1; this.panX = 0; this.panY = 0;   // view transform (zoom 1 = fit to stage)
+    this.touches = new Map();
+    this.gesture = null; this.panning = null; this.space = false;
 
     const get = (n) => node.widgets.find((w) => w.name === n);
     this.wW = get("width"); this.hW = get("height"); this.bgW = get("background");
@@ -398,6 +415,17 @@ class DrawEditor {
     this.updateThumb(s.l);
     this.touch(s.l);
   }
+  cancelStroke() {
+    const s = this.stroke;
+    if (!s) return;
+    this.stroke = null;
+    s.l.ctx.save();
+    s.l.ctx.globalCompositeOperation = "copy";
+    s.l.ctx.drawImage(s.snap, 0, 0);
+    s.l.ctx.restore();
+    s.l.gpuDirty = true; s.l.dirty = true;
+    this.invalidate();
+  }
   touch(l) { l.dirty = true; l.gpuDirty = true; this.invalidate(); this.touchFlat(); }
 
   // ── UI ──
@@ -415,9 +443,19 @@ class DrawEditor {
     this.sizeLabel = el("span", "", this.size + "px");
     sizeIn.addEventListener("input", () => { this.size = +sizeIn.value; this.sizeLabel.textContent = this.size + "px"; });
     sizeWrap.append(el("span", "", "Size"), sizeIn, this.sizeLabel);
+    this.panB = btn("✋ Pan", "Pan the view (or hold Space / middle mouse and drag)", () => this.setTool("pan"));
+    const zoomWrap = el("div", "nd-zoom");
+    this.zlabel = el("span", "nd-zlabel", "100%");
+    zoomWrap.append(
+      btn("−", "Zoom out (-)", () => this.zoomBy(1 / 1.25), "sm"),
+      this.zlabel,
+      btn("+", "Zoom in (+)  — mouse wheel also zooms at the cursor", () => this.zoomBy(1.25), "sm"),
+      btn("Fit", "Fit the whole canvas in view (0)", () => this.resetView(), "sm"),
+      btn("1:1", "Actual pixels", () => this.actualPixels(), "sm"),
+    );
     this.undoB = btn("↶ Undo", "Undo (Ctrl+Z while the canvas is focused)", () => this.undo());
     const clearB = btn("🗑 Clear all", "Wipe everything and delete all layers (undoable)", () => this.clearAll(), "danger");
-    bar.append(this.brushB, this.eraserB, sizeWrap, el("div", "nd-sep"), this.undoB, clearB);
+    bar.append(this.brushB, this.eraserB, this.panB, sizeWrap, zoomWrap, el("div", "nd-sep"), this.undoB, clearB);
 
     // stage
     const main = el("div", "nd-main");
@@ -426,7 +464,9 @@ class DrawEditor {
     this.canvas = el("canvas", "nd-canvas");
     this.canvas.width = this.w; this.canvas.height = this.h;
     this.ring = el("div", "nd-ring");
-    stage.append(this.canvas, this.ring);
+    this.view = el("div", "nd-view");
+    this.view.append(this.canvas);
+    stage.append(this.view, this.ring);
     this.bindStage();
 
     // side panel
@@ -479,40 +519,107 @@ class DrawEditor {
     this.tool = t;
     this.brushB.classList.toggle("on", t === "brush");
     this.eraserB.classList.toggle("on", t === "eraser");
+    this.panB.classList.toggle("on", t === "pan");
+    this.updateCursor();
+    if (t === "pan") this.ring.style.display = "none";
   }
 
   bindStage() {
     const st = this.stage;
     const stop = (e) => e.stopPropagation();
+
     st.addEventListener("pointerdown", (e) => {
       stop(e);
-      if (e.button !== 0 && e.pointerType !== "pen") return;
+      this.closeMenu();
       st.focus({ preventScroll: true });
+
+      // two fingers -> pinch zoom / pan (a half-drawn finger stroke is discarded)
+      if (e.pointerType === "touch") {
+        this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+        if (this.touches.size === 2) { this.cancelStroke(); this.startGesture(); e.preventDefault(); return; }
+        if (this.touches.size > 2) return;
+      }
+      // middle mouse / Space+drag / Pan tool -> drag the view
+      if (e.button === 1 || (e.button === 0 && (this.space || this.tool === "pan"))) {
+        e.preventDefault();
+        this.panning = { pid: e.pointerId, x: e.clientX, y: e.clientY };
+        st.setPointerCapture(e.pointerId);
+        st.classList.add("panning");
+        this.ring.style.display = "none";
+        return;
+      }
+      if (e.button !== 0 && e.pointerType !== "pen") return;
       e.preventDefault();
       this.beginStroke(e);
     });
     st.addEventListener("pointermove", (e) => {
       stop(e);
-      this.moveRing(e);
+      if (e.pointerType === "touch" && this.touches.has(e.pointerId)) {
+        this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+        if (this.gesture) { this.updateGesture(); return; }
+      }
+      if (this.panning && e.pointerId === this.panning.pid) {
+        const k = this.graphScale();
+        this.panX += (e.clientX - this.panning.x) / k;
+        this.panY += (e.clientY - this.panning.y) / k;
+        this.panning.x = e.clientX; this.panning.y = e.clientY;
+        this.applyView();
+        return;
+      }
+      if (this.tool !== "pan" && !this.space) this.moveRing(e);
       if (!this.stroke || e.pointerId !== this.stroke.pid) return;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       for (const ce of evs.length ? evs : [e]) this.strokeTo(ce);
     });
-    const end = (e) => { stop(e); if (this.stroke && e.pointerId === this.stroke.pid) this.endStroke(); };
+    const end = (e) => {
+      stop(e);
+      if (this.touches.delete(e.pointerId) && this.touches.size < 2) this.gesture = null;
+      if (this.panning && e.pointerId === this.panning.pid) { this.panning = null; st.classList.remove("panning"); }
+      if (this.stroke && e.pointerId === this.stroke.pid) this.endStroke();
+    };
     st.addEventListener("pointerup", end);
     st.addEventListener("pointercancel", end);
     st.addEventListener("pointerleave", () => { this.ring.style.display = "none"; });
-    st.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // wheel = zoom at the cursor (pinch on a trackpad arrives as ctrl+wheel)
+    st.addEventListener("wheel", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (this.stroke || this.panning) return;
+      let dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      this.zoomAt(this.zoom * Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), ...this.stagePoint(e.clientX, e.clientY));
+      if (this.tool !== "pan" && !this.space) this.moveRing(e);
+    }, { passive: false });
+
+    // right-click -> save / copy menu (not for touch long-press or pen barrel button)
+    st.addEventListener("contextmenu", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.pointerType === "touch" || e.pointerType === "pen" || this.stroke) return;
+      this.showMenu(e.clientX, e.clientY);
+    });
+
     st.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault(); e.stopPropagation(); this.undo();
+        return;
       }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === " ") {
+        e.preventDefault(); e.stopPropagation();
+        this.space = true; this.updateCursor(); this.ring.style.display = "none";
+      } else if (e.key === "+" || e.key === "=") { e.preventDefault(); e.stopPropagation(); this.zoomBy(1.25); }
+      else if (e.key === "-" || e.key === "_") { e.preventDefault(); e.stopPropagation(); this.zoomBy(1 / 1.25); }
+      else if (e.key === "0") { e.preventDefault(); e.stopPropagation(); this.resetView(); }
     });
+    st.addEventListener("keyup", (e) => {
+      if (e.key === " ") { e.stopPropagation(); this.space = false; this.updateCursor(); }
+    });
+    st.addEventListener("blur", () => { this.space = false; this.updateCursor(); });
   }
+
   moveRing(e) {
     const sr = this.stage.getBoundingClientRect();
     const k = sr.width / this.stage.offsetWidth || 1; // canvas zoom factor of the ComfyUI graph
-    const px = (this.canvas.offsetWidth / this.w) * this.size * (this.stroke ? this.stroke.pr : this.pressureOf(e));
+    const px = (this.canvas.offsetWidth / this.w) * this.zoom * this.size * (this.stroke ? this.stroke.pr : this.pressureOf(e));
     const d = Math.max(3, px);
     Object.assign(this.ring.style, {
       display: "block", width: d + "px", height: d + "px",
@@ -602,6 +709,123 @@ class DrawEditor {
     this.canvas.style.width = Math.floor(this.w * k) + "px";
     this.canvas.style.height = Math.floor(this.h * k) + "px";
     this.canvas.classList.toggle("nd-checker", this.bg === "transparent");
+    this.applyView();
+  }
+
+  // ── zoom / pan (a CSS transform on .nd-view; zoom 1 = whole canvas fits the stage) ──
+  graphScale() { return this.stage.getBoundingClientRect().width / this.stage.offsetWidth || 1; } // ComfyUI graph zoom
+  // pointer position relative to the stage centre, in the stage's own (unscaled) pixels
+  stagePoint(cx, cy) {
+    const r = this.stage.getBoundingClientRect(), k = this.graphScale();
+    return [(cx - (r.left + r.width / 2)) / k, (cy - (r.top + r.height / 2)) / k];
+  }
+  clampPan() {
+    if (this.zoom <= 1.0001) { this.zoom = Math.max(1, this.zoom); this.panX = this.panY = 0; return; }
+    const st = this.stage, m = 48;
+    const cw = this.canvas.offsetWidth * this.zoom, ch = this.canvas.offsetHeight * this.zoom;
+    const mx = Math.max(0, (cw + st.clientWidth) / 2 - m), my = Math.max(0, (ch + st.clientHeight) / 2 - m);
+    this.panX = clamp(this.panX, -mx, mx); this.panY = clamp(this.panY, -my, my);
+  }
+  applyView() {
+    this.zoom = clamp(this.zoom, 1, MAX_ZOOM);
+    this.clampPan();
+    this.view.style.transform = `translate(${this.panX}px,${this.panY}px) scale(${this.zoom})`;
+    const shown = this.canvas.offsetWidth * this.zoom / this.w;           // screen px per canvas px
+    this.canvas.classList.toggle("nd-pix", shown >= 2);                   // crisp pixels when zoomed right in
+    if (this.zlabel) this.zlabel.textContent = Math.round(shown * 100) + "%";
+  }
+  zoomAt(z, ox = 0, oy = 0) {            // keep the point under (ox, oy) fixed while zooming
+    z = clamp(z, 1, MAX_ZOOM);
+    const r = z / this.zoom;
+    this.panX = ox - r * (ox - this.panX);
+    this.panY = oy - r * (oy - this.panY);
+    this.zoom = z;
+    this.applyView();
+  }
+  zoomBy(f) { this.zoomAt(this.zoom * f, 0, 0); }
+  resetView() { this.zoom = 1; this.panX = this.panY = 0; this.applyView(); }
+  actualPixels() {
+    const w = this.canvas.offsetWidth;
+    if (w) this.zoomAt(this.w / w, 0, 0);
+  }
+  updateCursor() {
+    this.stage?.classList.toggle("pan", this.tool === "pan" || this.space);
+  }
+  startGesture() {
+    const [a, b] = [...this.touches.values()];
+    const c = this.stagePoint((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    this.gesture = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, c, z: this.zoom, px: this.panX, py: this.panY };
+  }
+  updateGesture() {
+    const g = this.gesture, v = [...this.touches.values()];
+    if (!g || v.length < 2) return;
+    const [a, b] = v;
+    const z = clamp(g.z * (Math.hypot(a[0] - b[0], a[1] - b[1]) / g.d), 1, MAX_ZOOM);
+    const c = this.stagePoint((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    this.panX = c[0] - (z / g.z) * (g.c[0] - g.px);
+    this.panY = c[1] - (z / g.z) * (g.c[1] - g.py);
+    this.zoom = z;
+    this.applyView();
+  }
+
+  // ── right-click menu: save / copy ──
+  closeMenu() {
+    if (!this.menu) return;
+    this.menu.remove(); this.menu = null;
+    for (const [t, f, o] of this.menuOff) window.removeEventListener(t, f, o);
+    this.menuOff = [];
+  }
+  showMenu(x, y) {
+    this.closeMenu();
+    const m = el("div", "nd-menu");
+    const item = (label, fn) => {
+      const d = el("div", "nd-mi", label);
+      d.addEventListener("click", () => { this.closeMenu(); fn(); });
+      m.append(d);
+    };
+    item("💾  Save image as PNG", () => this.saveImage());
+    item("📋  Copy image", () => this.copyImage());
+    m.append(el("div", "nd-msep"));
+    item("🔍  Fit to view", () => this.resetView());
+    item("🔎  Actual pixels (1:1)", () => this.actualPixels());
+    m.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.body.appendChild(m);   // body-level: position:fixed would break inside the zoomed ComfyUI graph
+    m.style.left = Math.max(4, Math.min(x, window.innerWidth - m.offsetWidth - 4)) + "px";
+    m.style.top = Math.max(4, Math.min(y, window.innerHeight - m.offsetHeight - 4)) + "px";
+    this.menu = m;
+    const away = (e) => { if (!m.contains(e.target)) this.closeMenu(); };
+    const key = (e) => { if (e.key === "Escape") this.closeMenu(); };
+    const close = () => this.closeMenu();
+    this.menuOff = [["pointerdown", away, true], ["keydown", key, true], ["wheel", close, { passive: true }], ["blur", close, false]];
+    for (const [t, f, o] of this.menuOff) window.addEventListener(t, f, o);
+  }
+  async saveImage() {
+    try {
+      const blob = await toBlob(this.flatten());   // exactly what the node outputs: visible layers over the background
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const t = new Date(), p = (n) => String(n).padStart(2, "0");
+      a.href = url;
+      a.download = `nougan_draw_${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      this.flash("Image saved");
+    } catch (err) { console.error("[Nougan Draw] save failed:", err); this.flash("Save failed"); }
+  }
+  async copyImage() {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": toBlob(this.flatten()) })]);
+      this.flash("Copied to clipboard");
+    } catch (err) {
+      console.warn("[Nougan Draw] copy failed:", err);
+      this.flash("Copy not available here — use Save");
+    }
+  }
+  flash(msg) {
+    this.toast?.remove();
+    const t = (this.toast = el("div", "nd-toast", msg));
+    this.stage.appendChild(t);
+    setTimeout(() => { if (this.toast === t) { t.remove(); this.toast = null; } }, 1600);
   }
   onDocSize() {
     const w = clamp(Math.round(this.wW.value) || 1024, 64, 8192);
@@ -812,6 +1036,7 @@ class DrawEditor {
     window.dispatchEvent(new CustomEvent("nougan-draw-released", { detail: { node: this.node } }));
   }
   destroy() {
+    this.closeMenu();
     editors.delete(this);
     clearTimeout(this.saveT);
     cancelAnimationFrame(this.raf);
