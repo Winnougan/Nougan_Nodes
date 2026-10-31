@@ -8,6 +8,10 @@
 // "pin any widget" (header pin button, or right-click a node), and a run bar with
 // Queue / Stop, progress, queue count and a VRAM / RAM meter with per-run VRAM peak.
 //
+// Compare: drop any Preview / Save Image node on the panel (or right-click it, "Add to Compare")
+// and it becomes an image source. Pick A and B, then wipe, fade, blink or diff them. Rename sources
+// by double-click, x removes one.
+//
 // Drag & drop: grab any node (or subgraph node) by its title bar and release it over the panel.
 // A node pins all its editable widgets; a subgraph node brings its group back. The node snaps back
 // to where it was. Every pinned row / subgraph card has an x to take it out again.
@@ -47,6 +51,31 @@ const THEMES = {
     fallout: { label: "Fallout", scheme: "dark",  bg: "#0a1a0a", card: "#0f2510", head: "#2a2520", input: "#051005", fg: "#7fff7f", dim: "#3a8a3a", border: "#5a4a3a", accent: "#88ff66" },
     pink:    { label: "Pink",    scheme: "light", bg: "#fff0f5", card: "#ffeaf2", head: "#ffd6e8", input: "#fff5fa", fg: "#4a1f3a", dim: "#8a4a6a", border: "#e8a4c4", accent: "#e91e63" },
     lucifer: { label: "Lucifer", scheme: "dark",  bg: "#000000", card: "#050000", head: "#000000", input: "#110000", fg: "#ffffff", dim: "#880000", border: "#ff0000", accent: "#ff0000" },
+    synthwave: { label: "Synthwave", scheme: "dark", bg: "#150f2e", card: "#1d1442", head: "#2a1a5e", input: "#0d0820", fg: "#f0e6ff", dim: "#9b7fd4", border: "#4a2d8f", accent: "#ff2bd6" },
+    cyberpunk: { label: "Cyberpunk", scheme: "dark", bg: "#0b0b14", card: "#12121f", head: "#1a1a2e", input: "#06060c", fg: "#e8f6ff", dim: "#6b7fa3", border: "#00e5ff", accent: "#fcee0a" },
+    dracula: { label: "Dracula", scheme: "dark", bg: "#282a36", card: "#2f3142", head: "#343746", input: "#1e1f29", fg: "#f8f8f2", dim: "#8e93b8", border: "#44475a", accent: "#bd93f9" },
+    nord: { label: "Nord", scheme: "dark", bg: "#2e3440", card: "#353c4a", head: "#3b4252", input: "#242933", fg: "#d8dee9", dim: "#7b88a1", border: "#4c566a", accent: "#88c0d0" },
+    solardark: { label: "Solarized Dark", scheme: "dark", bg: "#002b36", card: "#073642", head: "#0a4553", input: "#00212b", fg: "#93a1a1", dim: "#657b83", border: "#124e5c", accent: "#b58900" },
+    solarlight: { label: "Solarized Light", scheme: "light", bg: "#fdf6e3", card: "#f5eed8", head: "#eee8d5", input: "#fffdf5", fg: "#586e75", dim: "#93a1a1", border: "#d3cbb0", accent: "#268bd2" },
+    gruvbox: { label: "Gruvbox", scheme: "dark", bg: "#282828", card: "#32302f", head: "#3c3836", input: "#1d2021", fg: "#ebdbb2", dim: "#928374", border: "#504945", accent: "#fe8019" },
+    monokai: { label: "Monokai", scheme: "dark", bg: "#272822", card: "#2f302a", head: "#3e3d32", input: "#1e1f1a", fg: "#f8f8f2", dim: "#908b73", border: "#49483e", accent: "#a6e22e" },
+    tokyonight: { label: "Tokyo Night", scheme: "dark", bg: "#1a1b26", card: "#1f2335", head: "#24283b", input: "#16161e", fg: "#c0caf5", dim: "#6a73a3", border: "#2f334d", accent: "#7aa2f7" },
+    catppuccin: { label: "Catppuccin Mocha", scheme: "dark", bg: "#1e1e2e", card: "#262637", head: "#313244", input: "#181825", fg: "#cdd6f4", dim: "#8087a8", border: "#45475a", accent: "#cba6f7" },
+    midnight: { label: "Midnight Blue", scheme: "dark", bg: "#0a1128", card: "#101a3a", head: "#16224d", input: "#060b1c", fg: "#d6e4ff", dim: "#6f85b8", border: "#24366e", accent: "#4da3ff" },
+    ocean: { label: "Ocean", scheme: "dark", bg: "#06232b", card: "#0a2f3a", head: "#0e3b48", input: "#041a20", fg: "#d0f4f2", dim: "#5fa5a8", border: "#14525e", accent: "#2ee6d6" },
+    forest: { label: "Forest", scheme: "dark", bg: "#14201a", card: "#1b2b22", head: "#233628", input: "#0d1511", fg: "#d8ecd8", dim: "#7a9a82", border: "#2f4a39", accent: "#7bc47f" },
+    sunset: { label: "Sunset", scheme: "dark", bg: "#2a1018", card: "#3a1822", head: "#4a2030", input: "#1d0a10", fg: "#ffe8d6", dim: "#c98a86", border: "#6b2e3e", accent: "#ff7a45" },
+    mocha: { label: "Mocha", scheme: "dark", bg: "#211a17", card: "#2b221e", head: "#362b26", input: "#171210", fg: "#eadccf", dim: "#a38d7d", border: "#4a3a31", accent: "#d9a066" },
+    amber: { label: "Amber Terminal", scheme: "dark", bg: "#0d0a00", card: "#161000", head: "#201700", input: "#080600", fg: "#ffb000", dim: "#a67500", border: "#4d3600", accent: "#ffcc33" },
+    matrix: { label: "Matrix", scheme: "dark", bg: "#000a00", card: "#001400", head: "#002000", input: "#000500", fg: "#00ff41", dim: "#008f23", border: "#004d12", accent: "#00ff41" },
+    vaporwave: { label: "Vaporwave", scheme: "dark", bg: "#1b1035", card: "#251548", head: "#321a5c", input: "#120a28", fg: "#ffd9f5", dim: "#c18fd9", border: "#5a2f8a", accent: "#01cdfe" },
+    blood: { label: "Blood Moon", scheme: "dark", bg: "#140607", card: "#1d0a0c", head: "#290d10", input: "#0c0304", fg: "#f2d4d4", dim: "#a15d5d", border: "#4a1519", accent: "#e03a3e" },
+    lavender: { label: "Lavender", scheme: "light", bg: "#f3eefc", card: "#e9e0f8", head: "#ddd0f3", input: "#faf7ff", fg: "#2d2147", dim: "#7a6a9e", border: "#c3b3e3", accent: "#7c4dff" },
+    mint: { label: "Mint", scheme: "light", bg: "#eefaf4", card: "#e0f3ea", head: "#cfeadb", input: "#f7fffb", fg: "#12382a", dim: "#5b8a74", border: "#a9d6bf", accent: "#10b981" },
+    sky: { label: "Sky", scheme: "light", bg: "#eef6ff", card: "#e1eefb", head: "#d0e4f8", input: "#f8fbff", fg: "#12304f", dim: "#5a7fa6", border: "#a9c9ea", accent: "#2b7de9" },
+    peach: { label: "Peach", scheme: "light", bg: "#fff3ea", card: "#ffe9da", head: "#ffdcc6", input: "#fffaf5", fg: "#4a2a1a", dim: "#a3745a", border: "#f0bd9f", accent: "#ff6b35" },
+    paper: { label: "Paper (mono)", scheme: "light", bg: "#fafafa", card: "#f0f0f0", head: "#e6e6e6", input: "#ffffff", fg: "#111111", dim: "#6b6b6b", border: "#c4c4c4", accent: "#111111" },
+    hicontrast: { label: "High Contrast", scheme: "dark", bg: "#000000", card: "#0a0a0a", head: "#141414", input: "#000000", fg: "#ffffff", dim: "#bdbdbd", border: "#ffffff", accent: "#ffd400" },
 };
 const THEME_VARS = {
     bg: "--nlp-bg", card: "--nlp-card", head: "--nlp-head", input: "--nlp-input",
@@ -54,7 +83,7 @@ const THEME_VARS = {
 };
 
 const state = Object.assign(
-    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto" },
+    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto", cmpMode: "wipe", cmpPos: 50 },
     loadState()
 );
 if (!THEMES[state.theme]) state.theme = "comfy";
@@ -566,6 +595,7 @@ function buildModel() {
 
     const m = { ...loaders, samplers: collectSamplers(nodes), loras: collectLoras(nodes), out: collectOutput(nodes), pins: collectPins(nodes) };
     m.sub = collectSubgraphs(nodes, claimedBy(m));
+    m.cmp = collectCompare(nodes);
     return m;
 }
 
@@ -592,6 +622,7 @@ function signature(m) {
         m.pins.live.map((p) => `${p.key}:${rsig(p.ref)}:${p.kind}`).join(";") + `#${m.pins.missing}`,
         m.sub.map((g) => `${g.key}:` + g.nodes.map((nd) => `${nd.key}[` +
             nd.rows.map((r) => `${r.key}:${rsig(r.ref)}:${r.kind}`).join(",") + "]").join("")).join(";"),
+        m.cmp.srcs.map((x) => `${x.k}:${x.node ? 1 : 0}`).join(","),
         JSON.stringify(readCfg()),
     ].join("|");
 }
@@ -635,7 +666,8 @@ function resetCfg() {
     if (cur) {
         // pins are content, not layout: Default keeps them
         const pins = Array.isArray(cur.pins) ? cur.pins.slice() : [];
-        if (pins.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins };
+        const cmp = cur.cmp?.srcs?.length ? cur.cmp : null;
+        if (pins.length || cmp) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, ...(cmp ? { cmp } : {}) };
         else delete g.extra.nougan_live_panel;
         touchWorkflow();
     }
@@ -1280,7 +1312,7 @@ function render(m) {
         : "";
 
     const total = ckpt.length + clip.length + vae.length + smps.length + loras.length
-        + res.length + sizes.length + durs.length + pinned.length + subRows;
+        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length;
     if (!total) {
         body.append(el("div", "nlp-empty", hiddenCount
             ? "Everything is hidden. Press Default to bring it all back."
@@ -1382,6 +1414,8 @@ function render(m) {
         });
         fill(section("Pinned", "pins"), "pins", items);
     }
+
+    if (m.cmp.srcs.length) fill(section("Compare", "cmp"), "cmp", [{ key: "cmp", build: () => cmpCard(m.cmp) }]);
 
     if (subs.length) {
         const items = subs.map((g) => ({ key: g.key, build: () => sgCard(g) }));
@@ -1812,7 +1846,8 @@ function nodeMenuItems(node) {
             if (hw && pinKind({ node, w: hw })) hover = hw;
         } catch {}
         const any = (node.widgets || []).some((w) => pinKind({ node, w }));
-        if (!hover && !any) return [];
+        const img = isImageNode(node);
+        if (!hover && !any && !img) return [];
         const out = [null];
         if (hover) {
             const on = isPinned(node, hover.name);
@@ -1827,8 +1862,220 @@ function nodeMenuItems(node) {
                 callback: (_v, _o, e) => showPopMenu(pinMenuItems([node]), e?.clientX ?? 120, e?.clientY ?? 120),
             });
         }
+        if (img) out.push({ content: "Add to Compare (Live Panel)", callback: () => { cmpAdd(node); toast(`Added \u201C${node.title || nodeType(node)}\u201D to Compare`); } });
         return out;
     } catch { return []; }
+}
+
+// ============================ image compare ===================================
+// Sources are image-output nodes (Preview Image, Save Image, ...). Their latest image is read from
+// app.nodeOutputs (or node.imgs), so the viewer follows every run on its own.
+
+const CMP_MODES = { wipe: "Wipe", fade: "Fade", diff: "Difference", blink: "Blink" };
+const CMP_LABEL = { wipe: "Divider", fade: "Mix", diff: "Gain", blink: "Click view" };
+const CMP_TYPE = /(preview|save|compare).*image|image.*(preview|save|compare)|^LoadImage/i;
+
+// id used by app.nodeOutputs: "parent:child" for nodes inside subgraphs
+function execId(node) {
+    const ids = [node.id];
+    for (let g = node.graph, i = 0; g && subParent.has(g) && i < 8; i++) {
+        const p = subParent.get(g);
+        ids.unshift(p.id);
+        g = p.graph;
+    }
+    return ids.join(":");
+}
+
+function nodeImageUrl(node) {
+    try {
+        const out = app.nodeOutputs?.[execId(node)] || app.nodeOutputs?.[String(node.id)];
+        const im = out?.images?.[0];
+        if (im?.filename) {
+            const q = new URLSearchParams({ filename: im.filename, type: im.type || "output", subfolder: im.subfolder || "" });
+            return api.apiURL(`/view?${q}`);
+        }
+        const img = node.imgs?.[0];
+        if (img?.src) return img.src;
+    } catch {}
+    return null;
+}
+
+const isImageNode = (node) => !!node && (!!nodeImageUrl(node) || CMP_TYPE.test(nodeType(node)));
+const isPlainPreview = (node) => !(node.widgets || []).some((w) => pinKind({ node, w }));
+
+function cmpAdd(node) {
+    const k = nkey(node);
+    editCfg((c) => {
+        const cm = c.cmp = c.cmp || { srcs: [], a: null, b: null };
+        if (!cm.srcs.includes(k)) cm.srcs.push(k);
+        if (cm.a === k || cm.b === k) return;
+        if (!cm.a) cm.a = k; else cm.b = k;     // first drop is A, the next is B, later ones replace B
+    });
+}
+
+function cmpRemove(k) {
+    editCfg((c) => {
+        const cm = c.cmp;
+        if (!cm) return;
+        cm.srcs = cm.srcs.filter((x) => x !== k);
+        delete c.names[`cmp:${k}`];
+        if (cm.a === k) cm.a = null;
+        if (cm.b === k) cm.b = null;
+        const free = cm.srcs.filter((x) => x !== cm.a && x !== cm.b);
+        if (!cm.a && free.length) cm.a = free.shift();
+        if (!cm.b && free.length) cm.b = free.shift();
+        if (!cm.srcs.length) delete c.cmp;
+    });
+}
+
+function cmpSetSlot(slot, k) {
+    editCfg((c) => {
+        const cm = c.cmp;
+        if (!cm) return;
+        const other = slot === "a" ? "b" : "a";
+        if (cm[other] === k) cm[other] = cm[slot];   // swap
+        cm[slot] = k;
+    });
+}
+
+function collectCompare(nodes) {
+    const cm = readCfg().cmp;
+    if (!cm?.srcs?.length) return { srcs: [], a: null, b: null };
+    const byKey = new Map(nodes.map((n) => [nkey(n), n]));
+    return { a: cm.a, b: cm.b, srcs: cm.srcs.map((k) => ({ k, node: byKey.get(k) || null })) };
+}
+
+function cmpCard(cm) {
+    const card = el("div", "nlp-card nlp-item nlp-cmp");
+    card.dataset.key = "cmp";
+
+    const head = el("div", "nlp-card-head");
+    const grip = el("span", "nlp-grip nlp-handle");
+    grip.title = "Drag to reorder";
+    const title = nameEl("cmp", "Compare", "nlp-card-name nlp-handle", null);
+    arm(card, grip);
+    arm(card, title);
+    const mode = el("select", "nlp-select nlp-mode");
+    for (const [k, l] of Object.entries(CMP_MODES)) {
+        const o = el("option", null, l);
+        o.value = k;
+        mode.append(o);
+    }
+    mode.value = CMP_MODES[state.cmpMode] ? state.cmpMode : "wipe";
+    const clear = xBtn("cmp", () => editCfg((c) => {
+        delete c.cmp;
+        for (const k of Object.keys(c.names)) if (k.startsWith("cmp:")) delete c.names[k];
+    }), "Remove Compare and all its sources");
+    head.append(grip, title, el("span", "nlp-spacer"), mode, clear);
+
+    // ---- viewer ----
+    const view = el("div", "nlp-cmp-view");
+    const imgB = el("img", "nlp-cmp-img");
+    const imgA = el("img", "nlp-cmp-img");
+    imgA.draggable = imgB.draggable = false;
+    const line = el("div", "nlp-cmp-line");
+    const tagA = el("span", "nlp-cmp-tag nlp-cmp-taga");
+    const tagB = el("span", "nlp-cmp-tag nlp-cmp-tagb");
+    const empty = el("div", "nlp-cmp-empty");
+    view.append(imgB, imgA, line, tagA, tagB, empty);
+
+    // ---- slider row ----
+    const sr = el("div", "nlp-row");
+    const slLabel = el("span", "nlp-label");
+    const rng = el("input");
+    rng.type = "range"; rng.min = "0"; rng.max = "100"; rng.step = "0.5";
+    rng.value = String(state.cmpPos);
+    rng.style.accentColor = "var(--nlp-accent)";
+    sr.append(slLabel, rng);
+
+    // ---- sources ----
+    const list = el("div", "nlp-cmp-list");
+    const find = (k) => cm.srcs.find((s) => s.k === k) || null;
+    const defName = (s) => s.node ? `${s.node.title || nodeType(s.node)} #${s.node.id}` : `${s.k} (node off)`;
+    const nameFor = (s) => (s && (readCfg().names[`cmp:${s.k}`] || defName(s))) || "";
+    for (const s of cm.srcs) {
+        const rw = el("div", "nlp-cmp-src" + (s.node ? "" : " nlp-off"));
+        const bA = el("span", "nlp-cmp-ab" + (cm.a === s.k ? " nlp-on" : ""), "A");
+        const bB = el("span", "nlp-cmp-ab" + (cm.b === s.k ? " nlp-on" : ""), "B");
+        bA.title = "Use as image A"; bB.title = "Use as image B";
+        bA.addEventListener("click", () => cmpSetSlot("a", s.k));
+        bB.addEventListener("click", () => cmpSetSlot("b", s.k));
+        rw.append(bA, bB, nameEl(`cmp:${s.k}`, defName(s), "nlp-label", s.node), xBtn(`cmp:${s.k}`, () => cmpRemove(s.k), "Remove from Compare"));
+        list.append(rw);
+    }
+    list.append(el("div", "nlp-hint", "Drop an image node on the panel to add one. Double-click a name to rename."));
+
+    // ---- painting ----
+    let urlA = null, urlB = null, blinkA = true;
+    const paint = () => {
+        const m = mode.value, pos = Math.max(0, Math.min(100, Number(state.cmpPos) || 0));
+        imgA.style.cssText = "";
+        view.style.filter = "";
+        line.style.display = "none";
+        if (m === "wipe") {
+            imgA.style.clipPath = `inset(0 ${100 - pos}% 0 0)`;
+            line.style.display = "block";
+            line.style.left = pos + "%";
+        } else if (m === "fade") {
+            imgA.style.opacity = String(pos / 100);
+        } else if (m === "diff") {
+            imgA.style.mixBlendMode = "difference";
+            view.style.filter = `brightness(${(1 + (pos / 100) * 9).toFixed(2)})`;
+        } else {
+            imgA.style.opacity = blinkA ? "1" : "0";
+        }
+        view.style.cursor = m === "blink" ? "pointer" : "ew-resize";
+        slLabel.textContent = CMP_LABEL[m];
+        rng.disabled = m === "blink";
+        tagA.style.opacity = m === "blink" && !blinkA ? "0.35" : "1";
+        tagB.style.opacity = m === "blink" && blinkA ? "0.35" : "1";
+    };
+    const sync = () => {
+        const sa = find(cm.a), sb = find(cm.b);
+        const ua = sa?.node ? nodeImageUrl(sa.node) : null;
+        const ub = sb?.node ? nodeImageUrl(sb.node) : null;
+        if (ua !== urlA) { urlA = ua; if (ua) imgA.src = ua; else imgA.removeAttribute("src"); }
+        if (ub !== urlB) { urlB = ub; if (ub) imgB.src = ub; else imgB.removeAttribute("src"); }
+        imgA.style.visibility = ua ? "" : "hidden";
+        imgB.style.visibility = ub ? "" : "hidden";
+        tagA.textContent = "A \u00B7 " + nameFor(sa);
+        tagB.textContent = "B \u00B7 " + nameFor(sb);
+        empty.textContent = !cm.a || !cm.b ? "Pick A and B below"
+            : (!ua || !ub) ? "Run the workflow to fill both images" : "";
+        paint();
+    };
+    const fit = (img) => img.addEventListener("load", () => {
+        if (img.naturalWidth && (img === imgA || !imgA.naturalWidth)) view.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+    });
+    fit(imgA); fit(imgB);
+
+    mode.addEventListener("change", () => { state.cmpMode = mode.value; saveState(); paint(); });
+    rng.addEventListener("input", () => { state.cmpPos = Number(rng.value); saveState(); paint(); });
+    rng.addEventListener("keydown", (e) => e.stopPropagation());
+
+    let down = false;
+    const setFromEvent = (e) => {
+        const r = view.getBoundingClientRect();
+        state.cmpPos = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100));
+        rng.value = String(state.cmpPos);
+        paint();
+    };
+    view.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        if (mode.value === "blink") { blinkA = !blinkA; paint(); return; }
+        down = true;
+        try { view.setPointerCapture(e.pointerId); } catch {}
+        setFromEvent(e);
+    });
+    view.addEventListener("pointermove", (e) => { if (down) setFromEvent(e); });
+    const up = () => { if (down) { down = false; saveState(); } };
+    view.addEventListener("pointerup", up);
+    view.addEventListener("pointercancel", up);
+
+    card.append(head, view, sr, list);
+    bindings.push({ sync });
+    sync();
+    return card;
 }
 
 // ============================ drag a node onto the panel ======================
@@ -1870,7 +2117,17 @@ function toast(msg) {
     try { app.extensionManager?.toast?.add({ severity: "info", summary: "Live Panel", detail: msg, life: 2500 }); } catch {}
 }
 
-function dropNode(n) {
+function pinNodeWidgets(n) {
+    const ws = (n.widgets || []).filter((w) => pinKind({ node: n, w }));
+    if (!ws.length) { toast(`\u201C${n.title || nodeType(n)}\u201D has nothing editable`); return; }
+    let added = 0;
+    for (const w of ws) if (!isPinned(n, w.name)) { togglePin(n, w.name); added++; }
+    rebuild();
+    toast(added ? `Pinned ${added} widget${added > 1 ? "s" : ""} from \u201C${n.title || nodeType(n)}\u201D`
+                : `\u201C${n.title || nodeType(n)}\u201D is already in the panel`);
+}
+
+function dropNode(n, ev, single) {
     // subgraph: bring its whole group back
     if (n.subgraph) {
         const prefixes = [`sg:${nkey(n)}`];
@@ -1887,14 +2144,22 @@ function dropNode(n) {
         toast(`Subgraph \u201C${n.title || "Subgraph"}\u201D added`);
         return;
     }
-    const ws = (n.widgets || []).filter((w) => pinKind({ node: n, w }));
-    if (!ws.length) { toast(`\u201C${n.title || nodeType(n)}\u201D has nothing editable`); return; }
-    let added = 0;
-    for (const w of ws) if (!isPinned(n, w.name)) { togglePin(n, w.name); added++; }
-    // a widget the user x-ed earlier is hidden under its section key too; pins are separate, so nothing to clear
-    rebuild();
-    toast(added ? `Pinned ${added} widget${added > 1 ? "s" : ""} from \u201C${n.title || nodeType(n)}\u201D`
-                : `\u201C${n.title || nodeType(n)}\u201D is already in the panel`);
+    // image nodes go to Compare; ones that also have widgets (SaveImage, LoadImage) ask first
+    if (isImageNode(n)) {
+        const name = n.title || nodeType(n);
+        const toCompare = () => { closePopMenu(); cmpAdd(n); toast(`Added \u201C${name}\u201D to Compare`); };
+        if (!isPlainPreview(n) && single && ev) {
+            showPopMenu([
+                { head: name },
+                { label: "Add to Compare", onClick: toCompare },
+                { label: "Pin its widgets", onClick: () => { closePopMenu(); pinNodeWidgets(n); } },
+            ], ev.clientX, ev.clientY);
+            return;
+        }
+        toCompare();
+        return;
+    }
+    pinNodeWidgets(n);
 }
 
 function setupNodeDrop() {
@@ -1927,7 +2192,7 @@ function setupNodeDrop() {
             app.canvas.setDirty(true, true);
         } catch {}
         const picked = [...new Set([n, ...selectedNodesAll()])];
-        for (const m of picked) dropNode(m);
+        for (const m of picked) dropNode(m, e, picked.length === 1);
     };
     window.addEventListener("pointerup", end, true);
     window.addEventListener("pointercancel", end, true);
