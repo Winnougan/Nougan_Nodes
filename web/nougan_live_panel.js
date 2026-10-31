@@ -8,6 +8,11 @@
 // "pin any widget" (header pin button, or right-click a node), and a run bar with
 // Queue / Stop, progress, queue count and a VRAM / RAM meter with per-run VRAM peak.
 //
+// Subgraphs: every widget inside a subgraph that the panel does not already show (a Steps INT
+// node, a prompt box, ...) gets its own card in the "Subgraphs" section. The subgraph, each node
+// and each widget has an x. That only hides it in the panel (the real node is never touched),
+// and Default brings everything back.
+//
 // Put this file and nougan_panel_preview.js in web/, and nougan_live_panel.css in web/css/.
 
 import { app } from "../../scripts/app.js";
@@ -24,6 +29,8 @@ const CHECKPOINT_WIDGETS = ["ckpt_name", "unet_name"];
 const CLIP_WIDGETS = ["clip_name", "clip_name1", "clip_name2", "clip_name3", "clip_name4"];
 const VAE_WIDGETS = ["vae_name"];
 const EXCLUDE_TYPES = /save/i;   // skip saver nodes
+const SG_SKIP_TYPES = /^(Note|MarkdownNote|Reroute)$/;   // Subgraphs card: nodes with nothing to edit
+const GENERIC_WIDGET = /^(value|int|float|number|text|string|boolean|bool|val)$/i;   // such rows get the node title as label
 // -----------------------------------------------------------------------------
 
 // ---- Visual presets (palettes taken from the Aimdo visualizer) ----------------
@@ -268,6 +275,83 @@ function collectPins(nodes) {
     return { live, missing };
 }
 
+// ---- subgraph contents ----
+// Widgets already shown by another section (loaders, samplers, resolution, pins) or owned by a
+// LoRA node are "claimed" and are not repeated in the Subgraphs section.
+function claimedBy(m) {
+    const W = new Set(), N = new Set();
+    const add = (r) => { if (r?.w) W.add(r.w); };
+    for (const k of ["ckpt", "clip", "vae"]) m[k].forEach(add);
+    for (const s of m.samplers) {
+        for (const k of ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl"]) add(s[k]);
+    }
+    for (const l of m.loras) N.add(l.node);
+    for (const r of m.out.res) { add(r.aspect); add(r.mp); add(r.multiple); }
+    for (const r of m.out.sizes) { add(r.width); add(r.height); }
+    for (const d of m.out.durs) add(d.value);
+    for (const p of m.pins.live) add(p.ref);
+    return { W, N };
+}
+
+function sgPath(S) {
+    const parts = [];
+    for (let n = S, i = 0; n && i < 6; i++) {
+        parts.unshift(n.title || "Subgraph");
+        n = n.graph ? subParent.get(n.graph) : null;
+    }
+    return parts.join(" \u203A ");
+}
+
+// One group per subgraph node: { key, node, path, nodes: [{ key, node, rows: [{ key, owner, ref, kind, name, label }] }] }.
+// The subgraph node's own exposed widgets come first, then every active node inside it.
+function collectSubgraphs(nodes, claim) {
+    const groups = [];
+    const seenW = new Set();
+    for (const S of nodes) {
+        const sg = S.subgraph;
+        if (!sg) continue;
+
+        // widgets promoted through "proxyWidgets" are copies of inner widgets, which are listed directly
+        const proxied = [];
+        try {
+            const pw = S.properties?.proxyWidgets;
+            if (Array.isArray(pw)) for (const e of pw) if (Array.isArray(e) && e[1]) proxied.push(String(e[1]));
+        } catch {}
+        const isProxy = (nm) => proxied.some((p) => nm === p || nm.endsWith(` ${p}`) || nm.endsWith(`.${p}`) || nm.endsWith(`:${p}`));
+
+        const cand = [];
+        for (const w of S.widgets || []) if (!isProxy(String(w.name))) cand.push({ node: S, w });
+        for (const n of (sg._nodes || sg.nodes || [])) {
+            if (!isActive(n) || n.subgraph) continue;      // nested subgraphs get their own group
+            const t = nodeType(n);
+            if (EXCLUDE_TYPES.test(t) || SG_SKIP_TYPES.test(t)) continue;
+            for (const w of n.widgets || []) cand.push({ node: n, w });
+        }
+
+        const byNode = new Map();
+        for (const { node, w } of cand) {
+            const ref = resolve(node, w.name);
+            if (!ref || ref.linked) continue;              // driven by a cable: nothing to edit here
+            const owner = ref.node;
+            if (owner !== S && owner.graph !== sg) continue;   // lives elsewhere, its own group lists it
+            if (seenW.has(ref.w) || claim.W.has(ref.w) || claim.N.has(owner)) continue;
+            const kind = pinKind(ref);
+            if (!kind) continue;
+            seenW.add(ref.w);
+            const row = { key: `sgw:${nkey(owner)}:${ref.w.name}`, owner, ref, kind, name: ref.w.name, label: ref.w.label || ref.w.name };
+            if (!byNode.has(owner)) byNode.set(owner, []);
+            byNode.get(owner).push(row);
+        }
+        if (!byNode.size) continue;
+
+        const list = [...byNode].map(([owner, rows]) => ({ key: `sgn:${nkey(owner)}`, node: owner, rows }));
+        list.sort((a, b) => (a.node === S ? -1 : b.node === S ? 1 : Number(a.node.id) - Number(b.node.id)));
+        groups.push({ key: `sg:${nkey(S)}`, node: S, path: sgPath(S), nodes: list });
+    }
+    groups.sort((a, b) => Number(a.node.id) - Number(b.node.id));
+    return groups;
+}
+
 // ---- LoRA name list (for loaders whose widgets are not plain combos) ----
 let loraNames = [];
 async function loadLoraNames() {
@@ -467,7 +551,9 @@ function buildModel() {
     }
     for (const k in loaders) loaders[k].sort(byId);
 
-    return { ...loaders, samplers: collectSamplers(nodes), loras: collectLoras(nodes), out: collectOutput(nodes), pins: collectPins(nodes) };
+    const m = { ...loaders, samplers: collectSamplers(nodes), loras: collectLoras(nodes), out: collectOutput(nodes), pins: collectPins(nodes) };
+    m.sub = collectSubgraphs(nodes, claimedBy(m));
+    return m;
 }
 
 // Structure signature: when it changes we rebuild the DOM, otherwise we only
@@ -491,6 +577,8 @@ function signature(m) {
         m.out.sizes.map((r) => `${r.node.id}:${rsig(r.width)}/${rsig(r.height)}`).join(";"),
         m.out.durs.map((r) => `${r.node.id}:${rsig(r.value)}`).join(";"),
         m.pins.live.map((p) => `${p.key}:${rsig(p.ref)}:${p.kind}`).join(";") + `#${m.pins.missing}`,
+        m.sub.map((g) => `${g.key}:` + g.nodes.map((nd) => `${nd.key}[` +
+            nd.rows.map((r) => `${r.key}:${rsig(r.ref)}:${r.kind}`).join(",") + "]").join("")).join(";"),
         JSON.stringify(readCfg()),
     ].join("|");
 }
@@ -516,14 +604,14 @@ function touchWorkflow() {
 // ---- user layout: renamed labels, hidden items, custom order ----
 // Stored inside the workflow itself (graph.extra.nougan_live_panel), so it
 // travels with the file and each workflow keeps its own layout.
-const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [] };
+const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {} };
 const readCfg = () => app.graph?.extra?.nougan_live_panel || EMPTY_CFG;
 function editCfg(fn) {
     const g = app.graph;
     if (!g) return;
     g.extra = g.extra || {};
     const c = g.extra.nougan_live_panel || (g.extra.nougan_live_panel = {});
-    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || [];
+    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {};
     fn(c);
     touchWorkflow();
     rebuild();
@@ -960,7 +1048,31 @@ function xBtn(key, onClick, title) {
     return b;
 }
 
-// One pinned widget: a normal row, or label-over-textarea for multiline text.
+// One widget: a normal row, or label-over-textarea for multiline text, with an x on the far right.
+// onX = null means "hide it in the panel" (the default x); pins pass their own unpin handler.
+function widgetItem(key, label, ref, kind, onX, xTitle, opts = {}) {
+    const drag = opts.drag !== false;
+    const x = xBtn(key, onX, xTitle);
+    if (kind === "textarea") {
+        const it = el("div", "nlp-item nlp-textitem");
+        it.dataset.key = key;
+        const head = el("div", "nlp-texthead");
+        const l = nameEl(key, label, "nlp-label" + (drag ? " nlp-handle" : ""), ref.node, !drag);
+        if (drag) arm(it, l);
+        head.append(l, x);
+        it.append(head, makeText(ref, true));
+        return it;
+    }
+    const rw = el("div", "nlp-row nlp-item");
+    rw.dataset.key = key;
+    const l = nameEl(key, label, "nlp-label" + (drag ? " nlp-handle" : ""), ref.node, !drag);
+    if (drag) arm(rw, l);
+    const ctl = kind === "seed" ? { ctl: seedControl(ref) } : undefined;
+    rw.append(l, makeControl(ref, kind, ctl), x);
+    return rw;
+}
+
+// One pinned widget.
 function pinItem(p, label) {
     const key = p.key;
     const unpin = () => editCfg((c) => {
@@ -968,32 +1080,15 @@ function pinItem(p, label) {
         delete c.names[key];
         if (c.order.pins) c.order.pins = c.order.pins.filter((x) => x !== key);
     });
-    const x = xBtn(key, unpin, "Unpin from this panel");
-    if (p.kind === "textarea") {
-        const it = el("div", "nlp-item nlp-textitem");
-        it.dataset.key = key;
-        const head = el("div", "nlp-texthead");
-        const l = nameEl(key, label, "nlp-label nlp-handle", p.ref.node);
-        arm(it, l);
-        head.append(l, x);
-        it.append(head, makeText(p.ref, true));
-        return it;
-    }
-    const rw = el("div", "nlp-row nlp-item");
-    rw.dataset.key = key;
-    const l = nameEl(key, label, "nlp-label nlp-handle", p.ref.node);
-    arm(rw, l);
-    const opts = p.kind === "seed" ? { ctl: seedControl(p.ref) } : undefined;
-    rw.append(l, makeControl(p.ref, p.kind, opts), x);
-    return rw;
+    return widgetItem(key, label, p.ref, p.kind, unpin, "Unpin from this panel");
 }
 
 // Single click = jump to the node, double click = rename. The jump is delayed a
 // moment so a double click doesn't also fire it.
-function nameEl(key, def, cls, node) {
+function nameEl(key, def, cls, node, noDrag) {
     const sp = el("span", cls, readCfg().names[key] || def);
     sp.title = (node ? `${node.title || nodeType(node)}\n` : "")
-        + "Click: go to node. Double-click: rename. Drag: reorder.";
+        + (noDrag ? "Click: go to node. Double-click: rename." : "Click: go to node. Double-click: rename. Drag: reorder.");
     let timer = null;
     sp.addEventListener("click", (e) => {
         if (!node) return;
@@ -1078,6 +1173,51 @@ function fill(sec, id, items) {
         .forEach(({ it }) => sec.append(it.build()));
 }
 
+// One subgraph: header (drag, collapse, rename, x), then its nodes and their widgets.
+function sgCard(g) {
+    const collapsed = !!readCfg().collapsed?.[g.key];
+    const count = g.nodes.reduce((a, nd) => a + nd.rows.length, 0);
+    const card = el("div", "nlp-sg nlp-item");
+    card.dataset.key = g.key;
+    const head = el("div", "nlp-card-head");
+    const grip = el("span", "nlp-grip nlp-handle");
+    grip.title = "Drag to reorder";
+    const chev = el("span", "nlp-btn nlp-sg-chev", collapsed ? "\u25B8" : "\u25BE");
+    chev.title = collapsed ? "Expand" : "Collapse";
+    chev.addEventListener("click", (e) => {
+        e.stopPropagation();
+        editCfg((c) => { if (c.collapsed[g.key]) delete c.collapsed[g.key]; else c.collapsed[g.key] = true; });
+    });
+    const name = nameEl(g.key, g.path, "nlp-card-name nlp-handle", g.node);
+    const sub = el("span", "nlp-card-sub", `${count} widget${count === 1 ? "" : "s"}`);
+    sub.title = "Click to jump to this subgraph node";
+    sub.addEventListener("click", () => focusNode(g.node));
+    arm(card, grip);
+    arm(card, name);
+    head.append(grip, chev, name, sub, xBtn(g.key, null, "Remove this whole subgraph from the panel (the Default button brings it back)"));
+    card.append(head);
+    if (collapsed) return card;
+
+    const title = (n) => (n === g.node ? "Exposed inputs" : (n.title || nodeType(n)));
+    for (const nd of g.nodes) {
+        const multi = nd.rows.length > 1;
+        if (multi) {
+            const nh = el("div", "nlp-sg-node");
+            nh.append(
+                nameEl(nd.key, title(nd.node), "nlp-label", nd.node, true),
+                xBtn(nd.key, null, "Remove all of this node's widgets from the panel (the Default button brings them back)"),
+            );
+            card.append(nh);
+        }
+        for (const r of nd.rows) {
+            // a lone generic "value" widget is labelled by its node ("Turbo Steps"), not "value"
+            const label = !multi && GENERIC_WIDGET.test(r.name) ? title(r.owner) : r.label;
+            card.append(widgetItem(r.key, label, r.ref, r.kind, null, null, { drag: false }));
+        }
+    }
+    return card;
+}
+
 function render(m) {
     closeComboList();
     bindings = [];
@@ -1102,6 +1242,22 @@ function render(m) {
     const loras = keep(m.loras, K.lora);
     const res = keep(m.out.res, K.res), sizes = keep(m.out.sizes, K.size), durs = keep(m.out.durs, K.dur);
     const pinned = m.pins.live;
+    // subgraphs: group > node > widget, each level can be removed (hidden) on its own
+    const subs = [];
+    for (const g of m.sub) {
+        if (c.hidden[g.key]) { hiddenCount++; continue; }
+        const nodes = [];
+        for (const nd of g.nodes) {
+            if (c.hidden[nd.key]) { hiddenCount++; continue; }
+            const rows = nd.rows.filter((r) => {
+                if (c.hidden[r.key]) { hiddenCount++; return false; }
+                return true;
+            });
+            if (rows.length) nodes.push({ ...nd, rows });
+        }
+        if (nodes.length) subs.push({ ...g, nodes });
+    }
+    const subRows = subs.reduce((a, g) => a + g.nodes.reduce((b, nd) => b + nd.rows.length, 0), 0);
     const note = [];
     if (hiddenCount) note.push(`${hiddenCount} hidden`);
     if (m.pins.missing) note.push(`${m.pins.missing} pin${m.pins.missing > 1 ? "s" : ""} off`);
@@ -1111,7 +1267,7 @@ function render(m) {
         : "";
 
     const total = ckpt.length + clip.length + vae.length + smps.length + loras.length
-        + res.length + sizes.length + durs.length + pinned.length;
+        + res.length + sizes.length + durs.length + pinned.length + subRows;
     if (!total) {
         body.append(el("div", "nlp-empty", hiddenCount
             ? "Everything is hidden. Press Default to bring it all back."
@@ -1212,6 +1368,11 @@ function render(m) {
             return { key: p.key, build: () => pinItem(p, label) };
         });
         fill(section("Pinned", "pins"), "pins", items);
+    }
+
+    if (subs.length) {
+        const items = subs.map((g) => ({ key: g.key, build: () => sgCard(g) }));
+        fill(section("Subgraphs", "subgraphs"), "subgraphs", items);
     }
 }
 
