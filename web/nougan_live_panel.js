@@ -240,8 +240,21 @@ function collectSamplers(nodes) {
         }
         if (f) out.push({ node: n, ...f, seedCtl: seedControl(f.seed) });
     }
-    out.sort((a, b) => Number(a.node.id) - Number(b.node.id));
-    return out;
+    // A subgraph node that exposes steps / sampler_name and the sampler inside it resolve to the
+    // very same widgets, which used to give two identical cards. Keep one: the outermost, which is
+    // the node you actually see on the canvas.
+    const depth = (n) => { let d = 0, g = n.graph; while (g && subParent.has(g) && d < 8) { g = subParent.get(g).graph; d++; } return d; };
+    out.sort((a, b) => depth(a.node) - depth(b.node) || Number(a.node.id) - Number(b.node.id));
+    const seenS = new Set();
+    const uniq = out.filter((x) => {
+        const w = x.steps?.w || x.sampler?.w;
+        if (!w) return true;
+        if (seenS.has(w)) return false;
+        seenS.add(w);
+        return true;
+    });
+    uniq.sort((a, b) => Number(a.node.id) - Number(b.node.id));
+    return uniq;
 }
 
 // The "control after generate" combo that sits next to a seed widget (fixed / increment /
@@ -2130,14 +2143,20 @@ function pinNodeWidgets(n) {
 function dropNode(n, ev, single) {
     // subgraph: bring its whole group back
     if (n.subgraph) {
-        const prefixes = [`sg:${nkey(n)}`];
-        for (const inner of (n.subgraph._nodes || n.subgraph.nodes || [])) {
-            prefixes.push(`sgn:${nkey(inner)}`, `sgw:${nkey(inner)}:`);
-        }
-        prefixes.push(`sgw:${nkey(n)}:`);
+        // clear every hidden flag (sampler / loader / LoRA / resolution cards and the Subgraphs
+        // card, nodes and widgets) that belongs to this subgraph node or anything inside it
+        const ids = new Set();
+        const walk = (node, d) => {
+            ids.add(nkey(node));
+            if (node.subgraph && d < 6) for (const inner of (node.subgraph._nodes || node.subgraph.nodes || [])) walk(inner, d + 1);
+        };
+        walk(n, 0);
         editCfg((c) => {
             for (const k of Object.keys(c.hidden)) {
-                if (prefixes.some((p) => k === p || (p.endsWith(":") && k.startsWith(p)))) delete c.hidden[k];
+                const rest = k.slice(k.indexOf(":") + 1);
+                for (const id of ids) {
+                    if (rest === id || rest.startsWith(id + ":")) { delete c.hidden[k]; break; }
+                }
             }
         });
         rebuild();
