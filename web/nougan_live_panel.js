@@ -1616,6 +1616,41 @@ function placeLauncher() {
 
 let footer = null, hiddenNote = null;
 
+// ---- support links: a tiny "Support" label in the footer; double-click it to reveal the buttons ----
+const SUPPORT_LINKS = [
+    { name: "Patreon", url: "https://www.patreon.com/c/Winnougan", cls: "nlp-sup-patreon" },
+    { name: "Ko-fi",   url: "https://ko-fi.com/winnougan",         cls: "nlp-sup-kofi" },
+    { name: "Discord", url: "https://discord.gg/CJv5wceJaN",       cls: "nlp-sup-discord" },
+    { name: "YouTube", url: "https://www.youtube.com/@Winnougan", cls: "nlp-sup-youtube" },
+];
+
+function buildSupport() {
+    const label = el("span", "nlp-sup-label", "Support");
+    label.title = "Double-click to show support links";
+    const row = el("div", "nlp-support");
+
+    for (const l of SUPPORT_LINKS) {
+        const a = el("a", "nlp-sup-link " + l.cls, l.name);
+        a.href = l.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.title = l.url;
+        row.appendChild(a);
+    }
+    row.appendChild(el("span", "nlp-spacer"));
+    const close = el("span", "nlp-sup-x", "×");
+    close.title = "Hide support links";
+    row.appendChild(close);
+
+    const setOpen = (on) => {
+        row.classList.toggle("nlp-sup-open", on);
+        label.classList.toggle("nlp-sup-on", on);
+    };
+    label.addEventListener("dblclick", (e) => { e.stopPropagation(); setOpen(true); });
+    close.addEventListener("click", (e) => { e.stopPropagation(); setOpen(false); });
+    return { label, row };
+}
+
 async function doReload(btn) {
     btn.textContent = "Reloading\u2026";
     btn.disabled = true;
@@ -1705,8 +1740,9 @@ function createPanel() {
         defBtn.textContent = "Default";
         resetCfg();
     });
-    footer.append(hiddenNote, el("span", "nlp-spacer"), reloadBtn, defBtn);
-    panel.append(header, buildRunBar(), preview.host, body, footer);
+    const support = buildSupport();
+    footer.append(support.label, hiddenNote, el("span", "nlp-spacer"), reloadBtn, defBtn);
+    panel.append(header, buildRunBar(), preview.host, body, footer, support.row);
     document.body.appendChild(panel);
 
     launcher = el("div", "nlp-launcher", "\u2699 2222");
