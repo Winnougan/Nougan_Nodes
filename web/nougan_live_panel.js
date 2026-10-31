@@ -8,6 +8,10 @@
 // "pin any widget" (header pin button, or right-click a node), and a run bar with
 // Queue / Stop, progress, queue count and a VRAM / RAM meter with per-run VRAM peak.
 //
+// Drag & drop: grab any node (or subgraph node) by its title bar and release it over the panel.
+// A node pins all its editable widgets; a subgraph node brings its group back. The node snaps back
+// to where it was. Every pinned row / subgraph card has an x to take it out again.
+//
 // Subgraphs: every widget inside a subgraph that the panel does not already show (a Steps INT
 // node, a prompt box, ...) gets its own card in the "Subgraphs" section. The subgraph, each node
 // and each widget has an x. That only hides it in the panel (the real node is never touched),
@@ -285,7 +289,16 @@ function claimedBy(m) {
     for (const s of m.samplers) {
         for (const k of ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl"]) add(s[k]);
     }
-    for (const l of m.loras) N.add(l.node);
+    const hid = readCfg().hidden || {};
+    for (const l of m.loras) {
+        if (l.node.subgraph) {
+            // a subgraph node that merely exposes lora_name / strength: claim only those widgets
+            // (claiming the whole node hid every other promoted widget, e.g. turbo steps),
+            // and let them fall through to the Subgraphs card if the LoRA card was x-ed
+            if (hid[`lora:${nkey(l.node)}:${l.name?.w?.name}`]) continue;
+            add(l.on); add(l.name); add(l.strength); add(l.strengthClip);
+        } else N.add(l.node);
+    }
     for (const r of m.out.res) { add(r.aspect); add(r.mp); add(r.multiple); }
     for (const r of m.out.sizes) { add(r.width); add(r.height); }
     for (const d of m.out.durs) add(d.value);
@@ -1818,6 +1831,116 @@ function nodeMenuItems(node) {
     } catch { return []; }
 }
 
+// ============================ drag a node onto the panel ======================
+// Canvas nodes are not DOM elements, so there is no native HTML5 drag from them. Instead we watch
+// the title-bar drag LiteGraph already does: pointerdown on a node title, pointermove past a small
+// threshold, and if the pointer is released over the panel the node is "dropped" into it, then it
+// snaps back to where it was. A normal node drop = pin every editable widget on it. A subgraph
+// node = un-hide its group (and every node / widget in it) in the Subgraphs section.
+
+const DROP = { node: null, start: null, origin: null, moved: false, hot: false };
+
+function overPanel(e) {
+    if (!panel || !panel.isConnected || !visible) return false;
+    const r = panel.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+}
+
+function titleHit(e) {
+    try {
+        const c = app.canvas;
+        if (!c?.graph || e.button !== 0) return null;
+        const cr = c.canvas.getBoundingClientRect();
+        if (e.clientX < cr.left || e.clientX > cr.right || e.clientY < cr.top || e.clientY > cr.bottom) return null;
+        const [gx, gy] = c.convertEventToCanvasOffset(e);
+        const n = c.graph.getNodeOnPos(gx, gy);
+        if (!n || gy >= n.pos[1]) return null;     // only the title bar, not widgets / body
+        return n;
+    } catch { return null; }
+}
+
+function setDropHot(on) {
+    if (DROP.hot === on) return;
+    DROP.hot = on;
+    panel?.classList.toggle("nlp-drop-hot", on);
+}
+
+function toast(msg) {
+    try { app.extensionManager?.toast?.add({ severity: "info", summary: "Live Panel", detail: msg, life: 2500 }); } catch {}
+}
+
+function dropNode(n) {
+    // subgraph: bring its whole group back
+    if (n.subgraph) {
+        const prefixes = [`sg:${nkey(n)}`];
+        for (const inner of (n.subgraph._nodes || n.subgraph.nodes || [])) {
+            prefixes.push(`sgn:${nkey(inner)}`, `sgw:${nkey(inner)}:`);
+        }
+        prefixes.push(`sgw:${nkey(n)}:`);
+        editCfg((c) => {
+            for (const k of Object.keys(c.hidden)) {
+                if (prefixes.some((p) => k === p || (p.endsWith(":") && k.startsWith(p)))) delete c.hidden[k];
+            }
+        });
+        rebuild();
+        toast(`Subgraph \u201C${n.title || "Subgraph"}\u201D added`);
+        return;
+    }
+    const ws = (n.widgets || []).filter((w) => pinKind({ node: n, w }));
+    if (!ws.length) { toast(`\u201C${n.title || nodeType(n)}\u201D has nothing editable`); return; }
+    let added = 0;
+    for (const w of ws) if (!isPinned(n, w.name)) { togglePin(n, w.name); added++; }
+    // a widget the user x-ed earlier is hidden under its section key too; pins are separate, so nothing to clear
+    rebuild();
+    toast(added ? `Pinned ${added} widget${added > 1 ? "s" : ""} from \u201C${n.title || nodeType(n)}\u201D`
+                : `\u201C${n.title || nodeType(n)}\u201D is already in the panel`);
+}
+
+function setupNodeDrop() {
+    window.addEventListener("pointerdown", (e) => {
+        DROP.node = titleHit(e);
+        DROP.moved = false;
+        if (DROP.node) { DROP.start = [e.clientX, e.clientY]; DROP.origin = DROP.node.pos.slice(); }
+    }, true);
+
+    window.addEventListener("pointermove", (e) => {
+        if (!DROP.node) return;
+        if (!DROP.moved) {
+            if (Math.hypot(e.clientX - DROP.start[0], e.clientY - DROP.start[1]) < 8) return;
+            DROP.moved = true;
+        }
+        setDropHot(overPanel(e));
+    }, true);
+
+    const end = (e) => {
+        const n = DROP.node;
+        const hot = DROP.moved && n && e.type === "pointerup" && overPanel(e);
+        DROP.node = null;
+        setDropHot(false);
+        if (!hot) return;
+        // put the dragged node(s) back so they don't end up buried under the panel
+        try {
+            const dx = n.pos[0] - DROP.origin[0], dy = n.pos[1] - DROP.origin[1];
+            const group = new Set([n, ...selectedNodesAll()]);
+            for (const m of group) { m.pos[0] -= dx; m.pos[1] -= dy; }
+            app.canvas.setDirty(true, true);
+        } catch {}
+        const picked = [...new Set([n, ...selectedNodesAll()])];
+        for (const m of picked) dropNode(m);
+    };
+    window.addEventListener("pointerup", end, true);
+    window.addEventListener("pointercancel", end, true);
+}
+
+function selectedNodesAll() {
+    const c = app.canvas;
+    let list = [];
+    try { list = [...(c?.selectedItems || [])]; } catch {}
+    if (!list.length) { try { list = Object.values(c?.selected_nodes || {}); } catch {} }
+    return list.filter((n) => n && Array.isArray(n.widgets));
+}
+
 // ============================ run feedback ===================================
 // Queue / Stop, progress of the node that is running, queue count, and a VRAM / RAM meter
 // from /system_stats. The tick on the VRAM bar marks the highest use seen during the last run.
@@ -1976,6 +2099,7 @@ app.registerExtension({
         try { visible = app.ui.settings.getSettingValue(SETTING_ID) !== false; } catch {}
         hookGraphToPrompt();
         createPanel();
+        setupNodeDrop();
         hookRunEvents();
         pollStats();
         loadLoraNames();
