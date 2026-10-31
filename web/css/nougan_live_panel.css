@@ -444,7 +444,7 @@ textarea.nlp-text { display: block; min-height: 54px; resize: vertical; line-hei
 
 /* ---------- sketch pad (a Nougan Draw Image node dropped onto the panel) ---------- */
 .nlp-drawcard { padding-bottom: 5px; }
-.nlp-draw-host { position: relative; width: 100%; height: 440px; margin-top: 4px; resize: vertical; overflow: hidden; min-height: 300px; }
+.nlp-draw-host { position: relative; width: 100%; height: 560px; margin-top: 4px; resize: vertical; overflow: hidden; min-height: 340px; }
 .nlp-draw-host > .nd-root { height: 100%; }
 
 /* ---------- support links (footer label, double-click to reveal the row) ---------- */
