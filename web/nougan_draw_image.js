@@ -38,6 +38,17 @@ const CSS = `
 .nd-ring{position:absolute;pointer-events:none;border:1px solid #000;border-radius:50%;
   box-shadow:0 0 0 1px #fff;transform:translate(-50%,-50%);display:none}
 .nd-side{width:150px;display:flex;flex-direction:column;gap:6px;min-height:0}
+.nd-colors{display:flex;flex-direction:column;gap:6px;flex:none}
+.nd-lbox{display:flex;flex-direction:column;gap:6px;flex:1;min-height:0;min-width:0}
+.nd-host{position:relative;width:100%;height:100%}
+.nd-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;height:100%;
+  box-sizing:border-box;padding:12px;text-align:center;color:var(--input-text,#ddd);font:12px sans-serif;opacity:.85}
+/* narrow (inside the Live Panel, or a small node): canvas on top, colours + layers side by side underneath */
+.nd-narrow .nd-main{flex-direction:column}
+.nd-narrow .nd-stage{flex:1 1 auto;min-height:150px}
+.nd-narrow .nd-side{width:auto;flex:0 0 auto;height:212px;flex-direction:row}
+.nd-narrow .nd-colors{width:132px}
+.nd-narrow .nd-size input{width:80px}
 .nd-wheel{display:block;margin:0 auto;cursor:crosshair;touch-action:none;border-radius:50%}
 .nd-val{width:100%;height:14px;margin:0;-webkit-appearance:none;appearance:none;border-radius:7px;border:1px solid #555}
 .nd-val::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:16px;border-radius:4px;background:#fff;border:1px solid #000}
@@ -204,13 +215,17 @@ class DrawEditor {
     this.activeId = first.id;
     this.renderLayerList();
 
-    this.widget = node.addDOMWidget("draw_editor", "nougan_draw", this.root, {
+    // ComfyUI owns `host`; the real editor (`root`) lives inside it and can be lent to the Live Panel.
+    this.host = el("div", "nd-host");
+    this.host.appendChild(this.root);
+    this.widget = node.addDOMWidget("draw_editor", "nougan_draw", this.host, {
       serialize: false,
       hideOnZoom: false,
       getMinHeight: () => 320,
     });
     editors.add(this);
     new ResizeObserver(() => this.fit()).observe(this.stage);
+    new ResizeObserver(() => this.root.classList.toggle("nd-narrow", this.root.clientWidth < 520)).observe(this.root);
     this.initRenderer();
   }
 
@@ -447,7 +462,11 @@ class DrawEditor {
     const lhead = el("div", "nd-lhead");
     lhead.append(el("span", "", "Layers"), btn("+", "Add a layer above the active one", () => this.addLayer(), "sm"));
     this.layerList = el("div", "nd-layers");
-    side.append(this.wheel, this.valIn, colorRow, sw, lhead, this.layerList);
+    const colors = el("div", "nd-colors");
+    colors.append(this.wheel, this.valIn, colorRow, sw);
+    const lbox = el("div", "nd-lbox");
+    lbox.append(lhead, this.layerList);
+    side.append(colors, lbox);
     this.bindWheel();
 
     main.append(stage, side);
@@ -766,13 +785,43 @@ class DrawEditor {
       }
     }
   }
+  // ── lending the editor to the Live Panel ──
+  // The panel moves `root` into its own card; the node shows a placeholder until it comes back.
+  mountInto(target) {
+    if (!this.placeholder) {
+      this.placeholder = el("div", "nd-placeholder");
+      this.placeholder.append(
+        el("div", "", "The sketch pad is open in the Live Panel."),
+        btn("Bring it back here", "Move the sketch pad back onto this node", () => this.releaseFromPanel()),
+      );
+    }
+    this.mountedIn = target;
+    target.appendChild(this.root);
+    this.host.appendChild(this.placeholder);
+    this.fit(); this.invalidate();
+  }
+  release() {
+    if (!this.mountedIn) return;
+    this.mountedIn = null;
+    this.placeholder?.remove();
+    this.host.appendChild(this.root);
+    this.fit(); this.invalidate();
+  }
+  releaseFromPanel() {
+    this.release();
+    window.dispatchEvent(new CustomEvent("nougan-draw-released", { detail: { node: this.node } }));
+  }
   destroy() {
     editors.delete(this);
     clearTimeout(this.saveT);
     cancelAnimationFrame(this.raf);
     this.layers.forEach((l) => this.freeGPU(l));
+    if (this.mountedIn) { this.mountedIn = null; this.root.remove(); }
   }
 }
+
+// small public API so the Live Panel can find a node's editor without importing this file
+window.NouganDraw = Object.assign(window.NouganDraw || {}, { editorOf: (node) => node?._nougan_draw || null });
 
 // ───────────────────────────── extension ─────────────────────────────
 app.registerExtension({

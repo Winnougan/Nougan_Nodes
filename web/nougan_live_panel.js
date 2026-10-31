@@ -83,7 +83,7 @@ const THEME_VARS = {
 };
 
 const state = Object.assign(
-    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto", cmpMode: "wipe", cmpPos: 50 },
+    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto", cmpMode: "wipe", cmpPos: 50, support: true },
     loadState()
 );
 if (!THEMES[state.theme]) state.theme = "comfy";
@@ -320,6 +320,47 @@ function collectPins(nodes) {
     }
     return { live, missing };
 }
+
+// ---- sketch pads (Nougan Draw Image nodes dropped onto the panel) ----
+// The node's own editor is lent to the panel (see mountInto / release in nougan_draw_image.js),
+// so there is one drawing, one set of layers and one undo history, shown in only one place at a time.
+const sketchEditor = (n) => { try { return window.NouganDraw?.editorOf?.(n) || null; } catch { return null; } };
+
+function collectDraws(nodes) {
+    const keys = readCfg().draws || [];
+    const live = [];
+    let missing = 0;
+    if (!keys.length) return { live, missing };
+    const byKey = new Map(nodes.map((n) => [nkey(n), n]));
+    for (const k of keys) {
+        const node = byKey.get(k);
+        const editor = node ? sketchEditor(node) : null;
+        if (!editor) { missing++; continue; }   // node deleted, bypassed, or the draw script is not loaded
+        live.push({ k, node, editor });
+    }
+    return { live, missing };
+}
+
+const isDrawNode = (n) => !!n && nodeType(n) === "NouganDrawImage";
+const isSketchPinned = (n) => (readCfg().draws || []).includes(nkey(n));
+
+function pinSketch(n) {
+    if (!sketchEditor(n)) { toast("The sketch pad script isn't loaded (web/nougan_draw_image.js)"); return; }
+    const k = nkey(n);
+    if (isSketchPinned(n)) { toast(`“${n.title || "Draw Image"}” is already in the panel`); return; }
+    editCfg((c) => { c.draws.push(k); });
+    toast(`Sketch pad from “${n.title || "Draw Image"}” moved into the panel`);
+}
+
+function unpinSketch(k) {
+    editCfg((c) => { c.draws = (c.draws || []).filter((x) => x !== k); delete c.names[`draw:${k}`]; });
+}
+
+// "Bring it back here" on the node itself: drop it from the panel's list too
+window.addEventListener("nougan-draw-released", (e) => {
+    const n = e.detail?.node;
+    if (n && isSketchPinned(n)) unpinSketch(nkey(n));
+});
 
 // ---- subgraph contents ----
 // Widgets already shown by another section (loaders, samplers, resolution, pins) or owned by a
@@ -609,6 +650,7 @@ function buildModel() {
     const m = { ...loaders, samplers: collectSamplers(nodes), loras: collectLoras(nodes), out: collectOutput(nodes), pins: collectPins(nodes) };
     m.sub = collectSubgraphs(nodes, claimedBy(m));
     m.cmp = collectCompare(nodes);
+    m.draws = collectDraws(nodes);
     return m;
 }
 
@@ -636,6 +678,7 @@ function signature(m) {
         m.sub.map((g) => `${g.key}:` + g.nodes.map((nd) => `${nd.key}[` +
             nd.rows.map((r) => `${r.key}:${rsig(r.ref)}:${r.kind}`).join(",") + "]").join("")).join(";"),
         m.cmp.srcs.map((x) => `${x.k}:${x.node ? 1 : 0}`).join(","),
+        m.draws.live.map((d) => d.k).join(",") + `#${m.draws.missing}`,
         JSON.stringify(readCfg()),
     ].join("|");
 }
@@ -661,14 +704,14 @@ function touchWorkflow() {
 // ---- user layout: renamed labels, hidden items, custom order ----
 // Stored inside the workflow itself (graph.extra.nougan_live_panel), so it
 // travels with the file and each workflow keeps its own layout.
-const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {} };
+const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {}, draws: [] };
 const readCfg = () => app.graph?.extra?.nougan_live_panel || EMPTY_CFG;
 function editCfg(fn) {
     const g = app.graph;
     if (!g) return;
     g.extra = g.extra || {};
     const c = g.extra.nougan_live_panel || (g.extra.nougan_live_panel = {});
-    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {};
+    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {}; c.draws = c.draws || [];
     fn(c);
     touchWorkflow();
     rebuild();
@@ -680,7 +723,8 @@ function resetCfg() {
         // pins are content, not layout: Default keeps them
         const pins = Array.isArray(cur.pins) ? cur.pins.slice() : [];
         const cmp = cur.cmp?.srcs?.length ? cur.cmp : null;
-        if (pins.length || cmp) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, ...(cmp ? { cmp } : {}) };
+        const draws = Array.isArray(cur.draws) ? cur.draws.slice() : [];
+        if (pins.length || cmp || draws.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, draws, ...(cmp ? { cmp } : {}) };
         else delete g.extra.nougan_live_panel;
         touchWorkflow();
     }
@@ -1276,7 +1320,27 @@ function sgCard(g) {
     return card;
 }
 
+// sketch pads currently lent to the panel; any that are no longer pinned go back to their node
+const mountedDraws = new Set();
+
+function drawCard(d) {
+    const key = `draw:${d.k}`;
+    const card = cardShell(key, "Sketch pad", d.node);
+    const head = card.firstChild;
+    head.querySelector(".nlp-x")?.remove();
+    head.append(xBtn(key, () => unpinSketch(d.k), "Send the sketch pad back to its node"));
+    card.classList.add("nlp-drawcard");
+    const host = el("div", "nlp-draw-host");
+    host.title = "";
+    card.append(host);
+    d.editor.mountInto(host);
+    mountedDraws.add(d.editor);
+    return card;
+}
+
 function render(m) {
+    const liveDraws = new Set(m.draws.live.map((d) => d.editor));
+    for (const ed of mountedDraws) if (!liveDraws.has(ed)) { try { ed.release(); } catch {} mountedDraws.delete(ed); }
     closeComboList();
     bindings = [];
     body.textContent = "";
@@ -1319,13 +1383,14 @@ function render(m) {
     const note = [];
     if (hiddenCount) note.push(`${hiddenCount} hidden`);
     if (m.pins.missing) note.push(`${m.pins.missing} pin${m.pins.missing > 1 ? "s" : ""} off`);
+    if (m.draws.missing) note.push(`${m.draws.missing} sketch pad${m.draws.missing > 1 ? "s" : ""} off`);
     hiddenNote.textContent = note.join(" \u00B7 ");
     hiddenNote.title = m.pins.missing
         ? "Some pinned widgets are not shown: their node was deleted, bypassed or muted"
         : "";
 
     const total = ckpt.length + clip.length + vae.length + smps.length + loras.length
-        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length;
+        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length + m.draws.live.length;
     if (!total) {
         body.append(el("div", "nlp-empty", hiddenCount
             ? "Everything is hidden. Press Default to bring it all back."
@@ -1426,6 +1491,11 @@ function render(m) {
             return { key: p.key, build: () => pinItem(p, label) };
         });
         fill(section("Pinned", "pins"), "pins", items);
+    }
+
+    if (m.draws.live.length) {
+        const items = m.draws.live.map((d) => ({ key: `draw:${d.k}`, build: () => drawCard(d) }));
+        fill(section(m.draws.live.length > 1 ? "Sketch pads" : "Sketch pad", "draws"), "draws", items);
     }
 
     if (m.cmp.srcs.length) fill(section("Compare", "cmp"), "cmp", [{ key: "cmp", build: () => cmpCard(m.cmp) }]);
@@ -1616,17 +1686,19 @@ function placeLauncher() {
 
 let footer = null, hiddenNote = null;
 
-// ---- support links: a tiny "Support" label in the footer; double-click it to reveal the buttons ----
+// ---- support links: a row of link buttons at the bottom, on by default. The x hides it (remembered);
+//      the tiny "Support Winnougan" label that replaces it in the footer brings it back on double-click ----
 const SUPPORT_LINKS = [
-    { name: "Patreon", url: "https://www.patreon.com/c/Winnougan", cls: "nlp-sup-patreon" },
-    { name: "Ko-fi",   url: "https://ko-fi.com/winnougan",         cls: "nlp-sup-kofi" },
-    { name: "Discord", url: "https://discord.gg/CJv5wceJaN",       cls: "nlp-sup-discord" },
-    { name: "YouTube", url: "https://www.youtube.com/@Winnougan", cls: "nlp-sup-youtube" },
+    { name: "Patreon", url: "https://www.patreon.com/c/Winnougan",          cls: "nlp-sup-patreon" },
+    { name: "Ko-fi",   url: "https://ko-fi.com/winnougan",                  cls: "nlp-sup-kofi" },
+    { name: "Discord", url: "https://discord.gg/CJv5wceJaN",                cls: "nlp-sup-discord" },
+    { name: "YouTube", url: "https://www.youtube.com/@Winnougan",          cls: "nlp-sup-youtube" },
+    { name: "Civitai", url: "https://civitai.red/user/Winnougan/models",    cls: "nlp-sup-civitai" },
 ];
 
 function buildSupport() {
-    const label = el("span", "nlp-sup-label", "Support");
-    label.title = "Double-click to show support links";
+    const label = el("span", "nlp-sup-label", "Support Winnougan");
+    label.title = "Double-click to show the support links";
     const row = el("div", "nlp-support");
 
     for (const l of SUPPORT_LINKS) {
@@ -1637,15 +1709,16 @@ function buildSupport() {
         a.title = l.url;
         row.appendChild(a);
     }
-    row.appendChild(el("span", "nlp-spacer"));
     const close = el("span", "nlp-sup-x", "×");
-    close.title = "Hide support links";
+    close.title = "Hide support links (double-click \"Support Winnougan\" in the footer to bring them back)";
     row.appendChild(close);
 
-    const setOpen = (on) => {
+    const paint = (on) => {
         row.classList.toggle("nlp-sup-open", on);
         label.classList.toggle("nlp-sup-on", on);
     };
+    const setOpen = (on) => { state.support = on; paint(on); saveState(); };
+    paint(state.support !== false);
     label.addEventListener("dblclick", (e) => { e.stopPropagation(); setOpen(true); });
     close.addEventListener("click", (e) => { e.stopPropagation(); setOpen(false); });
     return { label, row };
@@ -1896,8 +1969,16 @@ function nodeMenuItems(node) {
         } catch {}
         const any = (node.widgets || []).some((w) => pinKind({ node, w }));
         const img = isImageNode(node);
-        if (!hover && !any && !img) return [];
+        const sketch = isDrawNode(node) && !!sketchEditor(node);
+        if (!hover && !any && !img && !sketch) return [];
         const out = [null];
+        if (sketch) {
+            const on = isSketchPinned(node);
+            out.push({
+                content: on ? "Send sketch pad back to this node" : "Move sketch pad to Live Panel",
+                callback: () => { if (on) { unpinSketch(nkey(node)); toast("Sketch pad is back on its node"); } else pinSketch(node); },
+            });
+        }
         if (hover) {
             const on = isPinned(node, hover.name);
             out.push({
@@ -2177,6 +2258,8 @@ function pinNodeWidgets(n) {
 }
 
 function dropNode(n, ev, single) {
+    // a Nougan Draw Image node: its sketch pad moves into the panel
+    if (isDrawNode(n)) { pinSketch(n); return; }
     // subgraph: bring its whole group back
     if (n.subgraph) {
         // clear every hidden flag (sampler / loader / LoRA / resolution cards and the Subgraphs
