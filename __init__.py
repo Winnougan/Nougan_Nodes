@@ -229,6 +229,11 @@ _FEATURES = [
     ("Timer", "nougan_timer", [
         ("NouganTimer", "NouganTimer", "Nougan Timer ⏱️"),
     ]),
+    # Sketch pad that behaves like Load Image: draw poses/guides with mouse or stylus (pressure), colour wheel,
+    # layers, undo; outputs IMAGE + MASK (web/nougan_draw_image.js). Saves PNGs to input/nougan_draw/.
+    ("Draw Image", "nougan_draw_image", [
+        ("NouganDrawImage", "NouganDrawImage", "Nougan Draw Image ✏️"),
+    ]),
 ]
 
 # Frontend-only features: no Python module, no nodes, just a script in WEB_DIRECTORY that ComfyUI
