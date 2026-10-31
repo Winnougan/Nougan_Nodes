@@ -392,3 +392,52 @@ textarea.nlp-text { display: block; min-height: 54px; resize: vertical; line-hei
     font-weight: 600;
     pointer-events: none;
 }
+
+/* theme menu is long now: scroll instead of running off screen */
+.nlp-menu { max-height: 80vh; overflow-y: auto; scrollbar-width: thin; }
+
+/* ---------- image compare ---------- */
+.nlp-cmp-view {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 60vh;
+    margin: 4px 0;
+    background: #000;
+    border: 1px solid var(--nlp-border);
+    border-radius: 4px;
+    overflow: hidden;
+    isolation: isolate;
+    touch-action: none;
+}
+.nlp-cmp-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.nlp-cmp-line {
+    position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+    background: var(--nlp-accent); box-shadow: 0 0 4px rgba(0, 0, 0, 0.7); pointer-events: none; display: none;
+}
+.nlp-cmp-line::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+    border-radius: 50%; background: var(--nlp-accent); border: 2px solid #fff; box-sizing: border-box;
+}
+.nlp-cmp-tag {
+    position: absolute; top: 4px; max-width: 46%; padding: 1px 5px; border-radius: 3px;
+    background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 9px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.nlp-cmp-taga { left: 4px; }
+.nlp-cmp-tagb { right: 4px; }
+.nlp-cmp-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 8px; text-align: center; color: #aaa; pointer-events: none;
+}
+.nlp-cmp-list { margin-top: 3px; }
+.nlp-cmp-src { display: grid; grid-template-columns: 18px 18px minmax(0, 1fr) 14px; align-items: center; gap: 4px; margin: 2px 0; }
+.nlp-cmp-src.nlp-off { opacity: 0.5; }
+.nlp-cmp-src .nlp-label { color: var(--nlp-fg); cursor: pointer; }
+.nlp-cmp-ab {
+    text-align: center; padding: 0; font-size: 10px; line-height: 16px; cursor: pointer;
+    color: var(--nlp-dim); background: var(--nlp-input); border: 1px solid var(--nlp-border); border-radius: 3px;
+}
+.nlp-cmp-ab:hover { border-color: var(--nlp-accent); color: var(--nlp-accent); }
+.nlp-cmp-ab.nlp-on { background: var(--nlp-accent); border-color: var(--nlp-accent); color: var(--nlp-bg); font-weight: 700; }
+.nlp-hint { margin-top: 4px; color: var(--nlp-dim); font-size: 10px; }
