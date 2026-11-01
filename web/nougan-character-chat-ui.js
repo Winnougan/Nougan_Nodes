@@ -1,18 +1,21 @@
 // nougan-character-chat-ui.js -- chat panel for the Nougan Character Chat node (classic LiteGraph DOM widget, no Nodes 2.0)
-// v2: ambient WebGPU background (WebGL2 fallback) tinted from the avatar, pop-in messages, dialogue highlight, per-message copy.
+// v3: live progress bar at the bottom (tokens / max_length, elapsed, tok/s, ETA) fed by ComfyUI's
+//     "progress" websocket events; the ambient WebGPU shader now also glows with real token progress.
+//     Settings match the core "Generate Text" node (incl. sampling_mode and the tree MTP modes).
 //
 // Characters come from V2/V3 card PNGs, card JSONs, or refmod .safetensors files with a baked character
 // (made by Nougan Refmod Baker); the backend lists and reads all three, this panel just shows them.
 //
 // Turn flow: Send -> sets the hidden widgets (action / user_message / history_json) -> queues the graph ->
-// the node generates the reply -> onExecuted hands back the full history, which becomes the saved chat.
+// the node generates the reply (ComfyUI streams token progress over the websocket) -> onExecuted hands
+// back the full history, which becomes the saved chat.
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const NODE_NAME = "NouganCharacterChat";
 const HIDDEN = ["action", "user_message", "history_json"];
-const SETTINGS = ["max_length", "temperature", "top_p", "top_k", "min_p", "repetition_penalty", "seed", "control_after_generate", "thinking", "context_messages", "card_path", "presence_penalty", "mtp", "video_max_frames"];
+const SETTINGS = ["max_length", "temperature", "top_p", "top_k", "min_p", "repetition_penalty", "seed", "control_after_generate", "thinking", "context_messages", "card_path", "presence_penalty", "mtp", "video_max_frames", "sampling_mode"];
 const WIDTH = 520;
 const MSG_MAX_H = 380;
 
@@ -29,6 +32,9 @@ function fmt(text) {
         .replace(/&quot;(.+?)&quot;/gs, '<span class="q">&quot;$1&quot;</span>')
         .replace(/\n/g, "<br>");
 }
+
+const fmtSecs = (s) => s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(s < 10 ? 1 : 0)}s`;
+const fmtRate = (r) => r.toFixed(r < 10 ? 1 : 0);
 
 // Saved widget values are restored by position. If an older / shifted save put values in the wrong widgets
 // (e.g. the hidden action value "none" landing in card_path), put them back where they belong.
@@ -49,7 +55,8 @@ function repairWidgets(node) {
     if (um && ac && ac.value === "none" && um.value) um.value = "";
 
     // every numeric setting must be a real number inside its own min/max, otherwise back to its default
-    const NUM_DEFAULTS = { max_length: 400, temperature: 0.8, top_p: 0.95, top_k: 64, min_p: 0.05, repetition_penalty: 1.05,
+    // (defaults match the core Generate Text node)
+    const NUM_DEFAULTS = { max_length: 512, temperature: 0.7, top_p: 0.95, top_k: 64, min_p: 0.05, repetition_penalty: 1.05,
                            context_messages: 40, presence_penalty: 0, video_max_frames: 8 };
     for (const [name, def] of Object.entries(NUM_DEFAULTS)) {
         const w = g(name); if (!w) continue;
@@ -64,6 +71,7 @@ function repairWidgets(node) {
     const un = g("user_name"); if (un && typeof un.value !== "string") un.value = "User";
     if (cp && typeof cp.value !== "string") cp.value = "";
     const mtp = g("mtp"); if (mtp && Array.isArray(mtp.options?.values) && !mtp.options.values.includes(mtp.value)) mtp.value = "auto";
+    const sm = g("sampling_mode"); if (sm && !["on", "off"].includes(sm.value)) sm.value = "on";
 }
 
 function hideWidget(w) {
@@ -106,7 +114,7 @@ function styles() {
 
     const s = document.createElement("style");
     s.textContent = `
-.nbc{--bg:#12141a;--card:#1a1d26;--card2:#20242f;--line:#2a2f3c;--fg:#e8ebf2;--dim:#8a93a6;--acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;--cA:245,165,36;--cB:255,122,24;
+.nbc{--bg:#12141a;--card:#1a1d26;--card2:#20242f;--line:#2a2f3c;--fg:#e8ebf2;--dim:#8a93a6;--acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;--ok:#5ec98a;--cA:245,165,36;--cB:255,122,24;
   font:12.5px/1.4 'Inter','Segoe UI',system-ui,sans-serif;color:var(--fg);box-sizing:border-box;width:100%;padding:10px;border-radius:12px;
   border:1px solid var(--line);background:radial-gradient(120% 80% at 0% 0%,rgba(var(--cA),.10),transparent 55%),var(--bg);
   box-shadow:0 8px 26px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.04)}
@@ -173,6 +181,25 @@ function styles() {
 .nbc.busy .nbc-hav{animation:nbc-ring 1.4s ease-in-out infinite}
 @keyframes nbc-ring{0%,100%{box-shadow:0 0 10px rgba(var(--cA),.35)}50%{box-shadow:0 0 22px 3px rgba(var(--cA),.75)}}
 .nbc-think{font-size:10.5px;color:var(--dim);margin-left:6px;font-style:italic;vertical-align:middle}
+
+/* generation progress strip (bottom of the panel) */
+.nbc-prog{max-height:0;opacity:0;overflow:hidden;margin-top:0;transition:max-height .25s ease,opacity .25s ease,margin-top .25s ease}
+.nbc-prog.live{max-height:48px;opacity:1;margin-top:8px}
+.nbc-prog-row{display:flex;gap:8px;align-items:center}
+.nbc-prog-track{flex:1;height:6px;border-radius:4px;background:#0d0f14;border:1px solid #232834;overflow:hidden}
+.nbc-prog-fill{height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,rgb(var(--cA)),rgb(var(--cB)));transition:width .18s ease-out}
+.nbc-prog.indet .nbc-prog-fill{width:35%!important;animation:nbc-slide 1.1s ease-in-out infinite}
+@keyframes nbc-slide{0%{margin-left:-35%}100%{margin-left:100%}}
+.nbc-prog.done .nbc-prog-fill{background:linear-gradient(90deg,#3d9e6d,var(--ok))}
+.nbc-prog.err .nbc-prog-fill{background:var(--neg)}
+.nbc-stop{cursor:pointer;width:22px;height:16px;display:grid;place-items:center;font-size:9px;color:var(--dim);
+  background:var(--card);border:1px solid var(--line);border-radius:5px;flex:none}
+.nbc-stop:hover{color:#fff;background:var(--neg);border-color:var(--neg)}
+.nbc-prog-info{display:flex;justify-content:space-between;gap:8px;margin-top:4px;font-size:10.5px;color:var(--dim);min-height:14px}
+.nbc-prog-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nbc-prog-stats{white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+.nbc-prog.done .nbc-prog-label{color:var(--ok)}
+.nbc-prog.err .nbc-prog-label{color:#ffb3b9}
 @media (prefers-reduced-motion:reduce){.nbc *{animation:none!important;transition:none!important}}
 `;
     document.head.appendChild(s);
@@ -180,14 +207,15 @@ function styles() {
 
 
 // -- ambient FX: WebGPU shader background (falls back to WebGL2, then to nothing) ----------------------
-// A soft flowing-nebula shader sits behind the chat log, tinted from the character's avatar. It speeds up and
-// pulses while the character is "thinking". Rendered at ~60% resolution, capped at 30 fps, and paused when the
-// node is off-screen or the tab is hidden. WebGPU needs a secure context (localhost / 127.0.0.1 / https).
+// A soft flowing-nebula shader sits behind the chat log, tinted from the character's avatar. It speeds up
+// while the character is "thinking" and brightens with real token progress (the `prog` uniform, fed by
+// ComfyUI's progress events). Rendered at ~60% resolution, capped at 30 fps, and paused when the node is
+// off-screen or the tab is hidden. WebGPU needs a secure context (localhost / 127.0.0.1 / https).
 
 const FX_A = [0.96, 0.65, 0.14], FX_B = [1.0, 0.48, 0.09];       // default amber -> orange
 
 const WGSL = `
-struct U { res: vec2f, time: f32, busy: f32, colA: vec4f, colB: vec4f }
+struct U { res: vec2f, time: f32, busy: f32, prog: f32, pad0: f32, pad1: f32, pad2: f32, colA: vec4f, colB: vec4f }
 @group(0) @binding(0) var<uniform> u: U;
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
 
@@ -230,7 +258,7 @@ fn fbm(p0: vec2f) -> f32 {
     let col = mix(u.colA.rgb, u.colB.rgb, smoothstep(0.25, 0.85, n));
     let vig = smoothstep(1.3, 0.2, length(uv - 0.5) * 1.7);
     let pulse = 0.5 + 0.5 * sin(u.time * 3.0);
-    let glow = 0.30 + 0.45 * u.busy * pulse;
+    let glow = 0.30 + 0.45 * u.busy * pulse + 0.30 * u.prog;   // brightens as tokens accumulate
     let a = clamp(n * n * 2.0 * glow * vig, 0.0, 0.85);
     return vec4f(col * a, a);
 }`;
@@ -243,7 +271,7 @@ void main() {
 
 const GLSL_FS = `#version 300 es
 precision highp float;
-uniform vec2 res; uniform float time; uniform float busy; uniform vec3 colA; uniform vec3 colB;
+uniform vec2 res; uniform float time; uniform float busy; uniform float prog; uniform vec3 colA; uniform vec3 colB;
 out vec4 o;
 float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) {
@@ -265,12 +293,12 @@ void main() {
     vec3 col = mix(colA, colB, smoothstep(0.25, 0.85, n));
     float vig = smoothstep(1.3, 0.2, length(uv - 0.5) * 1.7);
     float pulse = 0.5 + 0.5 * sin(time * 3.0);
-    float glow = 0.30 + 0.45 * busy * pulse;
+    float glow = 0.30 + 0.45 * busy * pulse + 0.30 * prog;
     float a = clamp(n * n * 2.0 * glow * vig, 0.0, 0.85);
     o = vec4(col * a, a);
 }`;
 
-// Uniform layout (12 floats): res.xy, time, busy | colA.rgb,1 | colB.rgb,1
+// Uniform layout (16 floats / 64 bytes): res.xy, time, busy, prog, pad x3 | colA.rgb,1 | colB.rgb,1
 async function webgpuBackend(canvas) {
     if (!navigator.gpu) throw new Error("WebGPU not available");
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: "low-power" });
@@ -289,7 +317,7 @@ async function webgpuBackend(canvas) {
             fragment: { module, entryPoint: "fs", targets: [{ format }] },
             primitive: { topology: "triangle-list" },
         });
-        const ubuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        const ubuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
 
         const ctx = canvas.getContext("webgpu");
@@ -341,7 +369,7 @@ function webglBackend(canvas) {
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || "link failed");
 
     const vao = gl.createVertexArray();
-    const L = Object.fromEntries(["res", "time", "busy", "colA", "colB"].map(n => [n, gl.getUniformLocation(prog, n)]));
+    const L = Object.fromEntries(["res", "time", "busy", "prog", "colA", "colB"].map(n => [n, gl.getUniformLocation(prog, n)]));
 
     return {
         draw(u, w, h) {
@@ -354,8 +382,9 @@ function webglBackend(canvas) {
             gl.uniform2f(L.res, u[0], u[1]);
             gl.uniform1f(L.time, u[2]);
             gl.uniform1f(L.busy, u[3]);
-            gl.uniform3f(L.colA, u[4], u[5], u[6]);
-            gl.uniform3f(L.colB, u[8], u[9], u[10]);
+            gl.uniform1f(L.prog, u[4]);
+            gl.uniform3f(L.colA, u[8], u[9], u[10]);
+            gl.uniform3f(L.colB, u[12], u[13], u[14]);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
             return true;
         },
@@ -366,10 +395,10 @@ function webglBackend(canvas) {
 function createFX(canvas, onStatus) {
     const S = {
         on: false, dead: false, backend: "", inst: null, initP: null,
-        busy: 0, busyT: 0, a: FX_A, b: FX_B, ca: [...FX_A], cb: [...FX_B],
+        busy: 0, busyT: 0, prog: 0, progT: 0, a: FX_A, b: FX_B, ca: [...FX_A], cb: [...FX_B],
         raf: 0, last: 0, vis: true, t0: performance.now(),
     };
-    const u = new Float32Array(12);
+    const u = new Float32Array(16);
 
     const io = typeof IntersectionObserver !== "undefined"
         ? new IntersectionObserver(es => { S.vis = es[es.length - 1].isIntersecting; })
@@ -406,14 +435,15 @@ function createFX(canvas, onStatus) {
         if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
 
         S.busyT += (S.busy - S.busyT) * 0.1;
+        S.progT += (S.prog - S.progT) * 0.15;
         for (let k = 0; k < 3; k++) {
             S.ca[k] += (S.a[k] - S.ca[k]) * 0.08;                   // ease toward the new character's colours
             S.cb[k] += (S.b[k] - S.cb[k]) * 0.08;
         }
 
-        u[0] = tw; u[1] = th; u[2] = (now - S.t0) / 1000; u[3] = S.busyT;
-        u[4] = S.ca[0]; u[5] = S.ca[1]; u[6] = S.ca[2]; u[7] = 1;
-        u[8] = S.cb[0]; u[9] = S.cb[1]; u[10] = S.cb[2]; u[11] = 1;
+        u[0] = tw; u[1] = th; u[2] = (now - S.t0) / 1000; u[3] = S.busyT; u[4] = S.progT;
+        u[8] = S.ca[0]; u[9] = S.ca[1]; u[10] = S.ca[2]; u[11] = 1;
+        u[12] = S.cb[0]; u[13] = S.cb[1]; u[14] = S.cb[2]; u[15] = 1;
 
         if (S.inst.draw(u, tw, th) === false) { S.inst = null; S.backend = "off"; onStatus?.("off"); }
     }
@@ -421,7 +451,8 @@ function createFX(canvas, onStatus) {
     return {
         get backend() { return S.backend; },
         setColors(a, b) { S.a = a; S.b = b; },
-        setBusy(v) { S.busy = v ? 1 : 0; },
+        setBusy(v) { S.busy = v ? 1 : 0; if (!v) S.prog = 0; },
+        setProgress(v) { S.prog = Math.max(0, Math.min(1, v || 0)); },
         enable(on) {
             S.on = !!on;
             if (!S.on) { if (S.raf) cancelAnimationFrame(S.raf); S.raf = 0; return; }
@@ -531,6 +562,13 @@ function buildPanel(node) {
             <button class="nbc-tb nbc-cp" title="Copy the chat as text">⎘ Copy chat</button>
             <span class="nbc-sp"></span>
             <span class="nbc-sub nbc-count"></span>
+        </div>
+        <div class="nbc-prog">
+            <div class="nbc-prog-row">
+                <div class="nbc-prog-track"><div class="nbc-prog-fill"></div></div>
+                <button class="nbc-stop" title="Interrupt generation">■</button>
+            </div>
+            <div class="nbc-prog-info"><span class="nbc-prog-label"></span><span class="nbc-prog-stats"></span></div>
         </div>`;
 
     const $ = (s) => root.querySelector(s);
@@ -552,6 +590,79 @@ function buildPanel(node) {
     const cardKey = () => `${W("character")?.value || ""}|${W("card_path")?.value || ""}`;
 
     const save = () => { setW("history_json", JSON.stringify(st.history)); node.setDirtyCanvas(true, true); };
+
+    // -- progress strip ------------------------------------------------------
+    // ComfyUI's LLM generate loop updates a ProgressBar(max_length), which streams websocket "progress"
+    // events ({value, max, node}); the extension at the bottom of this file routes them here by node id.
+    // t0 starts at the "executing" event, so the elapsed time covers prefill, not the queue wait.
+    const progEl = $(".nbc-prog"), fillEl = $(".nbc-prog-fill"), labEl = $(".nbc-prog-label"), statEl = $(".nbc-prog-stats");
+    const prog = { active: false, det: false, v: 0, max: 0, t0: 0, tFirst: 0, timer: 0, hideTimer: 0 };
+
+    function progPaint() {
+        const now = performance.now();
+        if (prog.det && prog.max > 0) {
+            progEl.classList.remove("indet");
+            fillEl.style.width = Math.min(100, (prog.v / prog.max) * 100) + "%";
+            labEl.textContent = `${prog.v} / ${prog.max} tokens`;
+            let s = prog.t0 ? `${fmtSecs((now - prog.t0) / 1000)} elapsed` : "";
+            if (prog.tFirst && prog.v > 0) {
+                const rate = prog.v / Math.max((now - prog.tFirst) / 1000, 0.05);
+                s += ` · ${fmtRate(rate)} tok/s`;
+                if (prog.v < prog.max) s += ` · ~${fmtSecs((prog.max - prog.v) / Math.max(rate, 0.01))} left`;
+            }
+            statEl.textContent = s;
+        } else {
+            progEl.classList.add("indet");
+            labEl.textContent = prog.t0 ? "Prefill…" : "Queued…";
+            statEl.textContent = prog.t0 ? `${fmtSecs((now - prog.t0) / 1000)} elapsed` : "waiting for the queue";
+        }
+    }
+
+    function progStart() {
+        if (prog.hideTimer) { clearTimeout(prog.hideTimer); prog.hideTimer = 0; }
+        prog.active = true; prog.det = false; prog.v = 0; prog.max = 0; prog.t0 = 0; prog.tFirst = 0;
+        progEl.classList.remove("done", "err");
+        progEl.classList.add("live", "indet");
+        progPaint();
+        if (!prog.timer) prog.timer = setInterval(progPaint, 250);
+        fit(node);
+    }
+
+    function progExecuting() {                              // the server started running this node
+        if (!st.busy) return;                               // a manual queue with action "none" generates nothing
+        if (!prog.active) progStart();
+        if (!prog.t0) prog.t0 = performance.now();
+        progPaint();
+    }
+
+    function progUpdate(v, max) {                           // token progress from the generate loop
+        if (!st.busy) return;
+        if (!prog.active) progStart();
+        if (!prog.t0) prog.t0 = performance.now();
+        prog.det = true; prog.v = v; prog.max = max;
+        if (!prog.tFirst && v > 0) prog.tFirst = performance.now();
+        fx.setProgress(max > 0 ? v / max : 0);
+        progPaint();
+    }
+
+    function progFinish(text, ok = true) {
+        if (!prog.active) return;
+        prog.active = false;
+        if (prog.timer) { clearInterval(prog.timer); prog.timer = 0; }
+        progEl.classList.remove("indet");
+        progEl.classList.add(ok ? "done" : "err");
+        fillEl.style.width = "100%";
+        labEl.textContent = text;
+        statEl.textContent = "";
+        prog.hideTimer = setTimeout(() => {
+            progEl.classList.remove("live", "done", "err");
+            fx.setProgress(0);
+            fit(node);
+        }, 6000);
+        fit(node);
+    }
+
+    $(".nbc-stop").onclick = () => { try { api.interrupt(); } catch { } };
 
     // -- header / info --
     function renderHeader() {
@@ -722,6 +833,7 @@ function buildPanel(node) {
         setW("user_message", text || "");
         save();                                         // history_json = history *before* the new user message
         st.busy = true;
+        progStart();
         render();
 
         try {
@@ -757,6 +869,7 @@ function buildPanel(node) {
         if (!st.busy) return;
         st.busy = false;
         st.error = msg || "generation failed";
+        progFinish(msg || "generation failed", false);
 
         if (st.lastSent) {                                  // put the message back so nothing is lost
             if (st.history.length && st.history[st.history.length - 1].role === "user") st.history.pop();
@@ -924,7 +1037,13 @@ function buildPanel(node) {
     node.__nbcFail = fail;
     node.__nbcSave = save;
     node.__nbcApplyFX = applyFX;
-    node.__nbcDestroy = () => fx.destroy();
+    node.__nbcProgExecuting = progExecuting;
+    node.__nbcProgUpdate = progUpdate;
+    node.__nbcDestroy = () => {
+        fx.destroy();
+        if (prog.timer) { clearInterval(prog.timer); prog.timer = 0; }
+        if (prog.hideTimer) { clearTimeout(prog.hideTimer); prog.hideTimer = 0; }
+    };
 
     node.__nbcOnExecuted = (message) => {
         const raw = message?.nbc_chat?.[0];
@@ -939,6 +1058,15 @@ function buildPanel(node) {
         st.removed = null;
         setW("action", "none");
         setW("user_message", "");
+
+        const s = data.stats;
+        if (s && s.tokens) {
+            const rate = s.tokens / Math.max(s.seconds, 0.01);
+            progFinish(`${s.tokens} tokens in ${fmtSecs(s.seconds)} · ${fmtRate(rate)} tok/s`);
+        } else {
+            progFinish("Done");
+        }
+
         save();
         render();
     };
@@ -954,6 +1082,7 @@ function buildUI(node) {
     node.__nbc = { history: [], info: null, infoError: "", busy: false, error: "", editing: -1, swipe: 0, avatarTick: Date.now(), lastSent: null, removed: null };
 
     HIDDEN.forEach(n => hideWidget(wget(node, n)));
+    chatNodes.add(node);
 
     try {
         const h = JSON.parse(wget(node, "history_json")?.value || "[]");
@@ -996,10 +1125,18 @@ function buildUI(node) {
     setTimeout(() => fit(node), 400);
 }
 
+// every live chat node, so global websocket events can be routed by node id
+const chatNodes = new Set();
+
+function eachChatNode(id, fn) {
+    const sid = String(id);
+    for (const n of chatNodes) if (String(n.id) === sid) fn(n);
+}
+
 // generation errors / interruptions arrive as global events
 function failBusyNodes(msg) {
-    for (const n of app.graph?._nodes || []) {
-        if (n.__nbcBuilt && n.__nbc?.busy) n.__nbcFail(msg);
+    for (const n of chatNodes) {
+        if (n.__nbc?.busy) n.__nbcFail(msg);
     }
 }
 
@@ -1007,6 +1144,16 @@ api.addEventListener("execution_error", (e) => failBusyNodes(e.detail?.exception
 api.addEventListener("execution_interrupted", () => failBusyNodes("generation interrupted"));
 api.addEventListener("execution_success", () => {
     setTimeout(() => failBusyNodes("The chat node didn't run — is it muted or bypassed?"), 600);
+});
+
+// token progress: "executing" starts the clock, "progress" carries {value, max, node} from the
+// ProgressBar inside ComfyUI's LLM generate loop (per token, or per accepted draft burst with MTP)
+api.addEventListener("executing", (e) => {
+    if (e.detail != null) eachChatNode(e.detail, (n) => n.__nbcProgExecuting?.());
+});
+api.addEventListener("progress", (e) => {
+    const d = e.detail;
+    if (d && d.node != null) eachChatNode(d.node, (n) => n.__nbcProgUpdate?.(d.value, d.max));
 });
 
 app.registerExtension({
@@ -1063,6 +1210,7 @@ app.registerExtension({
             orm?.apply(this, arguments);
 
             try { this.__nbcDestroy?.(); } catch { }
+            chatNodes.delete(this);
         };
 
         const oex = nodeType.prototype.onExecuted;
