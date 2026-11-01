@@ -4,6 +4,9 @@
 # using the LLM you already load as CLIP (built and tested around Qwen3.5 via ComfyUI's text-generation API:
 # clip.tokenize / clip.generate / clip.decode, exactly like the core "Generate Text" node).
 #
+# v3: sampling settings match the core Generate Text node 1:1 (defaults, ranges, sampling_mode on/off,
+#     all MTP modes incl. trees), and the reply carries generation stats for the UI's progress footer.
+#
 # Cards live in  ComfyUI/input/characters/  (the node's upload button puts them there), or point `card_path` at any card.
 # Refmods (.safetensors with a baked character, made by Nougan Refmod Baker) are listed too, as "refmod:<name>".
 # Optional inputs: image / audio / video (ComfyUI Load Image / Load Audio / Load Video) and system_prompt (string).
@@ -15,6 +18,7 @@ import json
 import os
 import re
 import struct
+import time
 import zlib
 
 import numpy as np
@@ -395,16 +399,11 @@ def parse_history(history_json) -> list:
 
 
 def _mtp_value(choice):
-    """Combo value -> what clip.generate expects (same mapping as ComfyUI's core Generate Text node)."""
-    c = str(choice).strip().lower()
-    if c == "off":
-        return False
-    if c == "auto":
-        return True
-    try:
-        return int(c)
-    except ValueError:
-        return True
+    """Combo value -> what clip.generate expects. Same mapping as ComfyUI's core Generate Text node:
+    'off' -> False, 'auto' -> True, and the pinned depth / tree modes pass through as strings
+    (Qwen3.5's MTP_MODES is keyed by strings, so int("2") would crash the pinned modes)."""
+    c = str(choice).strip()
+    return {"off": False, "auto": True}.get(c, c)
 
 
 def card_info(card: dict, user: str = "User") -> dict:
@@ -435,8 +434,8 @@ class NouganCharacterChat:
                 "clip": ("CLIP", {"tooltip": "The LLM (e.g. Qwen3.5 9B loaded as a text encoder / CLIP)."}),
                 "character": (cards, {"tooltip": "Character card from ComfyUI/input/characters, or a refmod with a baked character (listed as refmod:<name>). Use the upload button on the node to add cards."}),
                 "user_name": ("STRING", {"default": "User", "multiline": False, "tooltip": "What {{user}} is called in the card."}),
-                "max_length": ("INT", {"default": 400, "min": 16, "max": 4096, "step": 1, "tooltip": "Max tokens per reply."}),
-                "temperature": ("FLOAT", {"default": 0.8, "min": 0.01, "max": 2.0, "step": 0.01}),
+                "max_length": ("INT", {"default": 512, "min": 1, "max": 32768, "step": 1, "tooltip": "Max tokens per reply (same range as the core Generate Text node)."}),
+                "temperature": ("FLOAT", {"default": 0.7, "min": 0.01, "max": 2.0, "step": 0.01}),
                 "top_p": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "top_k": ("INT", {"default": 64, "min": 0, "max": 1000}),
                 "min_p": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -452,8 +451,8 @@ class NouganCharacterChat:
                 "history_json": ("STRING", {"default": "[]", "multiline": False}),
                 # appended last on purpose: widget values are saved by position, so adding these at the end
                 # keeps every existing workflow loading correctly (old workflows just get the defaults).
-                "presence_penalty": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.01, "tooltip": "Penalises tokens that have already appeared at all. Raise a little to nudge the character toward new topics."}),
-                "mtp": (["auto", "off", "2", "3", "4", "5"], {"default": "auto", "tooltip": "Speculative decoding with the checkpoint's multi-token-prediction head. No effect without MTP weights. auto adapts the draft depth; 2-5 pins it. Output differs from non-MTP output for the same seed."}),
+                "presence_penalty": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 5.0, "step": 0.01, "tooltip": "Penalises tokens that have already appeared at all (same range as the core Generate Text node). Raise a little to nudge the character toward new topics."}),
+                "mtp": (["auto", "off", "2", "3", "4", "5", "tree2s1", "tree2s2", "tree3s1", "tree4s1m8"], {"default": "auto", "tooltip": "Speculative decoding with the checkpoint's multi-token-prediction head. No effect without MTP weights. auto adapts the draft depth and breadth; 2-5 pin a constant draft depth; tree modes pin both breadth and depth. Sampled output stays correctly distributed but differs from non-MTP output for the same seed."}),
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 64, "tooltip": "Most frames taken from a connected video. Each frame is processed like an image, so more frames = more VRAM and time."}),
                 # media + system prompt sockets go LAST: widget values are saved by position, and a socket that
                 # sits in front of the widgets can shift every saved value after it (this broke card_path once).
@@ -461,6 +460,9 @@ class NouganCharacterChat:
                 "audio": ("AUDIO", {"tooltip": "Optional. Connect Load Audio. Passed to the model with your newest message (only used if the loaded model supports audio)."}),
                 "video": ("VIDEO", {"tooltip": "Optional. Connect Load Video. Sampled into up to video_max_frames evenly spaced frames (about 1 per second) and shown as images."}),
                 "system_prompt": ("STRING", {"forceInput": True, "multiline": True, "tooltip": "Optional. Replaces the card's own system prompt. Description, personality, scenario, lore and examples are still used."}),
+                # appended LAST on purpose (after the sockets): widget values are saved by position,
+                # so this new widget lands at the end and every existing workflow loads unchanged.
+                "sampling_mode": (["on", "off"], {"default": "on", "tooltip": "Same as the core Generate Text node: 'on' samples with the temperature/top_p/top_k/min_p/penalty/seed settings; 'off' decodes greedily (deterministic)."}),
             },
         }
 
@@ -473,7 +475,8 @@ class NouganCharacterChat:
 
     def chat(self, clip, character, user_name, max_length, temperature, top_p, top_k, min_p, repetition_penalty,
              seed, thinking, context_messages, card_path="", action="none", user_message="", history_json="[]",
-             presence_penalty=0.0, mtp="auto", video_max_frames=8, image=None, audio=None, video=None, system_prompt=""):
+             presence_penalty=0.0, mtp="auto", video_max_frames=8, image=None, audio=None, video=None, system_prompt="",
+             sampling_mode="on"):
         path = resolve_card_path(character, card_path)
         card = read_card(path)
         user = (user_name or "User").strip() or "User"
@@ -493,6 +496,7 @@ class NouganCharacterChat:
 
         generate = action in ("send", "regenerate") and history and history[-1]["role"] == "user"
         reply = ""
+        stats = None
 
         if generate:
             mtp_value = _mtp_value(mtp)
@@ -507,12 +511,36 @@ class NouganCharacterChat:
                                   n_images=len(imgs), n_video=n_video, system_override=system_prompt or "")
             tokens = clip.tokenize(prompt, skip_template=True, min_length=1, thinking=bool(thinking),
                                    video=None, audio=audio, system_prompt="", **_image_kwargs(imgs))
-            ids = clip.generate(tokens, do_sample=True, max_length=int(max_length), temperature=float(temperature),
-                                top_k=int(top_k), top_p=float(top_p), min_p=float(min_p),
-                                repetition_penalty=float(repetition_penalty), presence_penalty=float(presence_penalty),
-                                seed=int(seed), mtp=mtp_value)
+
+            if str(sampling_mode).strip().lower() == "off":
+                # same as the core Generate Text node with sampling off: greedy decode, neutral settings
+                gen_kwargs = dict(do_sample=False, max_length=int(max_length), temperature=1.0, top_k=50,
+                                  top_p=1.0, min_p=0.0, repetition_penalty=1.0, presence_penalty=0.0,
+                                  seed=None, mtp=mtp_value)
+            else:
+                gen_kwargs = dict(do_sample=True, max_length=int(max_length), temperature=float(temperature),
+                                  top_k=int(top_k), top_p=float(top_p), min_p=float(min_p),
+                                  repetition_penalty=float(repetition_penalty), presence_penalty=float(presence_penalty),
+                                  seed=int(seed), mtp=mtp_value)
+
+            t0 = time.perf_counter()
+            try:
+                ids = clip.generate(tokens, **gen_kwargs)
+            except (KeyError, TypeError):
+                if gen_kwargs["mtp"] in (True, False):
+                    raise
+                # older ComfyUI build without pinned/tree MTP modes: fall back to auto
+                gen_kwargs["mtp"] = True
+                ids = clip.generate(tokens, **gen_kwargs)
+            gen_seconds = time.perf_counter() - t0
+
             reply = clean_reply(clip.decode(ids), char)
             history.append({"role": "assistant", "content": reply or "..."})
+            try:
+                n_tokens = len(ids)
+            except TypeError:
+                n_tokens = 0
+            stats = {"tokens": n_tokens, "seconds": round(gen_seconds, 2), "max_length": int(max_length)}
         elif history and history[-1]["role"] == "assistant":
             reply = history[-1]["content"]
 
@@ -521,7 +549,8 @@ class NouganCharacterChat:
         avatar = load_avatar(path) if path.lower().endswith((".png", ".safetensors")) else load_avatar("")
 
         return {
-            "ui": {"nbc_chat": [json.dumps({"history": history, "reply": reply, "generated": bool(generate)}, ensure_ascii=False)]},
+            "ui": {"nbc_chat": [json.dumps({"history": history, "reply": reply, "generated": bool(generate),
+                                            "stats": stats}, ensure_ascii=False)]},
             "result": (reply, log, char, subst(card["description"], char, user).strip(), avatar, hj),
         }
 
