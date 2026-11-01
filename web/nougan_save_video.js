@@ -55,9 +55,10 @@ function injectStyles() {
   padding: 6px; font: 12px/1.3 system-ui, sans-serif; color: #e8e6f0; user-select: none; outline: none;
   container-type: inline-size; }
 .nsv * { box-sizing: border-box; }
-.nsv-stage { position: relative; flex: 1 1 auto; min-height: 120px; border-radius: 10px; overflow: hidden; cursor: pointer;
+.nsv > :not(.nsv-stage) { flex: 0 0 auto; }   /* only the stage flexes; nothing else may shrink or jump */
+.nsv-stage { position: relative; flex: 1 1 0; min-height: 120px; contain: layout paint; border-radius: 10px; overflow: hidden; cursor: pointer;
   background: radial-gradient(circle at 30% 20%, #2a2140, #0d0b14); border: 1px solid #3b2f5c; }
-.nsv-stage video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+.nsv-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
 .nsv-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 4px; color: #8f86b3; text-align: center; padding: 12px; pointer-events: none; }
 .nsv-empty b { font-size: 14px; color: #b9aee6; }
@@ -111,11 +112,16 @@ function injectStyles() {
 .nsv .nsv-btn svg.f { fill: currentColor; stroke: none; }
 .nsv .nsv-btn.txt { min-width: 40px; font-variant-numeric: tabular-nums; }
 
-.nsv-vg { display: flex; align-items: center; }
-.nsv-volwrap { display: flex; align-items: center; width: 0; overflow: hidden; opacity: 0;
-  transition: width .18s ease, opacity .18s ease, margin .18s ease; }
-.nsv-vg:hover .nsv-volwrap, .nsv-vg:focus-within .nsv-volwrap { width: 76px; opacity: 1; margin: 0 4px 0 6px; }
-.nsv-vol { --v: 100%; appearance: none; -webkit-appearance: none; width: 70px; height: 4px; margin: 0; border-radius: 2px;
+.nsv-vg { position: relative; display: flex; align-items: center; }
+.nsv-volwrap { position: absolute; left: 50%; bottom: calc(100% + 6px); display: flex; align-items: center;
+  padding: 9px 11px; border-radius: 9px; background: #1a1430; border: 1px solid #5b47a0;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .6); z-index: 20;
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 4px);
+  transition: opacity .14s ease, transform .14s ease, visibility 0s linear .28s; }   /* .28s grace before it closes */
+.nsv-volwrap::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 10px; }   /* hover bridge over the gap */
+.nsv-vg:hover .nsv-volwrap, .nsv-vg:has(:focus-visible) .nsv-volwrap, .nsv-volwrap.on {
+  opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%, 0); transition-delay: 0s; }
+.nsv-vol { --v: 100%; appearance: none; -webkit-appearance: none; width: 84px; height: 4px; display: block; margin: 0; border-radius: 2px;
   background: linear-gradient(90deg, #8e6bff var(--v), #3a2f63 var(--v)); outline: none; cursor: pointer; }
 .nsv-vol:disabled { opacity: .4; cursor: default; }
 .nsv-vol::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%;
@@ -170,7 +176,6 @@ function injectStyles() {
 .nsv-note { color: #8f86b3; font-size: 11px; }
 
 @container (max-width: 400px) {
-  .nsv-volwrap { display: none; }
   .nsv-hide-s { display: none !important; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -239,19 +244,41 @@ async function loadEncoders() {
     return encoderReport;
 }
 
-function setAdvancedVisible(node, show) {
+const widgetH = (w, width) => {
+    try { const s = w._nsvOrig?.computeSize?.call(w, width); if (s && s[1] > 0) return s[1] + 4; } catch { /* ignore */ }
+    return (globalThis.LiteGraph?.NODE_WIDGET_HEIGHT ?? 20) + 4;
+};
+
+// Hide/show the advanced widgets. Sets every flag the different ComfyUI front-end generations look at
+// (hidden flag, options.hidden, legacy computeSize, new layout-size, type), and only acts on a real change.
+function setAdvancedVisible(node, show, { resize = false } = {}) {
+    show = !!show;
+    if (node._nsvAdvShown === show) return;
+    node._nsvAdvShown = show;
+    let delta = 0;
+    const width = node.size?.[0] ?? 480;
     for (const name of ADVANCED) {
         const w = node.widgets?.find((x) => x.name === name);
         if (!w) continue;
         if (w._nsvOrig === undefined) {
-            w._nsvOrig = { type: w.type, computeSize: w.computeSize, hidden: w.hidden };
+            w._nsvOrig = { type: w.type, computeSize: w.computeSize, computeLayoutSize: w.computeLayoutSize, hidden: !!w.hidden };
         }
-        w.hidden = !show;
-        w.computeSize = show ? w._nsvOrig.computeSize : () => [0, -4];
-        w.type = show ? w._nsvOrig.type : "hidden";
+        delta += widgetH(w, width);
+        try {
+            w.hidden = !show;
+            if (w.options) w.options.hidden = !show;
+            w.computeSize = show ? w._nsvOrig.computeSize : () => [0, -4];
+            w.computeLayoutSize = show ? w._nsvOrig.computeLayoutSize : () => ({ minHeight: 0, maxHeight: 0, minWidth: 0 });
+            w.type = show ? w._nsvOrig.type : "hidden";
+        } catch (err) {
+            console.warn("[Nougan] could not toggle widget", name, err);
+        }
     }
-    const size = node.computeSize();
-    node.setSize([Math.max(node.size[0], size[0]), Math.max(node.size[1], size[1])]);
+    if (resize) {   // grow when shown, shrink when hidden, never below what the node needs
+        const need = node.computeSize();
+        const h = show ? node.size[1] + delta : node.size[1] - delta;
+        node.setSize([Math.max(node.size[0], need[0]), Math.max(need[1], h)]);
+    }
     node.setDirtyCanvas(true, true);
 }
 
@@ -309,6 +336,7 @@ function buildPlayer(node) {
     const ghostCanvas = el("canvas");
     ghostCanvas.width = 96;
     ghostCanvas.height = 54;
+    const ghostCtx = ghostCanvas.getContext("2d");
     const ghostText = el("span", "", "0:00.00");
     ghost.append(ghostCanvas, ghostText);
     scrub.append(strip, played, waveDim, waveClip, buffer, range, hA, hB, head, ghost);
@@ -531,35 +559,40 @@ function buildPlayer(node) {
     }
 
     const dbToUnit = (db) => Math.max(0, Math.min(1, (db + 60) / 60));
+    const METER_W = 16, METER_H = 72;
+    const meterBuf = new Float32Array(1024);
+    let meterCtx = null, meterGrad = null, meterDpr = 0;
     function drawMeter() {
-        const w = 16, h = 72;
-        if (!state.entry?.has_audio) { meter.style.display = "none"; return; }
-        meter.style.display = "block";
-        const ctx = sizeCanvas(meter, w, h);
-        ctx.clearRect(0, 0, w, h);
-        const buf = new Float32Array(1024);
+        if (!state.entry?.has_audio) { if (meter.style.display !== "none") meter.style.display = "none"; return; }
+        if (meter.style.display !== "block") meter.style.display = "block";
+        const dpr = window.devicePixelRatio || 1;
+        if (!meterCtx || dpr !== meterDpr) {          // (re)size only when needed: resizing clears + reallocates the canvas
+            meterDpr = dpr;
+            meterCtx = sizeCanvas(meter, METER_W, METER_H);
+            meterGrad = meterCtx.createLinearGradient(0, METER_H, 0, 0);
+            meterGrad.addColorStop(0, "#2fd07a");
+            meterGrad.addColorStop(0.7, "#f4d03f");
+            meterGrad.addColorStop(1, "#ff4d6d");
+        }
+        const ctx = meterCtx, h = METER_H;
+        ctx.clearRect(0, 0, METER_W, h);
         for (let ch = 0; ch < 2; ch++) {
             let unit = 0;
             if (analysers && !video.paused) {
-                analysers[ch].getFloatTimeDomainData(buf);
+                analysers[ch].getFloatTimeDomainData(meterBuf);
                 let sum = 0;
-                for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-                unit = dbToUnit(20 * Math.log10(Math.sqrt(sum / buf.length) + 1e-9));
+                for (let i = 0; i < meterBuf.length; i++) sum += meterBuf[i] * meterBuf[i];
+                unit = dbToUnit(20 * Math.log10(Math.sqrt(sum / meterBuf.length) + 1e-9));
             }
             peakHold[ch] = Math.max(unit, peakHold[ch] - 0.015);
             const x = 2 + ch * 7;
             const hh = unit * (h - 4);
-            const g = ctx.createLinearGradient(0, h, 0, 0);
-            g.addColorStop(0, "#2fd07a");
-            g.addColorStop(0.7, "#f4d03f");
-            g.addColorStop(1, "#ff4d6d");
-            ctx.fillStyle = g;
+            ctx.fillStyle = meterGrad;
             ctx.fillRect(x, h - 2 - hh, 5, hh);
             ctx.fillStyle = "#fff";
             ctx.fillRect(x, h - 2 - peakHold[ch] * (h - 4), 5, 1.5);
         }
     }
-
 
     // ------------------------------------------------ UI refresh
     const shownTime = () => target ?? (video.currentTime || 0);
@@ -588,15 +621,23 @@ function buildPlayer(node) {
         positionRange();
     }
 
+    let lastPct = "", lastTxt = "", lastBuf = "";
     function setHead(t) {
         const d = duration();
         const pct = (d > 0 ? Math.min(1, t / d) * 100 : 0).toFixed(3) + "%";
-        head.style.left = pct;
-        played.style.width = pct;
-        waveClip.style.width = pct;
-        timeTag.textContent = `${fmtTime(t)} / ${fmtTime(d)}  ·  f${frameNo(t)}`;
-        scrub.setAttribute("aria-valuenow", String(Math.round(t * 100) / 100));
-        scrub.setAttribute("aria-valuemax", String(Math.round(d * 100) / 100));
+        if (pct !== lastPct) {
+            lastPct = pct;
+            head.style.left = pct;
+            played.style.width = pct;
+            waveClip.style.width = pct;
+        }
+        const txt = `${fmtTime(t)} / ${fmtTime(d)}  ·  f${frameNo(t)}`;
+        if (txt !== lastTxt) {
+            lastTxt = txt;
+            timeTag.textContent = txt;
+            scrub.setAttribute("aria-valuenow", String(Math.round(t * 100) / 100));
+            scrub.setAttribute("aria-valuemax", String(Math.round(d * 100) / 100));
+        }
     }
 
     const updateUI = () => {
@@ -609,7 +650,10 @@ function buildPlayer(node) {
         if (target != null && pending == null && !video.seeking && Math.abs(video.currentTime - target) < frameDur()) target = null;
         setHead(shownTime());
         try {
-            if (video.buffered.length) buffer.style.width = Math.min(100, (video.buffered.end(video.buffered.length - 1) / (d || 1)) * 100) + "%";
+            if (video.buffered.length) {
+                const b = Math.min(100, (video.buffered.end(video.buffered.length - 1) / (d || 1)) * 100).toFixed(1) + "%";
+                if (b !== lastBuf) { lastBuf = b; buffer.style.width = b; }
+            }
         } catch { /* ignore */ }
     };
 
@@ -620,11 +664,17 @@ function buildPlayer(node) {
         big.classList.toggle("on", !!state.entry && paused && !state.dragging && !prog.classList.contains("on"));
     };
 
+    let onScreen = true;
+    let rafId = 0;
     const raf = () => {
+        rafId = 0;
         updateUI();
-        drawMeter();
-        if (!video.paused) requestAnimationFrame(raf);
+        if (onScreen) drawMeter();
+        if (!video.paused) rafId = requestAnimationFrame(raf);
     };
+    const startRaf = () => { if (!rafId) rafId = requestAnimationFrame(raf); };   // never two loops at once
+    const io = new IntersectionObserver((entries) => { onScreen = entries[entries.length - 1].isIntersecting; }, { threshold: 0 });
+    io.observe(root);
 
     // ------------------------------------------------ seeking (coalesced)
     function flushSeek() {
@@ -691,7 +741,7 @@ function buildPlayer(node) {
         const half = 52;
         ghost.style.left = Math.max(0, Math.min(w - half * 2, px - half)) + "px";
         ghostText.textContent = `${fmtTime(p * d)}  ·  f${frameNo(p * d)}`;
-        const gc = ghostCanvas.getContext("2d");
+        const gc = ghostCtx;
         gc.fillStyle = "#000";
         gc.fillRect(0, 0, 96, 54);
         if (thumbs.length) {
@@ -760,13 +810,32 @@ function buildPlayer(node) {
         setIcon(mute, silent ? "muted" : "vol");
         vol.style.setProperty("--v", (video.muted ? 0 : video.volume * 100) + "%");
     };
-    mute.onclick = () => { state.userMuted = !state.userMuted; video.muted = state.userMuted; syncVol(); };
+    let lastVol = 1;
+    mute.onclick = () => {
+        const silent = video.muted || video.volume === 0;
+        if (silent) {                                   // unmute, and never "unmute" into a 0-volume slider
+            state.userMuted = false;
+            video.muted = false;
+            if (video.volume === 0) video.volume = lastVol;
+        } else {
+            state.userMuted = true;
+            video.muted = true;
+        }
+        vol.value = video.volume;
+        syncVol();
+    };
     vol.oninput = () => {
-        video.volume = Number(vol.value);
-        state.userMuted = video.volume === 0;
+        const v = Number(vol.value);
+        if (v > 0) lastVol = v;
+        video.volume = v;
+        state.userMuted = v === 0;
         video.muted = state.userMuted;
         syncVol();
     };
+    // keep the popover open for the whole drag, even if the pointer wanders off it
+    vol.addEventListener("pointerdown", () => volwrap.classList.add("on"));
+    for (const ev of ["pointerup", "pointercancel"]) window.addEventListener(ev, () => volwrap.classList.remove("on"), { signal });
+    video.addEventListener("volumechange", syncVol);
     full.onclick = () => {
         if (document.fullscreenElement) document.exitFullscreen();
         else stage.requestFullscreen?.();
@@ -848,7 +917,7 @@ function buildPlayer(node) {
         if (handled) { e.preventDefault(); e.stopPropagation(); }
     });
 
-    video.addEventListener("play", () => { syncPlayState(); requestAnimationFrame(raf); });
+    video.addEventListener("play", () => { syncPlayState(); startRaf(); });
     video.addEventListener("pause", () => { syncPlayState(); updateUI(); drawMeter(); });
     video.addEventListener("ended", syncPlayState);
     video.addEventListener("seeked", () => {
@@ -869,7 +938,7 @@ function buildPlayer(node) {
     if (typeof video.requestVideoFrameCallback === "function") {
         const onFrame = () => {
             if (state.dead) return;
-            updateUI();
+            if (video.paused) updateUI();      // while playing the rAF loop already covers this
             video.requestVideoFrameCallback(onFrame);
         };
         video.requestVideoFrameCallback(onFrame);
@@ -987,6 +1056,8 @@ function buildPlayer(node) {
         state.dead = true;
         ac.abort();
         cancelAnimationFrame(seekRaf);
+        cancelAnimationFrame(rafId);
+        io.disconnect();
         api.removeEventListener("progress", onProgress);
         api.removeEventListener("executing", onExecuting);
         api.removeEventListener("execution_error", hideProgress);
@@ -1029,10 +1100,12 @@ app.registerExtension({
             const adv = this.widgets.find((w) => w.name === "advanced");
             if (adv) {
                 const orig = adv.callback;
-                adv.callback = (v, ...rest) => { setAdvancedVisible(this, !!v); return orig?.call(adv, v, ...rest); };
+                adv.callback = (v, ...rest) => { setAdvancedVisible(this, !!v, { resize: true }); return orig?.call(adv, v, ...rest); };
                 setAdvancedVisible(this, !!adv.value);
+            } else {
+                console.warn("[Nougan] Save Video: 'advanced' widget not found; widgets are", this.widgets?.map((w) => w.name));
             }
-            this.setSize([Math.max(this.size[0], 480), Math.max(this.size[1], 720)]);
+            this.setSize([Math.max(this.size[0], 480), Math.max(this.size[1], this.computeSize()[1])]);
             return result;
         };
 
@@ -1050,7 +1123,17 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function () {
             const r = onConfigure?.apply(this, arguments);
             const adv = this.widgets?.find((w) => w.name === "advanced");
-            if (adv) setAdvancedVisible(this, !!adv.value);
+            if (adv) setAdvancedVisible(this, !!adv.value);   // size comes from the saved workflow, so no resize
+            return r;
+        };
+
+        // Safety net: if a front-end build changes the toggle without calling the widget callback
+        // (Vue nodes, programmatic set), notice on the next draw and follow it.
+        const onDrawBackground = nodeType.prototype.onDrawBackground;
+        nodeType.prototype.onDrawBackground = function () {
+            const r = onDrawBackground?.apply(this, arguments);
+            const adv = this.widgets?.find((w) => w.name === "advanced");
+            if (adv && this._nsvAdvShown !== !!adv.value) setAdvancedVisible(this, !!adv.value, { resize: true });
             return r;
         };
 
