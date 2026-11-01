@@ -1,9 +1,22 @@
-// nougan-lora-loader-ui.js — Nougan Lora Loader frontend (from scratch)
+// nougan-lora-loader-ui.js — Nougan Lora Loader frontend
+// Visual redesign after rgthree's Power Lora Loader: compact flat rows
+// (toggle · name · ‹ 1.00 › steppers), a "Toggle All" header with column labels,
+// node-level Single / Model & Clip mode, and a plain "＋ Add LoRA" button.
+// Original look re-implemented from scratch (no rgthree code).
 //
-//  • drag a bar to set strength · double-click to type · Alt+click resets to 1.00
-//  • ‹ › nudge ±0.05 (Shift = ±0.01) · ⇄ splits a LoRA into separate model / clip strength
-//  • grab the ⠿ handle to reorder
-//  • picker: search, folder chips, favourites, click to add / remove, ↑↓ Enter, stays open for multi-add
+//  • DOM for structure & interaction; WebGPU draws the strength-bar fills
+//    (one shared device, per-bar canvas), DOM gradient fallback like the
+//    Live Panel progress bar.
+//  • drag a stepper to scrub · click the value to type · Alt+click = 1.00
+//    · Shift = fine · wheel = ±0.05 · ‹ › step ±0.05
+//  • right-click a row: toggle / move up / move down / remove
+//  • hover the row for the ⠿ drag handle (reorder) and the ✕ (remove)
+//  • picker: search, folder chips, favourites, click to add / remove, ↑↓ Enter
+//
+// Data model is unchanged (hidden `lora_data` JSON: on / name / model / clip /
+// split), so nougan_lora_loader.py and the Live Panel keep working as before.
+// `split` now follows the node-level "Show Strengths" property instead of a
+// per-row toggle, like rgthree's Single Strength / Separate Model & Clip.
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
@@ -19,6 +32,11 @@ const STEP = 0.05;
 const FAV_KEY = "nougan_lora_favorites";
 const ROOT = "(root)";
 
+// node-level strength mode (same property name / values as rgthree)
+const PROP_SHOW = "Show Strengths";
+const MODE_SINGLE = "Single Strength";
+const MODE_SEPARATE = "Separate Model & Clip";
+
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -26,7 +44,6 @@ const norm = (f) => String(f ?? "").replaceAll("\\", "/");
 const folderOf = (f) => { const n = norm(f), i = n.lastIndexOf("/"); return i < 0 ? ROOT : n.slice(0, i); };
 const baseOf = (f) => { const n = norm(f); return n.slice(n.lastIndexOf("/") + 1); };
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const r2 = (v) => Math.round(v * 100) / 100;
 const fmt = (v) => (v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
 const alpha = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
 
@@ -50,6 +67,25 @@ async function loras(force = false) {
 
 const isMissing = (name) => _files != null && !_files.some(f => norm(f) === norm(name));
 
+const isSep = (node) => node?.properties?.[PROP_SHOW] === MODE_SEPARATE;
+
+function setMode(node, sep) {
+    node.properties = node.properties || {};
+    node.properties[PROP_SHOW] = sep ? MODE_SEPARATE : MODE_SINGLE;
+    for (const e of node.__stack || []) {
+        if (sep) { e.split = true; if (!Number.isFinite(e.clip)) e.clip = e.model; }
+        else { e.split = false; e.clip = e.model; }
+    }
+    node.__lzCommit?.();
+}
+
+function toggleAll(node) {
+    const st = node.__stack || [];
+    const anyOff = st.some(e => !e.on);
+    st.forEach(e => { e.on = anyOff; });
+    node.__lzCommit?.();
+}
+
 
 // ── styles ─────────────────────────────────────────────────────────────────
 
@@ -61,134 +97,457 @@ function styles() {
 
     const s = document.createElement("style");
     s.textContent = `
-.lz{--bg:#12141a;--card:#1a1d26;--card2:#20242f;--line:#2a2f3c;--fg:#e8ebf2;--dim:#8a93a6;
-  --acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;--ok:#5ee08a;
-  font:12px/1.3 'Inter','Segoe UI',system-ui,sans-serif;color:var(--fg);user-select:none;box-sizing:border-box;
-  width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);
-  background:radial-gradient(120% 80% at 0% 0%,rgba(245,165,36,.07),transparent 55%),var(--bg);
-  box-shadow:0 8px 26px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04)}
+.lz{--acc:#f5a524;--acc2:#ff7a18;--neg:#f0616d;
+  font:12px/1.3 'Inter','Segoe UI',system-ui,sans-serif;color:#d8d8d8;user-select:none;box-sizing:border-box;
+  width:100%;padding:2px 0 0}
 .lz *{box-sizing:border-box}
 .lz button{font:inherit;color:inherit}
 
-.lz-head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
-.lz-logo{width:4px;height:18px;border-radius:2px;background:linear-gradient(180deg,var(--acc),var(--acc2));
-  box-shadow:0 0 10px rgba(245,165,36,.6)}
-.lz-title{font-weight:800;letter-spacing:.16em;font-size:11px}
-.lz-chip{font-size:10px;font-weight:700;color:var(--dim);background:var(--card);border:1px solid var(--line);
-  padding:2px 8px;border-radius:99px}
-.lz-chip b{color:var(--acc)}
+/* ---------- column header (toggle all + labels), rgthree style ---------- */
+.lz-cols{display:flex;align-items:center;gap:7px;height:18px;padding:0 8px 0 6px;margin-bottom:4px;
+  font-size:10.5px;color:#9a9a9a}
+.lz-cols-t{white-space:nowrap}
+.lz-count{font-size:10px;color:#6f6f6f;font-variant-numeric:tabular-nums}
+.lz-cl{flex:none;width:92px;text-align:center;white-space:nowrap;overflow:hidden}
 .lz-sp{flex:1}
-.lz-ib{width:26px;height:24px;display:grid;place-items:center;cursor:pointer;border-radius:7px;
-  background:var(--card);border:1px solid var(--line);color:var(--dim);font-size:12px;
-  transition:color .15s,border-color .15s,background .15s}
-.lz-ib:hover{color:var(--acc);border-color:#4a3b1e;background:var(--card2)}
-.lz-ib.warn{color:#fff;background:var(--neg);border-color:var(--neg)}
+.lz-hbtn{flex:none;width:18px;height:16px;display:grid;place-items:center;cursor:pointer;border-radius:4px;
+  color:#6f6f6f;font-size:11px;transition:color .12s,background .12s}
+.lz-hbtn:hover{color:#eee;background:#3a3a3a}
+.lz-hbtn.on{color:var(--acc)}
+.lz-hbtn.warn{color:#fff;background:#b33}
 
-.lz-list{display:flex;flex-direction:column;gap:6px}
+/* ---------- toggle pill ---------- */
+.lz-tgl{flex:none;width:26px;height:14px;border-radius:99px;background:#3d3d3d;position:relative;cursor:pointer;
+  transition:background .15s}
+.lz-tgl::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
+  background:#9a9a9a;transition:left .15s,background .15s}
+.lz-tgl.on{background:#2e7d32}
+.lz-tgl.on::after{left:14px;background:#e8f5e9}
+.lz-tgl.mid{background:#7a5c1e}
+.lz-tgl.mid::after{left:8px;background:#f0e0b8}
 
-.lz-row{position:relative;background:var(--card);border:1px solid var(--line);border-radius:9px;
-  padding:6px 8px 7px 6px;transition:border-color .15s,box-shadow .15s,opacity .15s,background .15s}
-.lz-row:hover{border-color:#3b4254;background:#1d212b}
-.lz-row.off{opacity:.5}
-.lz-row.drag{opacity:.55;box-shadow:0 6px 18px rgba(0,0,0,.5);border-color:var(--acc)}
-.lz-row.over-t::before,.lz-row.over-b::after{content:"";position:absolute;left:4px;right:4px;height:3px;
-  border-radius:2px;background:var(--acc);box-shadow:0 0 8px var(--acc)}
-.lz-row.over-t::before{top:-5px}.lz-row.over-b::after{bottom:-5px}
+/* ---------- rows ---------- */
+.lz-list{display:flex;flex-direction:column;gap:4px}
 
-.lz-top{display:flex;align-items:center;gap:7px;min-height:22px}
-.lz-grip{width:14px;flex:none;text-align:center;color:#4b5266;cursor:grab;font-size:13px;letter-spacing:-2px;touch-action:none}
-.lz-grip:hover{color:var(--acc)}.lz-grip:active{cursor:grabbing}
-.lz-sw{flex:none;width:28px;height:16px;border-radius:99px;background:#2b3040;border:1px solid #3a4054;cursor:pointer;
-  position:relative;transition:background .18s,border-color .18s}
-.lz-sw::after{content:"";position:absolute;top:1px;left:1px;width:12px;height:12px;border-radius:50%;
-  background:#9aa3b8;transition:transform .18s,background .18s}
-.lz-sw.on{background:linear-gradient(90deg,var(--acc),var(--acc2));border-color:var(--acc)}
-.lz-sw.on::after{transform:translateX(12px);background:#fff}
-.lz-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-size:12.5px}
-.lz-nm:hover .fn{color:var(--acc)}
-.lz-nm .dir{color:var(--dim);font-size:10.5px}.lz-nm .fn{font-weight:700;transition:color .12s}
-.lz-row.off .fn{text-decoration:line-through}
-.lz-miss{flex:none;font-size:9px;font-weight:800;letter-spacing:.1em;color:#fff;background:var(--neg);
-  border-radius:4px;padding:1px 5px}
-.lz-mini{flex:none;width:22px;height:20px;display:grid;place-items:center;cursor:pointer;border-radius:6px;
-  color:#69718a;font-size:12px;transition:color .12s,background .12s}
-.lz-mini:hover{color:var(--fg);background:var(--card2)}
-.lz-mini.on{color:var(--acc);background:rgba(245,165,36,.12)}
-.lz-mini.x:hover{color:#fff;background:var(--neg)}
+.lz-row{position:relative;display:flex;align-items:center;gap:7px;height:24px;padding:0 8px 0 6px;
+  background:#2a2a2a;border-radius:5px;transition:background .12s,opacity .12s}
+.lz-row:hover{background:#313131}
+.lz-row.off{opacity:.45}
+.lz-row.drag{opacity:.55;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.lz-row.over-t::before,.lz-row.over-b::after{content:"";position:absolute;left:2px;right:2px;height:2px;
+  border-radius:1px;background:var(--acc)}
+.lz-row.over-t::before{top:-3px}.lz-row.over-b::after{bottom:-3px}
 
-.lz-bars{display:flex;gap:6px;margin-top:6px;padding-left:21px}
-.lz-sc{position:relative;flex:1;height:22px;border-radius:6px;background:#10121a;border:1px solid var(--line);
-  overflow:hidden;cursor:ew-resize;touch-action:none;transition:border-color .15s}
-.lz-sc:hover{border-color:#4a3b1e}
-.lz-fill{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,rgba(245,165,36,.35),rgba(255,122,24,.75));
-  pointer-events:none}
+.lz-nm{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:100%;cursor:pointer}
+.lz-grip{flex:none;width:10px;text-align:center;color:#666;cursor:grab;font-size:12px;letter-spacing:-2px;
+  opacity:0;transition:opacity .12s;touch-action:none}
+.lz-row:hover .lz-grip{opacity:.9}
+.lz-grip:active{cursor:grabbing}
+.lz-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.lz-txt .dir{color:#8a8a8a;font-size:10.5px}
+.lz-row:hover .lz-txt .fn{color:#fff}
+.lz-row.off .lz-txt .fn{text-decoration:line-through}
+.lz-miss{flex:none;font-size:8.5px;font-weight:800;letter-spacing:.08em;color:#fff;background:#b3383e;
+  border-radius:3px;padding:1px 4px}
+.lz-rowx{flex:none;width:16px;height:16px;display:grid;place-items:center;cursor:pointer;border-radius:4px;
+  color:#777;font-size:12px;opacity:0;transition:opacity .12s,color .12s,background .12s}
+.lz-row:hover .lz-rowx{opacity:1}
+.lz-rowx:hover{color:#fff;background:#b3383e}
+
+/* ---------- strength stepper: ‹ 1.00 › ---------- */
+.lz-st{position:relative;flex:none;width:92px;height:20px;border-radius:4px;background:#161616;
+  border:1px solid #363636;overflow:hidden;cursor:ew-resize;touch-action:none;transition:border-color .12s}
+.lz-st:hover{border-color:#4c4c4c}
+.lz-gpu{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.lz-fill{position:absolute;top:0;bottom:0;z-index:0;pointer-events:none;
+  background:linear-gradient(90deg,rgba(245,165,36,.35),rgba(255,122,24,.75))}
 .lz-fill.neg{background:linear-gradient(90deg,rgba(240,97,109,.8),rgba(240,97,109,.3))}
-.lz-tick{position:absolute;top:3px;bottom:3px;width:1px;background:rgba(255,255,255,.14);pointer-events:none}
-.lz-tick.z{background:rgba(255,255,255,.3)}
-.lz-lbl{position:absolute;left:8px;top:0;bottom:0;display:flex;align-items:center;font-size:9px;font-weight:800;
-  letter-spacing:.12em;color:#8a93a6;pointer-events:none}
-.lz-val{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;
-  font-weight:700;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.7);pointer-events:none}
+.lz-row.off .lz-fill{opacity:.35}
+.lz-tick{position:absolute;top:2px;bottom:2px;width:1px;background:rgba(255,255,255,.12);pointer-events:none;z-index:1}
+.lz-tick.z{background:rgba(255,255,255,.26)}
+.lz-val{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;
+  font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;color:#eee;
+  text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none}
 .lz-val.hard{color:var(--acc)}
-.lz-ar{position:absolute;top:0;bottom:0;width:20px;display:grid;place-items:center;font-size:14px;color:#8a93a6;
-  opacity:0;cursor:pointer;transition:opacity .12s,color .12s;z-index:2}
-.lz-sc:hover .lz-ar{opacity:1}.lz-ar:hover{color:var(--acc)}
+.lz-ar{position:absolute;top:0;bottom:0;width:16px;z-index:2;display:grid;place-items:center;font-size:13px;
+  color:#8a8a8a;opacity:.55;cursor:pointer;transition:opacity .12s,color .12s}
+.lz-st:hover .lz-ar{opacity:1}
+.lz-ar:hover{color:#fff}
 .lz-ar.l{left:0}.lz-ar.r{right:0}
-.lz-in{position:absolute;inset:0;width:100%;height:100%;background:#0b0c11;color:var(--fg);border:0;outline:2px solid var(--acc);
-  border-radius:6px;text-align:center;font:700 12px 'Inter',sans-serif;z-index:3}
+.lz-in{position:absolute;inset:0;width:100%;height:100%;z-index:3;background:#0b0b0b;color:#eee;border:0;
+  outline:1px solid var(--acc);border-radius:4px;text-align:center;font:700 11.5px 'Inter',sans-serif}
 
-.lz-empty{border:1.5px dashed #343a4b;border-radius:10px;padding:18px 10px;text-align:center;color:var(--dim);
-  cursor:pointer;transition:border-color .15s,color .15s,background .15s}
-.lz-empty:hover{border-color:var(--acc);color:var(--acc);background:rgba(245,165,36,.05)}
-.lz-empty .big{font-size:20px;line-height:1;margin-bottom:5px}
-
-.lz-add{margin-top:9px;width:100%;padding:8px 10px;border-radius:9px;cursor:pointer;font-weight:800;letter-spacing:.14em;
-  font-size:11px;text-transform:uppercase;color:#1a1206;border:1px solid #c9821a;
-  background:linear-gradient(180deg,#ffc35c,var(--acc));transition:transform .12s,box-shadow .12s,filter .12s}
-.lz-add:hover{transform:translateY(-1px);box-shadow:0 5px 16px rgba(245,165,36,.35);filter:brightness(1.05)}
-.lz-add:active{transform:none}
+/* ---------- add button (flat, rgthree-like) ---------- */
+.lz-add{margin-top:6px;width:100%;height:24px;border-radius:5px;cursor:pointer;font-weight:600;font-size:11.5px;
+  color:#bdbdbd;background:#2a2a2a;border:1px solid #3a3a3a;transition:background .12s,color .12s,border-color .12s}
+.lz-add:hover{background:#343434;color:#fff;border-color:#4a4a4a}
 
 /* ---------- picker ---------- */
 .lzp{position:fixed;z-index:10020;width:430px;max-width:94vw;max-height:72vh;display:flex;flex-direction:column;
-  background:#15171e;color:#e8ebf2;border:1px solid #333948;border-radius:12px;
+  background:#1b1b1b;color:#e8e8e8;border:1px solid #3a3a3a;border-radius:10px;
   box-shadow:0 18px 50px rgba(0,0,0,.7);font:12px 'Inter','Segoe UI',system-ui,sans-serif;user-select:none;overflow:hidden}
 .lzp *{box-sizing:border-box}
 .lzp button{font:inherit;color:inherit}
 .lzp-h{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
-.lzp-h .t{font-weight:800;letter-spacing:.14em;font-size:11px}
-.lzp-h .c{font-size:10px;color:#8a93a6}
+.lzp-h .t{font-weight:700;letter-spacing:.1em;font-size:11px}
+.lzp-h .c{font-size:10px;color:#8a8a8a}
 .lzp-h .sp{flex:1}
-.lzp-x{cursor:pointer;color:#8a93a6;padding:0 4px;font-size:14px}.lzp-x:hover{color:#fff}
+.lzp-x{cursor:pointer;color:#8a8a8a;padding:0 4px;font-size:14px}.lzp-x:hover{color:#fff}
 .lzp-s{padding:0 12px 8px}
-.lzp-s input{width:100%;padding:8px 10px;border-radius:8px;background:#0f1117;color:inherit;border:1px solid #2d3342;
+.lzp-s input{width:100%;padding:7px 10px;border-radius:6px;background:#121212;color:inherit;border:1px solid #363636;
   font:inherit;outline:none}
 .lzp-s input:focus{border-color:#f5a524;box-shadow:0 0 0 3px rgba(245,165,36,.15)}
 .lzp-f{display:flex;flex-wrap:wrap;gap:5px;padding:0 12px 8px;max-height:64px;overflow:auto}
-.lzp-fc{cursor:pointer;font-size:10.5px;padding:2px 9px;border-radius:99px;background:#1c202a;border:1px solid #2d3342;color:#a9b1c4;
+.lzp-fc{cursor:pointer;font-size:10.5px;padding:2px 9px;border-radius:99px;background:#242424;border:1px solid #363636;color:#a9a9a9;
   transition:all .12s}
-.lzp-fc:hover{border-color:#4a3b1e;color:#ffd58a}
-.lzp-fc.on{background:linear-gradient(180deg,#ffc35c,#f5a524);color:#1a1206;border-color:#c9821a;font-weight:700}
-.lzp-l{flex:1;overflow:auto;padding:2px 6px 6px;border-top:1px solid #232834}
-.lzp-it{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;cursor:pointer}
+.lzp-fc:hover{border-color:#6a5a2e;color:#ffd58a}
+.lzp-fc.on{background:#f5a524;color:#1a1206;border-color:#c9821a;font-weight:700}
+.lzp-l{flex:1;overflow:auto;padding:2px 6px 6px;border-top:1px solid #2a2a2a}
+.lzp-it{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer}
 .lzp-it:hover,.lzp-it.hi{background:rgba(255,255,255,.07)}
-.lzp-it.in{background:rgba(245,165,36,.09)}
-.lzp-st{width:18px;text-align:center;font-size:15px;line-height:1;cursor:pointer;color:#555d72;transition:transform .12s,color .12s}
+.lzp-it.in{background:rgba(46,125,50,.18)}
+.lzp-st{width:18px;text-align:center;font-size:15px;line-height:1;cursor:pointer;color:#555;transition:transform .12s,color .12s}
 .lzp-st:hover{color:#ffd58a;transform:scale(1.2)}.lzp-st.on{color:#f5c518}
-.lzp-ck{flex:none;width:16px;height:16px;border-radius:5px;border:1.5px solid #3b4254;display:grid;place-items:center;
-  font-size:11px;color:transparent;transition:all .12s}
-.lzp-it.in .lzp-ck{background:linear-gradient(180deg,#ffc35c,#f5a524);border-color:#c9821a;color:#1a1206;font-weight:900}
+.lzp-ck{flex:none;width:15px;height:15px;border-radius:4px;border:1.5px solid #4a4a4a;display:grid;place-items:center;
+  font-size:10px;color:transparent;transition:all .12s}
+.lzp-it.in .lzp-ck{background:#2e7d32;border-color:#2e7d32;color:#e8f5e9;font-weight:900}
 .lzp-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lzp-nm .dir{color:#7d8595;font-size:10.5px}
+.lzp-nm .dir{color:#7d7d7d;font-size:10.5px}
 .lzp-nm .fn{font-weight:600}
-.lzp-sep{border:none;border-top:1px solid #232834;margin:5px 8px}
-.lzp-em{padding:18px;text-align:center;color:#7d8595}
-.lzp-ft{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #232834;background:#12141a}
-.lzp-ft .h{flex:1;font-size:10px;color:#6c7488}
-.lzp-done{cursor:pointer;padding:5px 16px;border-radius:7px;font-weight:800;font-size:11px;letter-spacing:.1em;
-  text-transform:uppercase;color:#1a1206;background:linear-gradient(180deg,#ffc35c,#f5a524);border:1px solid #c9821a}
-.lzp-done:hover{filter:brightness(1.07)}
+.lzp-sep{border:none;border-top:1px solid #2a2a2a;margin:5px 8px}
+.lzp-em{padding:18px;text-align:center;color:#7d7d7d}
+.lzp-ft{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #2a2a2a;background:#161616}
+.lzp-ft .h{flex:1;font-size:10px;color:#6c6c6c}
+.lzp-done{cursor:pointer;padding:5px 16px;border-radius:6px;font-weight:700;font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:#e8e8e8;background:#2a2a2a;border:1px solid #3a3a3a}
+.lzp-done:hover{background:#343434;color:#fff}
 `;
     document.head.appendChild(s);
+}
+
+
+// ── WebGPU strength fills (shared device, per-bar canvas, DOM fallback) ─────
+// Same pattern as the Live Panel progress bar: one fragment shader draws the
+// fill (gradient from center, edge glow), DOM keeps the track, ticks, text and
+// interaction. If WebGPU is missing, fails or the device is lost, every bar
+// silently falls back to its CSS gradient fill.
+
+const WGSL = /* wgsl */ `
+struct U {
+  res : vec2<f32>,
+  pos : f32,          // value mapped to 0..1 over the visual range
+  neg : f32,          // 1 when value < 0
+  offA : f32,         // alpha multiplier (row disabled -> 0.35)
+  hard : f32,         // 1 when |value| is beyond the visual range
+  pad0 : f32,
+  pad1 : f32,
+  cA : vec4<f32>,     // amber
+  cB : vec4<f32>,     // orange
+  cN : vec4<f32>,     // red (negative)
+};
+@group(0) @binding(0) var<uniform> u : U;
+
+struct VSOut {
+  @builtin(position) pos : vec4<f32>,
+  @location(0) uv : vec2<f32>,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) i : u32) -> VSOut {
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>(3.0, -1.0),
+    vec2<f32>(-1.0, 3.0)
+  );
+  var o : VSOut;
+  let q = p[i];
+  o.pos = vec4<f32>(q, 0.0, 0.0, 1.0);
+  o.uv = vec2<f32>(q.x * 0.5 + 0.5, 0.5 - q.y * 0.5);
+  return o;
+}
+
+@fragment
+fn fs(v : VSOut) -> @location(0) vec4<f32> {
+  let x = v.uv.x;
+  let lo = min(u.pos, 0.5);
+  let hi = max(u.pos, 0.5);
+  let fill = step(lo, x) * step(x, hi) * step(0.0005, hi - lo);
+
+  let t = clamp((x - lo) / max(hi - lo, 0.0001), 0.0, 1.0);
+  var col = mix(u.cA.rgb, u.cB.rgb, t);
+  if (u.neg > 0.5) { col = mix(u.cN.rgb * 0.55, u.cN.rgb, 1.0 - t); }
+  if (u.hard > 0.5) { col = mix(col, vec3<f32>(1.0), 0.25); }
+
+  // soft glow at the leading edge of the fill
+  let dpx = (x - u.pos) * u.res.x;
+  let glow = exp(-abs(dpx) / 6.0) * 0.3 * step(0.0005, hi - lo);
+  col += mix(u.cB.rgb, u.cN.rgb, u.neg) * glow;
+
+  // gentle top highlight
+  col += (1.0 - v.uv.y) * 0.12 * fill;
+
+  let a = fill * u.offA;
+  return vec4<f32>(col * a, a);   // premultiplied
+}
+`;
+
+const GPU = { state: "idle", device: null, pipeline: null, format: null, bars: new Set() };
+// amber -> orange, red for negatives (matches the DOM gradient)
+const COL_A = [0.96, 0.65, 0.14, 1], COL_B = [1.0, 0.48, 0.09, 1], COL_N = [0.94, 0.38, 0.43, 1];
+
+function gpuFail(why) {
+    console.info("[Nougan Lora] strength bars use DOM (", why || "WebGPU unavailable", ")");
+    GPU.state = "failed";
+    GPU.device = null;
+    GPU.pipeline = null;
+    for (const b of GPU.bars) b.detachGpu();
+}
+
+async function gpuInit() {
+    if (GPU.state !== "idle") return;
+    GPU.state = "init";
+    let device = null;
+    try {
+        if (!navigator.gpu) throw new Error("WebGPU not available");
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error("no GPU adapter");
+        device = await adapter.requestDevice();
+        const format = navigator.gpu.getPreferredCanvasFormat();
+
+        device.pushErrorScope("validation");
+        const module = device.createShaderModule({ code: WGSL });
+        const pipeline = device.createRenderPipeline({
+            layout: "auto",
+            vertex: { module, entryPoint: "vs" },
+            fragment: {
+                module, entryPoint: "fs",
+                targets: [{
+                    format,
+                    blend: {
+                        color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+                        alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+                    },
+                }],
+            },
+            primitive: { topology: "triangle-list" },
+        });
+        const err = await device.popErrorScope();
+        if (err) throw new Error(err.message || "shader validation failed");
+
+        device.lost.then(() => { if (GPU.device === device) gpuFail("device lost"); });
+        GPU.device = device;
+        GPU.pipeline = pipeline;
+        GPU.format = format;
+        GPU.state = "ready";
+        for (const b of GPU.bars) b.attachGpu();
+    } catch (e) {
+        try { device?.destroy(); } catch { }
+        gpuFail(e?.message || e);
+    }
+}
+
+// One strength stepper: ‹ 1.00 ›. DOM interaction, WebGPU or CSS fill.
+class Bar {
+    // get() -> number; set(v) writes the entry; onTouch() commits the JSON
+    constructor(get, set, onTouch) {
+        this.get = get;
+        this.set = set;
+        this.onTouch = onTouch;
+
+        const el = document.createElement("div");
+        el.className = "lz-st";
+        el.title = "Drag to scrub · click value to type · Alt+click = 1.00 · Shift = fine · wheel = ±0.05";
+        el.innerHTML = `
+            <div class="lz-fill"></div>
+            <div class="lz-tick" style="left:${((1 - S_MIN) / (S_MAX - S_MIN)) * 100}%"></div>
+            <div class="lz-tick z" style="left:50%"></div>
+            <span class="lz-val"></span>
+            <span class="lz-ar l">‹</span><span class="lz-ar r">›</span>`;
+        this.el = el;
+        this.fill = el.querySelector(".lz-fill");
+        this.val = el.querySelector(".lz-val");
+
+        el.querySelector(".lz-ar.l").addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.put(this.get() - (e.shiftKey ? 0.01 : STEP));
+        });
+        el.querySelector(".lz-ar.r").addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.put(this.get() + (e.shiftKey ? 0.01 : STEP));
+        });
+
+        el.addEventListener("pointerdown", (e) => this.onDown(e));
+        el.addEventListener("wheel", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.put(this.get() + (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 0.01 : STEP));
+        }, { passive: false });
+
+        if (typeof ResizeObserver !== "undefined") {
+            this.ro = new ResizeObserver(() => this.paint());
+            this.ro.observe(el);
+        }
+
+        GPU.bars.add(this);
+        if (GPU.state === "ready") this.attachGpu();
+        else if (GPU.state === "idle") gpuInit();
+
+        this.paint();
+    }
+
+    put(v) {
+        v = clamp(Math.round(v * 100) / 100, -HARD, HARD);
+        this.set(v);
+        this.paint();
+        this.onTouch();
+    }
+
+    onDown(e) {
+        if (e.target.closest(".lz-ar") || e.target.closest(".lz-in")) return;
+        if (e.altKey) { this.put(1); return; }
+
+        const el = this.el;
+        el.setPointerCapture(e.pointerId);
+        const startX = e.clientX, startV = this.get();
+        let moved = false;
+
+        const mv = (ev) => {
+            const dx = ev.clientX - startX;
+            if (!moved && Math.abs(dx) < 3) return;
+            moved = true;
+            this.put(startV + dx * (ev.shiftKey ? 0.005 : STEP));
+        };
+        const up = (ev) => {
+            el.removeEventListener("pointermove", mv);
+            el.removeEventListener("pointerup", up);
+            el.removeEventListener("pointercancel", up);
+            if (!moved && !ev.target.closest(".lz-ar")) this.edit();
+        };
+        el.addEventListener("pointermove", mv);
+        el.addEventListener("pointerup", up);
+        el.addEventListener("pointercancel", up);
+    }
+
+    edit() {
+        if (this.el.querySelector(".lz-in")) return;
+        const inp = document.createElement("input");
+        inp.className = "lz-in";
+        inp.value = String(this.get());
+        this.el.appendChild(inp);
+        inp.focus();
+        inp.select();
+
+        let done = false;
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
+            if (ok) {
+                const n = parseFloat(inp.value.replace("−", "-"));
+                if (Number.isFinite(n)) this.put(n);
+            }
+            inp.remove();
+        };
+        inp.addEventListener("keydown", (ev) => {
+            ev.stopPropagation();
+            if (ev.key === "Enter") finish(true);
+            else if (ev.key === "Escape") finish(false);
+        });
+        inp.addEventListener("keyup", (ev) => ev.stopPropagation());
+        inp.addEventListener("blur", () => finish(true));
+    }
+
+    // ---- painting ----
+    paint() {
+        const v = this.get();
+        const pos = clamp((v - S_MIN) / (S_MAX - S_MIN), 0, 1);
+        const hard = v > S_MAX || v < S_MIN;
+        this.val.textContent = fmt(v);
+        this.val.classList.toggle("hard", hard);
+        if (this.gCtx) this.paintGpu(v, pos, hard);
+        else this.paintDom(v, pos);
+    }
+
+    paintDom(v, pos) {
+        this.fill.className = "lz-fill" + (v < 0 ? " neg" : "");
+        this.fill.style.left = (Math.min(pos, 0.5) * 100) + "%";
+        this.fill.style.width = (Math.abs(pos - 0.5) * 100) + "%";
+    }
+
+    attachGpu() {
+        if (this.gCtx || GPU.state !== "ready") return;
+        try {
+            const canvas = document.createElement("canvas");
+            canvas.className = "lz-gpu";
+            const ctx = canvas.getContext("webgpu");
+            if (!ctx) return;
+            ctx.configure({ device: GPU.device, format: GPU.format, alphaMode: "premultiplied" });
+            const ubo = GPU.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+            const bind = GPU.device.createBindGroup({
+                layout: GPU.pipeline.getBindGroupLayout(0),
+                entries: [{ binding: 0, resource: { buffer: ubo } }],
+            });
+            this.el.insertBefore(canvas, this.el.firstChild);
+            this.gCanvas = canvas;
+            this.gCtx = ctx;
+            this.gUbo = ubo;
+            this.gBind = bind;
+            this.gData = new Float32Array(20);
+            this.fill.style.display = "none";
+            this.paint();
+        } catch (e) {
+            this.detachGpu();
+        }
+    }
+
+    detachGpu() {
+        if (this.gCtx) { try { this.gCtx.unconfigure(); } catch { } }
+        try { this.gUbo?.destroy(); } catch { }
+        this.gCanvas?.remove();
+        this.gCtx = this.gCanvas = this.gUbo = this.gBind = this.gData = null;
+        if (this.fill) this.fill.style.display = "";
+        this.paint();
+    }
+
+    paintGpu(v, pos, hard) {
+        const canvas = this.gCanvas;
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.round((canvas.clientWidth || 92) * dpr), h = Math.round((canvas.clientHeight || 20) * dpr);
+        if (w < 2 || h < 2) return;
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+
+        const off = this.el.closest(".lz-row")?.classList.contains("off");
+        const d = this.gData;
+        d[0] = w; d[1] = h; d[2] = pos; d[3] = v < 0 ? 1 : 0;
+        d[4] = off ? 0.35 : 1; d[5] = hard ? 1 : 0; d[6] = 0; d[7] = 0;
+        d.set(COL_A, 8); d.set(COL_B, 12); d.set(COL_N, 16);
+
+        try {
+            const device = GPU.device;
+            device.queue.writeBuffer(this.gUbo, 0, d);
+            const enc = device.createCommandEncoder();
+            const pass = enc.beginRenderPass({
+                colorAttachments: [{
+                    view: this.gCtx.getCurrentTexture().createView(),
+                    clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store",
+                }],
+            });
+            pass.setPipeline(GPU.pipeline);
+            pass.setBindGroup(0, this.gBind);
+            pass.draw(3);
+            pass.end();
+            device.queue.submit([enc.finish()]);
+        } catch (e) {
+            this.detachGpu();   // this bar falls back; others keep their own state
+        }
+    }
+
+    dispose() {
+        GPU.bars.delete(this);
+        this.ro?.disconnect();
+        if (this.gCtx) { try { this.gCtx.unconfigure(); } catch { } }
+        try { this.gUbo?.destroy(); } catch { }
+        this.gCtx = null;
+    }
 }
 
 
@@ -407,9 +766,10 @@ function sync(node) {
     const w = dataW(node);
     if (!w) return;
 
+    const sep = isSep(node);
     w.value = JSON.stringify({
         loras: (node.__stack || []).map(e => ({
-            on: e.on, name: e.name, model: e.model, clip: e.split ? e.clip : e.model, split: e.split,
+            on: e.on, name: e.name, model: e.model, clip: sep ? e.clip : e.model, split: sep,
         })),
     });
 
@@ -440,6 +800,13 @@ function loadStack(node) {
 
     node.__stack = stack;
     node.__lzLast = dataW(node)?.value;
+
+    // migration: older workflows had a per-row split toggle and no node property.
+    // Derive the mode once, from the entries.
+    node.properties = node.properties || {};
+    if (!(PROP_SHOW in node.properties)) {
+        node.properties[PROP_SHOW] = stack.some(e => e.split) ? MODE_SEPARATE : MODE_SINGLE;
+    }
 }
 
 // Something other than this node (the Live Panel, a script...) changed `lora_data`.
@@ -455,106 +822,6 @@ function pullFromWidget(node) {
 
     loadStack(node);
     node.__lzRender?.();
-}
-
-
-// ── strength bar ───────────────────────────────────────────────────────────
-
-function scrub(label, get, set) {
-    const el = document.createElement("div");
-    el.className = "lz-sc";
-    el.title = "Drag to set · double-click to type · Alt+click = 1.00 · Shift = fine";
-    el.innerHTML = `
-        <div class="lz-fill"></div>
-        <div class="lz-tick" style="left:${((1 - S_MIN) / (S_MAX - S_MIN)) * 100}%"></div>
-        <div class="lz-tick z" style="left:50%"></div>
-        ${label ? `<span class="lz-lbl">${label}</span>` : ""}
-        <span class="lz-val"></span>
-        <span class="lz-ar l">‹</span><span class="lz-ar r">›</span>`;
-
-    const fill = el.querySelector(".lz-fill"), val = el.querySelector(".lz-val");
-
-    const paint = () => {
-        const v = get();
-        const pos = clamp((v - S_MIN) / (S_MAX - S_MIN), 0, 1);
-
-        fill.className = "lz-fill" + (v < 0 ? " neg" : "");
-        fill.style.left = (Math.min(pos, 0.5) * 100) + "%";
-        fill.style.width = (Math.abs(pos - 0.5) * 100) + "%";
-
-        val.textContent = fmt(v);
-        val.classList.toggle("hard", v > S_MAX || v < S_MIN);
-    };
-
-    const put = (v, fine) => {
-        v = clamp(fine ? Math.round(v * 100) / 100 : Math.round(v / STEP) * STEP, -HARD, HARD);
-        set(r2(v));
-        paint();
-    };
-
-    paint();
-
-    el.addEventListener("pointerdown", (e) => {
-        if (e.target.closest(".lz-ar") || e.target.closest(".lz-in")) return;
-
-        if (e.altKey) { put(1); return; }
-
-        el.setPointerCapture(e.pointerId);
-
-        const fromX = (ev) => {
-            const b = el.getBoundingClientRect();
-            put(S_MIN + clamp((ev.clientX - b.left) / b.width, 0, 1) * (S_MAX - S_MIN), ev.shiftKey);
-        };
-
-        fromX(e);
-
-        const mv = (ev) => fromX(ev);
-        const up = () => {
-            el.removeEventListener("pointermove", mv);
-            el.removeEventListener("pointerup", up);
-            el.removeEventListener("pointercancel", up);
-        };
-
-        el.addEventListener("pointermove", mv);
-        el.addEventListener("pointerup", up);
-        el.addEventListener("pointercancel", up);
-    });
-
-    el.querySelector(".lz-ar.l").onclick = (e) => { e.stopPropagation(); put(get() - (e.shiftKey ? 0.01 : STEP), e.shiftKey); };
-    el.querySelector(".lz-ar.r").onclick = (e) => { e.stopPropagation(); put(get() + (e.shiftKey ? 0.01 : STEP), e.shiftKey); };
-
-    el.addEventListener("dblclick", (e) => {
-        if (e.target.closest(".lz-ar")) return;
-
-        const inp = document.createElement("input");
-        inp.className = "lz-in";
-        inp.value = String(get());
-        el.appendChild(inp);
-        inp.focus();
-        inp.select();
-
-        let done = false;
-        const finish = (ok) => {
-            if (done) return;
-            done = true;
-
-            if (ok) {
-                const n = parseFloat(inp.value.replace("−", "-"));
-                if (Number.isFinite(n)) put(n, true);
-            }
-
-            inp.remove();
-        };
-
-        inp.onkeydown = (ev) => {
-            ev.stopPropagation();
-            if (ev.key === "Enter") finish(true);
-            if (ev.key === "Escape") finish(false);
-        };
-        inp.onblur = () => finish(true);
-    });
-
-    return el;
 }
 
 
@@ -581,33 +848,92 @@ function fit(node) {
     });
 }
 
+function rowMenu(node, idx, ev) {
+    const st = node.__stack || [];
+    const en = st[idx];
+    if (!en) return;
+    const LM = window.LiteGraph;
+    if (!LM?.ContextMenu) return;
+
+    const items = [
+        { content: en.name || "LoRA", disabled: true },
+        null,
+        {
+            content: `${en.on ? "⚫ Toggle Off" : "🟢 Toggle On"}`,
+            callback: () => { en.on = !en.on; node.__lzCommit(); },
+        },
+        {
+            content: "⬆️ Move Up",
+            disabled: idx <= 0,
+            callback: () => { [st[idx - 1], st[idx]] = [st[idx], st[idx - 1]]; node.__lzCommit(); },
+        },
+        {
+            content: "⬇️ Move Down",
+            disabled: idx >= st.length - 1,
+            callback: () => { [st[idx + 1], st[idx]] = [st[idx], st[idx + 1]]; node.__lzCommit(); },
+        },
+        null,
+        {
+            content: "🗑️ Remove",
+            callback: () => { st.splice(idx, 1); node.__lzCommit(); },
+        },
+    ];
+    new LM.ContextMenu(items, { event: ev, title: "LORA" });
+}
+
 function buildPanel(node) {
     styles();
 
     const root = document.createElement("div");
     root.className = "lz";
     root.innerHTML = `
-        <div class="lz-head">
-            <span class="lz-logo"></span><span class="lz-title">LORA&nbsp;STACK</span>
-            <span class="lz-chip"></span><span class="lz-sp"></span>
-            <span class="lz-ib lz-all" title="Toggle all on / off">⏻</span>
-            <span class="lz-ib lz-clear" title="Remove all LoRAs">🗑</span>
+        <div class="lz-cols">
+            <span class="lz-tgl lz-all" title="Toggle all LoRAs on / off"></span>
+            <span class="lz-cols-t">Toggle All</span>
+            <span class="lz-count"></span>
+            <span class="lz-hbtn lz-mode" title="Single strength ↔ separate Model &amp; Clip (also in the node's right-click menu)">⇄</span>
+            <span class="lz-hbtn lz-clear" title="Remove all LoRAs">🗑</span>
+            <span class="lz-sp"></span>
         </div>
         <div class="lz-list"></div>
         <button class="lz-add">＋ Add LoRA</button>`;
 
     const $ = (s) => root.querySelector(s);
+    const cols = $(".lz-cols");
     const list = $(".lz-list");
 
     root.addEventListener("pointerdown", e => e.stopPropagation());
 
     const touch = () => { sync(node); node.setDirtyCanvas(true, true); };
-
     const commit = () => { sync(node); render(); node.setDirtyCanvas(true, true); };
 
-    function chip() {
-        const st = node.__stack;
-        $(".lz-chip").innerHTML = `<b>${st.filter(e => e.on).length}</b> / ${st.length} active`;
+    // bars recreated by render() must release their GPU canvas first
+    const disposeBars = () => {
+        for (const b of node.__lzBars || []) b.dispose();
+        node.__lzBars = new Set();
+    };
+    node.__lzBars = new Set();
+
+    function paintHeader() {
+        const st = node.__stack || [];
+        const on = st.filter(e => e.on).length;
+        const tgl = $(".lz-all");
+        tgl.classList.toggle("on", st.length > 0 && on === st.length);
+        tgl.classList.toggle("mid", on > 0 && on < st.length);
+        $(".lz-count").textContent = st.length ? `${on}/${st.length}` : "";
+        $(".lz-mode").classList.toggle("on", isSep(node));
+
+        // column labels, aligned over the steppers (same widths / gaps as the rows)
+        cols.querySelectorAll(".lz-cl").forEach(e => e.remove());
+        const sep = isSep(node);
+        const labels = sep ? ["Model", "Clip"] : ["Strength"];
+        for (const t of labels) {
+            const l = document.createElement("span");
+            l.className = "lz-cl";
+            l.textContent = t;
+            cols.appendChild(l);
+        }
+        cols.style.display = st.length ? "" : "none";
     }
 
     function startDrag(e, row, idx) {
@@ -633,7 +959,7 @@ function buildPanel(node) {
             else {
                 for (let i = 0; i < rows.length; i++) {
                     const b = rows[i].getBoundingClientRect();
-                    if (ev.clientY >= b.top - 3 && ev.clientY <= b.bottom + 3) {
+                    if (ev.clientY >= b.top - 2 && ev.clientY <= b.bottom + 2) {
                         target = i;
                         after = ev.clientY > b.top + b.height / 2;
                         break;
@@ -670,116 +996,91 @@ function buildPanel(node) {
     function renderRow(en, idx) {
         const row = document.createElement("div");
         row.className = "lz-row" + (en.on ? "" : " off");
+        row.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); rowMenu(node, idx, e); });
 
-        const top = document.createElement("div");
-        top.className = "lz-top";
+        const tgl = document.createElement("span");
+        tgl.className = "lz-tgl" + (en.on ? " on" : "");
+        tgl.title = en.on ? "Enabled" : "Disabled";
+        tgl.onclick = () => { en.on = !en.on; commit(); };
+        row.appendChild(tgl);
+
+        const nm = document.createElement("span");
+        nm.className = "lz-nm";
+        nm.title = en.name + "\n(click to swap · right-click for more)";
 
         const grip = document.createElement("span");
         grip.className = "lz-grip";
         grip.textContent = "⠿";
         grip.title = "Drag to reorder";
         grip.addEventListener("pointerdown", (e) => startDrag(e, row, idx));
-        top.appendChild(grip);
+        nm.appendChild(grip);
 
-        const sw = document.createElement("span");
-        sw.className = "lz-sw" + (en.on ? " on" : "");
-        sw.title = en.on ? "Enabled" : "Disabled";
-        sw.onclick = () => { en.on = !en.on; commit(); };
-        top.appendChild(sw);
-
-        const nm = document.createElement("span");
-        nm.className = "lz-nm";
-        nm.title = en.name + "\n(click to swap)";
-
+        const txt = document.createElement("span");
+        txt.className = "lz-txt";
         const d = folderOf(en.name);
         if (d !== ROOT) {
             const ds = document.createElement("span");
             ds.className = "dir";
             ds.textContent = d + "/";
-            nm.appendChild(ds);
+            txt.appendChild(ds);
         }
         const fs = document.createElement("span");
         fs.className = "fn";
         fs.textContent = baseOf(en.name);
-        nm.appendChild(fs);
-
-        nm.onclick = (ev) => openPicker(node, ev, idx);
-        top.appendChild(nm);
+        txt.appendChild(fs);
+        nm.appendChild(txt);
 
         if (isMissing(en.name)) {
             const m = document.createElement("span");
             m.className = "lz-miss";
             m.textContent = "MISSING";
             m.title = "This file isn't in models/loras — it will be skipped.";
-            top.appendChild(m);
+            nm.appendChild(m);
         }
 
-        const mini = (txt, tip, cls, fn) => {
-            const b = document.createElement("span");
-            b.className = "lz-mini " + cls;
-            b.textContent = txt;
-            b.title = tip;
-            b.onclick = fn;
-            return b;
+        const x = document.createElement("span");
+        x.className = "lz-rowx";
+        x.textContent = "✕";
+        x.title = "Remove";
+        x.onclick = (e) => { e.stopPropagation(); node.__stack.splice(idx, 1); commit(); };
+        nm.appendChild(x);
+
+        nm.onclick = (ev) => { if (!ev.target.closest(".lz-grip") && !ev.target.closest(".lz-rowx")) openPicker(node, ev, idx); };
+        row.appendChild(nm);
+
+        // steppers, right-aligned like rgthree's number widgets
+        const sep = isSep(node);
+        const mk = (get, set) => {
+            const b = new Bar(get, set, touch);
+            node.__lzBars.add(b);
+            return b.el;
         };
-
-        top.appendChild(mini("⇄", en.split ? "Linked: use one strength for model + clip" : "Split model / clip strength",
-            en.split ? "on" : "", () => {
-                en.split = !en.split;
-                if (!en.split) en.clip = en.model;
-                else en.clip = en.model;
-                commit();
-            }));
-
-        top.appendChild(mini("✕", "Remove", "x", () => {
-            node.__stack.splice(idx, 1);
-            commit();
-        }));
-
-        row.appendChild(top);
-
-        const bars = document.createElement("div");
-        bars.className = "lz-bars";
-
-        if (en.split) {
-            bars.appendChild(scrub("MODEL", () => en.model, v => { en.model = v; touch(); }));
-            bars.appendChild(scrub("CLIP", () => en.clip, v => { en.clip = v; touch(); }));
+        if (sep) {
+            row.appendChild(mk(() => en.model, v => { en.model = v; }));
+            row.appendChild(mk(() => en.clip, v => { en.clip = v; }));
         } else {
-            bars.appendChild(scrub("", () => en.model, v => { en.model = v; en.clip = v; touch(); }));
+            row.appendChild(mk(() => en.model, v => { en.model = v; en.clip = v; }));
         }
-
-        row.appendChild(bars);
 
         return row;
     }
 
     function render() {
+        disposeBars();
         const st = node.__stack || [];
 
         list.textContent = "";
-        chip();
+        paintHeader();
 
-        if (!st.length) {
-            const e = document.createElement("div");
-            e.className = "lz-empty";
-            e.innerHTML = `<div class="big">＋</div>Add your first LoRA`;
-            e.onclick = (ev) => openPicker(node, ev);
-            list.appendChild(e);
-        } else {
-            st.forEach((en, i) => list.appendChild(renderRow(en, i)));
-        }
+        st.forEach((en, i) => list.appendChild(renderRow(en, i)));
 
         fit(node);
     }
 
     $(".lz-add").onclick = (ev) => openPicker(node, ev);
 
-    $(".lz-all").onclick = () => {
-        const st = node.__stack;
-        const anyOff = st.some(e => !e.on);
-        st.forEach(e => { e.on = anyOff; });
-        commit();
-    };
+    $(".lz-all").onclick = () => toggleAll(node);
+    $(".lz-mode").onclick = () => setMode(node, !isSep(node));
 
     let armed = null;
     $(".lz-clear").onclick = () => {
@@ -837,7 +1138,7 @@ function buildUI(node) {
     holder.style.cssText = "width:100%;overflow:visible;";
     holder.appendChild(panel);
 
-    const getH = () => Math.max(panel.offsetHeight + 4, 110);
+    const getH = () => Math.max(panel.offsetHeight + 4, 64);
 
     const dw = node.addDOMWidget("lz_panel", "div", holder, {
         serialize: false,
@@ -859,6 +1160,9 @@ function buildUI(node) {
 
     // learn which files exist so missing LoRAs get flagged
     loras().then(() => node.__lzRender?.());
+
+    // WebGPU strength fills (silent DOM fallback if unavailable)
+    gpuInit();
 }
 
 
@@ -877,7 +1181,9 @@ app.registerExtension({
 
         nodeType.prototype.onNodeCreated = function () {
             onc?.apply(this, arguments);
-            this.size = [WIDTH, 200];
+            this.size = [WIDTH, 140];
+            this.properties = this.properties || {};
+            if (!(PROP_SHOW in this.properties)) this.properties[PROP_SHOW] = MODE_SINGLE;
 
             try { buildUI(this); } catch (e) { console.warn("[Nougan Lora] UI build failed", e); }
         };
@@ -900,5 +1206,29 @@ app.registerExtension({
                 console.warn("[Nougan Lora] onConfigure failed", e);
             }
         };
+    },
+
+    // node right-click menu: strength mode + toggle all, like rgthree's properties
+    getNodeMenuItems(node) {
+        try {
+            if (!node || (node.comfyClass !== NODE_NAME && node.type !== NODE_NAME)) return [];
+            const sep = isSep(node);
+            return [
+                null,
+                {
+                    content: `${sep ? "✓ " : ""}LoRA strengths: separate Model & Clip`,
+                    callback: () => setMode(node, true),
+                },
+                {
+                    content: `${!sep ? "✓ " : ""}LoRA strengths: single`,
+                    callback: () => setMode(node, false),
+                },
+                {
+                    content: "Toggle all LoRAs on/off",
+                    callback: () => toggleAll(node),
+                },
+                null,
+            ];
+        } catch { return []; }
     },
 });
