@@ -14,7 +14,7 @@
 
 ### Custom nodes and canvas tools for [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
-**Thirty-plus nodes across thirteen families, plus two frontend extensions that change how you work on the canvas. Loaders, LoRA tooling, masking, layout boxes, smart image saving, dataset captioning, remote data, temporal video prompts, a local LLM bridge, character cards, MiniMax H3 references and GIF making. Every node has its own themed, live UI.**
+**Thirty-plus nodes across thirteen families, plus three frontend extensions that change how you work on the canvas. Loaders, LoRA tooling, masking, layout boxes, smart image saving, dataset captioning, remote data, temporal video prompts, a local LLM bridge, character cards, MiniMax H3 references and GIF making. Every node has its own themed, live UI.**
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-nodes-006064?style=for-the-badge)](https://github.com/comfyanonymous/ComfyUI)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
@@ -48,6 +48,7 @@
 
 - 🖱️ **[Canvas Tools](docs/canvas-tools.md)**: Zip Ties, Bypass Slash, Smart Guides with tidy-by-dependency, Subgraph Box, Group Box and hold-a-key gestures.
 - 🪟 **[Automagic 2222: Live Panel](docs/live-panel.md)**: a floating, dockable panel that edits your checkpoint, CLIP, VAE, resolution, samplers, seeds and LoRAs live. Drag any node onto it to pin its widgets, compare two images with a slider, run from the panel, and pick from 32 themes.
+- 📋 **[Automagic 2222: Paste Stack](docs/paste-stack.md)**: a floating clipboard history. One click saves the text, image or file you copied (prompts, screenshots, files from Explorer). Click a saved card to copy it back, or drag an image card onto a Load Image node. Your stack survives reloads, and the panel minimizes to a small chip.
 
 The pack also includes a global **Tab-cycler** quality-of-life extension that works on every node in your graph.
 
@@ -93,6 +94,7 @@ The pack also includes a global **Tab-cycler** quality-of-life extension that wo
 |---|---|---|
 | **Canvas Tools 🖱️** | Zip Ties, Bypass Slash, Smart Guides + tidy by dependency, Subgraph Box, Group Box and hold-a-key gestures | [docs](docs/canvas-tools.md) |
 | **Automagic 2222: Live Panel 🪟** | Floating, dockable panel that live-edits checkpoint / CLIP / VAE / resolution / duration / samplers / seeds / LoRAs. Drag a node on to pin it, image compare, subgraph cards, run bar with VRAM meter, 32 themes | [docs](docs/live-panel.md) |
+| **Automagic 2222: Paste Stack 📋** | Floating clipboard history. One click saves copied text, images and files; click a card to copy it back; drag an image card onto Load Image. Survives reloads, minimizes to a chip, WebGPU backdrop | [docs](docs/paste-stack.md) |
 
 ---
 
@@ -121,6 +123,8 @@ The pack also includes a global **Tab-cycler** quality-of-life extension that wo
 | Tidy a messy graph and move around it faster | [Canvas Tools 🖱️](docs/canvas-tools.md) |
 | Change my model, sampler, seed and LoRAs without hunting through the graph | [Live Panel 🪟](docs/live-panel.md) |
 | See the difference between two outputs with a slider | [Live Panel 🪟](docs/live-panel.md) (Compare) |
+| Keep my old prompts and images handy to reuse | [Paste Stack 📋](docs/paste-stack.md) |
+| Drop an image I just copied straight into a Load Image node | [Paste Stack 📋](docs/paste-stack.md) (drag a card onto the node) |
 
 ---
 
@@ -146,7 +150,10 @@ The frontend extensions announce themselves in the browser console instead, for 
 
 ```
 ✔ Automagic 2222: Live Panel (web extension)
+✔ Automagic 2222: Paste Stack (web extension)
 ```
+
+Paste Stack also has a small server helper (it reads files you copied in Explorer / Finder, which browsers can't) that reports as `Paste Stack clipboard helper (0 nodes)` on boot. After updating, **restart ComfyUI** so the helper loads, not just the browser tab.
 
 Or install via **ComfyUI Manager**: search *Nougan*.
 
@@ -175,6 +182,7 @@ Every node family has its own page in [`docs/`](docs/):
 | [GIF Maker](docs/gif-maker.md) | Video to GIF / WebP / MP4 · visual timeline trim · on-video crop · social presets · live size estimate · frames output · HTTP endpoints · troubleshooting |
 | [Canvas Tools](docs/canvas-tools.md) | Zip Ties · Bypass Slash · Smart Guides + tidy by dependency · Subgraph Box · Group Box · hold-a-key gestures · key map · troubleshooting |
 | [Automagic 2222: Live Panel](docs/live-panel.md) | Floating dockable panel · live-edit checkpoint / CLIP / VAE / resolution / duration / samplers / LoRAs · drag a node on to pin it · image compare · subgraph cards · rename, hide, reorder · Reload (R) · 32 visual themes · troubleshooting |
+| [Automagic 2222: Paste Stack](docs/paste-stack.md) | Floating clipboard history · one-click paste of text, images and copied files · click a card to copy it back · drag an image onto Load Image · minimize to a chip · WebGPU backdrop · storage and limits · troubleshooting |
 
 ---
 
