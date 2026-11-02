@@ -120,6 +120,7 @@
   backdrop-filter: blur(6px);
   transition: border-color .12s ease, background .12s ease;
 }
+.nps-card { -webkit-user-select: none; user-select: none; }
 .nps-card:hover { border-color: rgba(63, 216, 196, .55); background: rgba(21, 31, 40, .92); }
 .nps-card.nps-copied { border-color: var(--nps-accent); box-shadow: inset 0 0 0 1px var(--nps-accent); }
 
@@ -171,7 +172,7 @@
 @media (hover: none) { .nps-x { opacity: 1; } }
 
 /* Dragging an image card onto a Load Image node */
-.nps-card[data-kind="image"] { cursor: grab; touch-action: pan-y; }
+.nps-card[data-kind="image"] { touch-action: pan-y; }
 .nps-card.nps-dragging { opacity: .4; }
 .nps-ghost {
   position: fixed;
@@ -189,6 +190,33 @@
 }
 .nps-ghost[hidden] { display: none; }
 .nps-ghost img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.nps-ghost.nps-ghost-text {
+  width: 200px;
+  height: auto;
+  max-height: 74px;
+  padding: 7px 10px;
+  background: rgba(16, 23, 30, .96);
+  font-size: 12px;
+}
+.nps-ghost-line {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Insertion line shown while reordering */
+.nps-insert {
+  position: fixed;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--nps-accent);
+  box-shadow: 0 0 10px rgba(63, 216, 196, .65);
+  pointer-events: none;
+  z-index: 1600;
+}
+.nps-insert[hidden] { display: none; }
 .nps-ghost.nps-ok { border-color: var(--nps-accent); }
 .nps-target {
   position: fixed;
@@ -199,6 +227,41 @@
   z-index: 1400;
 }
 .nps-target[hidden] { display: none; }
+
+/* Double-click editing: the card grows into an editor */
+.nps-card.nps-editing {
+  flex: 1 0 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px 7px;
+  cursor: default;
+  border-color: var(--nps-accent);
+  background: rgba(14, 22, 29, .96);
+  box-shadow: 0 0 0 1px rgba(63, 216, 196, .35), 0 10px 26px rgba(0, 0, 0, .4);
+}
+.nps-card.nps-editing:hover { border-color: var(--nps-accent); background: rgba(14, 22, 29, .96); }
+.nps-editing .nps-x { display: none; }
+.nps-edit {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 120px;
+  padding: 8px 9px;
+  resize: none;
+  font: inherit;
+  line-height: 1.45;
+  color: var(--nps-ink);
+  background: rgba(6, 10, 14, .72);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  -webkit-user-select: text;
+  user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: #33414b transparent;
+}
+.nps-edit:focus { outline: none; border-color: var(--nps-accent); }
+.nps-editing .nps-meta { align-items: center; }
+.nps-status { color: var(--nps-dim); }
+.nps-btn.nps-done { height: 22px; color: var(--nps-accent); font-weight: 600; }
 
 /* The click-to-paste target: no plus sign, it simply fills the free space */
 .nps-drop {
