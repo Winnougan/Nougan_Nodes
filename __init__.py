@@ -234,6 +234,9 @@ _FEATURES = [
     ("Draw Image", "nougan_draw_image", [
         ("NouganDrawImage", "NouganDrawImage", "Nougan Draw Image ✏️"),
     ]),
+    # Server half of the Paste Stack widget: lets a single click paste FILES you copied in Explorer/Finder
+    # (browsers can't read those). Registers /nougan/paste_stack/clipboard, local requests only. No nodes.
+    ("Paste Stack clipboard helper", "nougan_paste_stack_server", []),
 ]
 
 # Frontend-only features: no Python module, no nodes, just a script in WEB_DIRECTORY that ComfyUI
@@ -256,6 +259,9 @@ _WEB_ONLY = [
     # Floating, dockable panel: reads the loaded checkpoint / CLIP / VAE / every sampler / LoRAs and edits
     # the real node values live (no cables). Stylesheet lives in web/css/.
     ("Automagic 2222: Live Panel", "nougan_live_panel.js", "css/nougan_live_panel.css"),
+    # Floating clipboard-history widget: click to paste text/images into a saved stack, click a saved card to copy it
+    # back. Square panel that minimizes to a small chip; WebGPU backdrop (CSS fallback). Stack lives in IndexedDB.
+    ("Automagic 2222: Paste Stack", "nougan_paste_stack.js", "css/nougan_paste_stack.css"),
 ]
 
 
