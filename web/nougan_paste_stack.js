@@ -6,6 +6,8 @@
 //   • Click any saved card → it goes back on your clipboard, ready to Ctrl+V anywhere (an old prompt, an image).
 //   • Click-and-hold an image card and drag it onto a Load Image node → the image is uploaded and loaded into it.
 //   • Files copied in Explorer/Finder paste with one click too (via nougan_paste_stack_server.py on the ComfyUI side).
+//   • Drag any card up or down to reorder the stack (Alt+Up / Alt+Down on a focused card works too).
+//   • Double-click a text card (or press F2) → it grows into an editor. Edits autosave; Esc, Ctrl+Enter, Done or clicking away closes it.
 //   • "×" on a card deletes it. "×" in the header minimizes the panel to a small chip; click the chip to reopen.
 //   • DOM for the UI, WebGPU for the animated backdrop (falls back to a plain CSS gradient without WebGPU).
 //
@@ -343,11 +345,14 @@ if (!window.__nouganPasteStackLoaded) {
         tap: () => expand(),
       });
 
+      let editBoost = false;     // true while the panel is temporarily taller for editing
+
       // Persist the size the user drags the panel to, and keep the WebGPU canvas matched to it.
       let sizeTimer = 0;
       if (window.ResizeObserver) {
         new ResizeObserver(() => {
           if (ui.state !== "open") return;
+          if (editBoost) { sizeCanvas(); return; }          // temporary editing size: don't save it
           ui.w = panel.offsetWidth; ui.h = panel.offsetHeight;
           clearTimeout(sizeTimer);
           sizeTimer = setTimeout(() => { place(); saveUi(); }, 150);
@@ -378,12 +383,21 @@ if (!window.__nouganPasteStackLoaded) {
 
       try {
         const stored = await dbTx("readonly", (s) => s.getAll());
-        items = (stored || []).sort((a, b) => b.ts - a.ts);
+        const all = stored || [];
+        // `ord` is the manual order (lowest = top). Older entries without it go on top, newest first.
+        const ordered = all.filter((x) => typeof x.ord === "number").sort((a, b) => a.ord - b.ord);
+        const legacy = all.filter((x) => typeof x.ord !== "number").sort((a, b) => b.ts - a.ts);
+        const top = ordered.length ? ordered[0].ord : 0;
+        legacy.forEach((x, i) => { x.ord = top - (legacy.length - i); });
+        items = [...legacy, ...ordered];
+        if (legacy.length) persist(() => dbTx("readwrite", (s) => { legacy.forEach((x) => s.put(x)); }));
       } catch { dbBroken = true; }
 
       function trim() {
-        while (items.length > limit) {
-          const old = items.pop();
+        while (items.length > limit) {                     // drop the oldest entry, wherever you've moved it
+          let oi = 0;
+          items.forEach((x, i) => { if (x.ts < items[oi].ts) oi = i; });
+          const [old] = items.splice(oi, 1);
           persist(() => dbTx("readwrite", (s) => s.delete(old.id)));
         }
       }
@@ -398,6 +412,7 @@ if (!window.__nouganPasteStackLoaded) {
         }
         it.id = uid();
         it.ts = Date.now();
+        it.ord = items.length ? items[0].ord - 1 : 0;
         items.unshift(it);
         persist(() => dbTx("readwrite", (s) => s.put(it)));
         trim();
@@ -450,6 +465,148 @@ if (!window.__nouganPasteStackLoaded) {
         const out = [];
         for (const f of files) out.push(await addFile(f));
         report(out);
+      }
+
+      // ---- reorder ----------------------------------------------------------
+      // `toIndex` is the position in the list after the card has been lifted out.
+      function moveItem(id, toIndex) {
+        const from = items.findIndex((x) => x.id === id);
+        if (from < 0) return false;
+        toIndex = clamp(toIndex, 0, items.length - 1);
+        if (toIndex === from) return false;
+        const [it] = items.splice(from, 1);
+        items.splice(toIndex, 0, it);
+        const prev = items[toIndex - 1], next = items[toIndex + 1];
+        let ord;
+        if (!prev && !next) ord = 0;
+        else if (!prev) ord = next.ord - 1;
+        else if (!next) ord = prev.ord + 1;
+        else ord = (prev.ord + next.ord) / 2;
+        if (prev && next && !(ord > prev.ord && ord < next.ord)) {     // ran out of float room: renumber
+          items.forEach((x, i) => { x.ord = i; });
+          persist(() => dbTx("readwrite", (s) => { items.forEach((x) => s.put(x)); }));
+        } else {
+          it.ord = ord;
+          persist(() => dbTx("readwrite", (s) => s.put(it)));
+        }
+        render();
+        return true;
+      }
+
+      // ---- edit a text card ---------------------------------------------------
+      const EDIT_MIN_H = 440;
+      let editing = null;        // { it, card, ta, statusEl, timer, restore }
+      const saveSeq = new WeakMap();
+
+      async function saveText(it, text) {
+        const n = (saveSeq.get(it) || 0) + 1;
+        saveSeq.set(it, n);
+        it.text = text;
+        const key = await hashBlob(new Blob([text]));
+        if (saveSeq.get(it) !== n || !items.includes(it)) return;     // newer save running, or card was deleted
+        it.key = key;
+        await persist(() => dbTx("readwrite", (s) => s.put(it)));
+      }
+
+      function boostPanel(ed) {
+        if (ui.state !== "open") return;
+        const h = panel.offsetHeight;
+        const want = Math.min(Math.max(h, EDIT_MIN_H), window.innerHeight - 16);
+        if (want <= h + 4) return;
+        ed.restore = { h: ui.h, y: ui.y };
+        editBoost = true;
+        panel.style.height = `${want}px`;
+        ui.y = clamp(ui.y, 8, window.innerHeight - want - 8);
+        place();
+        ed.restore.boostedH = panel.offsetHeight;
+        ed.restore.boostedY = ui.y;
+      }
+      function unboostPanel(ed) {
+        if (!ed.restore) return;
+        const r = ed.restore;
+        editBoost = false;
+        if (panel.offsetHeight === r.boostedH) {          // untouched by the user: put the old size back
+          panel.style.height = `${r.h}px`;
+          ui.h = r.h;
+          if (ui.y === r.boostedY) ui.y = r.y;
+        } else { ui.h = panel.offsetHeight; }
+        place(); saveUi(); sizeCanvas();
+      }
+
+      function endEdit(rerender = true) {
+        const ed = editing;
+        if (!ed) return;
+        editing = null;
+        clearTimeout(ed.timer);
+        const text = ed.ta.value;
+        if (items.includes(ed.it)) {
+          if (!text.trim()) { if (text !== ed.it.text) toast("Empty text can't be saved, so I kept the previous version."); }
+          else if (text !== ed.it.text) saveText(ed.it, text);
+        }
+        unboostPanel(ed);
+        if (rerender) render();
+      }
+
+      function startEdit(it, card) {
+        if (it.kind !== "text") return;
+        if (editing) {
+          if (editing.it === it) return;
+          endEdit();
+          card = list.querySelector(`[data-id="${it.id}"]`);
+          if (!card) return;
+        }
+        const textDiv = card.querySelector(".nps-text");
+        if (!textDiv) return;
+
+        const ta = el("textarea", "nps-edit");
+        ta.value = it.text;
+        ta.maxLength = MAX_TEXT;
+        ta.spellcheck = false;
+        ta.setAttribute("aria-label", "Edit this entry. Changes save automatically.");
+        textDiv.replaceWith(ta);
+
+        const meta = card.querySelector(".nps-meta");
+        const statusEl = el("span", "nps-status", "Editing. Saves automatically.");
+        const done = el("button", "nps-btn nps-done", "Done");
+        done.type = "button";
+        done.title = "Finish editing (Esc)";
+        done.addEventListener("pointerdown", (e) => e.preventDefault());    // keep focus so blur doesn't fire first
+        done.addEventListener("click", (e) => { e.stopPropagation(); endEdit(); });
+        meta.replaceChildren(statusEl, done);
+
+        card.classList.add("nps-editing");
+        card.setAttribute("role", "group");
+        card.removeAttribute("title");
+        card.setAttribute("aria-label", "Editing text entry");
+
+        const ed = { it, card, ta, statusEl, timer: 0, restore: null };
+        editing = ed;
+        boostPanel(ed);
+        card.style.minHeight = `${Math.max(190, list.clientHeight - 14)}px`;
+        card.scrollIntoView?.({ block: "nearest" });
+
+        const count = () => `${ta.value.length.toLocaleString()} characters`;
+        ta.addEventListener("input", () => {
+          statusEl.textContent = "Saving…";
+          clearTimeout(ed.timer);
+          ed.timer = setTimeout(async () => {
+            if (editing !== ed) return;
+            const v = ta.value;
+            if (!v.trim()) { statusEl.textContent = "Empty text isn't saved"; return; }
+            if (v !== it.text) await saveText(it, v);
+            if (editing === ed) statusEl.textContent = `Saved · ${count()}`;
+          }, 600);
+        });
+        ta.addEventListener("keydown", (e) => {
+          if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
+            e.preventDefault(); e.stopPropagation();
+            endEdit();
+          }
+        });
+        ta.addEventListener("blur", () => { setTimeout(() => { if (editing === ed) endEdit(); }, 0); });
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+        ta.scrollTop = ta.scrollHeight;
       }
 
       // ---- clipboard in -----------------------------------------------------
@@ -555,17 +712,18 @@ if (!window.__nouganPasteStackLoaded) {
         }
       }
 
-      // ---- drag an image card onto a Load Image node -----------------------
+      // ---- drag cards: reorder inside the panel, or drop an image on a Load Image node ----------
       let drag = null;
       let justDragged = false;
       const ghost = el("div", "nps-ghost");
       const ghostImg = el("img");
       ghostImg.alt = ""; ghostImg.draggable = false;
-      ghost.append(ghostImg);
       ghost.hidden = true;
       const targetBox = el("div", "nps-target");
       targetBox.hidden = true;
-      root.append(ghost, targetBox);
+      const insertBar = el("div", "nps-insert");
+      insertBar.hidden = true;
+      root.append(ghost, targetBox, insertBar);
 
       const graphOf = () => app.canvas?.graph ?? app.graph;
       // Any node with an input-folder "image" combo (Load Image, Load Image (as Mask), custom loaders).
@@ -622,51 +780,110 @@ if (!window.__nouganPasteStackLoaded) {
         }
       }
 
+      const inRect = (x, y, r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+
+      // Where would the dragged card land? Returns the index among the *other* cards plus the bar position.
+      function reorderSpot(y) {
+        const others = [...list.querySelectorAll(".nps-card")].filter((c) => c !== drag.card);
+        let idx = others.length;
+        for (let i = 0; i < others.length; i++) {
+          const r = others[i].getBoundingClientRect();
+          if (y < r.top + r.height / 2) { idx = i; break; }
+        }
+        const lr = list.getBoundingClientRect();
+        let by;
+        if (!others.length) by = lr.top + 8;
+        else if (idx < others.length) by = others[idx].getBoundingClientRect().top - 3;
+        else by = others[others.length - 1].getBoundingClientRect().bottom + 3;
+        return { idx, by: clamp(by, lr.top, lr.bottom - 3), left: lr.left + 8, width: lr.width - 16 };
+      }
+      function updateReorder() {
+        const spot = reorderSpot(drag.y);
+        drag.spot = spot;
+        insertBar.style.left = `${spot.left}px`;
+        insertBar.style.top = `${spot.by}px`;
+        insertBar.style.width = `${spot.width}px`;
+        insertBar.hidden = false;
+      }
+
       function onDragKey(e) { if (e.key === "Escape") endDrag(null, true); }
-      function startDrag(e) {
+      function startDrag() {
         drag.active = true;
-        ghostImg.src = drag.card.querySelector("img")?.src || "";
+        ghost.replaceChildren();
+        ghost.classList.toggle("nps-ghost-text", drag.it.kind !== "image");
+        if (drag.it.kind === "image") {
+          ghostImg.src = drag.card.querySelector("img")?.src || "";
+          ghost.append(ghostImg);
+        } else {
+          ghost.append(el("div", "nps-ghost-line", drag.it.kind === "text" ? drag.it.text.slice(0, 160) : (drag.it.name || "file")));
+        }
         ghost.hidden = false;
         drag.card.classList.add("nps-dragging");
         document.body.style.cursor = "grabbing";
         window.addEventListener("keydown", onDragKey, true);
+        drag.scroller = setInterval(() => {           // auto-scroll the list when you hold near its edge
+          if (!drag || drag.mode !== "reorder") return;
+          const lr = list.getBoundingClientRect();
+          const edge = 30;
+          if (drag.y < lr.top + edge) list.scrollTop -= 12;
+          else if (drag.y > lr.bottom - edge) list.scrollTop += 12;
+          else return;
+          updateReorder();
+        }, 30);
       }
       function moveDrag(e) {
+        drag.x = e.clientX; drag.y = e.clientY;
         ghost.style.transform = `translate(${e.clientX + 14}px, ${e.clientY + 14}px)`;
-        const node = nodeAt(e.clientX, e.clientY);
-        const ok = imageWidgetOf(node) ? node : null;
-        drag.node = ok;
-        showTarget(ok);
-        ghost.classList.toggle("nps-ok", !!ok);
+        const inside = inRect(e.clientX, e.clientY, panel.getBoundingClientRect());
+        drag.mode = inside ? "reorder" : "node";
+        if (inside) {
+          drag.node = null;
+          targetBox.hidden = true;
+          ghost.classList.remove("nps-ok");
+          updateReorder();
+        } else {
+          insertBar.hidden = true;
+          drag.spot = null;
+          const node = drag.it.kind === "image" ? nodeAt(e.clientX, e.clientY) : null;
+          const ok = imageWidgetOf(node) ? node : null;
+          drag.node = ok;
+          showTarget(ok);
+          ghost.classList.toggle("nps-ok", !!ok);
+        }
       }
       function endDrag(e, cancel) {
         if (!drag) return;
         const d = drag;
         drag = null;
+        clearInterval(d.scroller);
         try { d.card.releasePointerCapture(d.id); } catch { /* ignore */ }
         ghost.hidden = true; ghost.classList.remove("nps-ok");
         targetBox.hidden = true;
+        insertBar.hidden = true;
         d.card.classList.remove("nps-dragging");
         document.body.style.cursor = "";
         window.removeEventListener("keydown", onDragKey, true);
         if (!d.active) return;                         // never moved far enough: it's a plain click
         justDragged = true;
+        setTimeout(() => { justDragged = false; }, 60);   // the card may be rebuilt, so its click might never arrive
         if (cancel) return;
-        if (d.node) dropOnNode(d.it, d.node);
-        else toast("Drop it on a Load Image node to use it.");
+        if (d.mode === "reorder" && d.spot) moveItem(d.it.id, d.spot.idx);
+        else if (d.node) dropOnNode(d.it, d.node);
+        else if (d.it.kind === "image") toast("Drop it on a Load Image node to use it, or inside the stack to reorder.");
       }
       function attachDrag(card, it) {
         card.addEventListener("pointerdown", (e) => {
-          if (e.button !== 0 || e.target.closest(".nps-x")) return;
+          if (e.button !== 0 || e.target.closest(".nps-x, .nps-done, .nps-edit") || card.classList.contains("nps-editing")) return;
           justDragged = false;
-          drag = { it, card, id: e.pointerId, sx: e.clientX, sy: e.clientY, active: false, node: null };
+          drag = { it, card, id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY,
+                   active: false, node: null, mode: "reorder", spot: null, scroller: 0 };
           try { card.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         });
         card.addEventListener("pointermove", (e) => {
           if (!drag || drag.card !== card) return;
           if (!drag.active) {
             if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return;
-            startDrag(e);
+            startDrag();
           }
           moveDrag(e);
         });
@@ -682,7 +899,11 @@ if (!window.__nouganPasteStackLoaded) {
         card.setAttribute("aria-label", it.kind === "file" ? `Download ${it.name}` : `Copy this ${it.kind} entry`);
         card.dataset.id = it.id;
         card.dataset.kind = it.kind;
-        if (it.kind === "image") card.title = "Click to copy. Click and hold, then drag onto a Load Image node to use it.";
+        card.title = it.kind === "image"
+          ? "Click to copy. Drag to reorder, or drag onto a Load Image node to use it."
+          : it.kind === "text"
+            ? "Click to copy. Double-click to edit. Drag to reorder."
+            : "Click to download. Drag to reorder.";
 
         const meta = el("div", "nps-meta");
         const left = el("span");
@@ -714,17 +935,41 @@ if (!window.__nouganPasteStackLoaded) {
         x.addEventListener("click", (e) => { e.stopPropagation(); removeItem(it.id); });
         card.append(x);
 
+        let copyTimer = 0;
         card.addEventListener("click", (e) => {
           if (justDragged) { justDragged = false; return; }       // that click was the end of a drag
-          copyItem(it, card, e);
+          if (editing?.card === card || e.target.closest(".nps-edit, .nps-done")) return;
+          if (it.kind !== "text") { copyItem(it, card, e); return; }
+          // Text cards wait a beat so a double-click means "edit", not "copy twice".
+          clearTimeout(copyTimer);
+          if (e.detail > 1) return;
+          const pos = { clientX: e.clientX, clientY: e.clientY };
+          copyTimer = setTimeout(() => copyItem(it, card, pos), 230);
         });
-        if (it.kind === "image") attachDrag(card, it);
+        card.addEventListener("dblclick", (e) => {
+          if (it.kind !== "text" || e.target.closest(".nps-x")) return;
+          clearTimeout(copyTimer);
+          startEdit(it, card);
+        });
+        attachDrag(card, it);
         card.addEventListener("keydown", (e) => {
-          if ((e.key === "Enter" || e.key === " ") && e.target === card) { e.preventDefault(); copyItem(it, card); }
+          if (e.target !== card) return;
+          if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+            e.preventDefault();
+            const from = items.findIndex((x) => x.id === it.id);
+            if (moveItem(it.id, from + (e.key === "ArrowUp" ? -1 : 1))) {
+              list.querySelector(`[data-id="${it.id}"]`)?.focus();
+            }
+          } else if (e.key === "F2" && it.kind === "text") {
+            e.preventDefault(); startEdit(it, card);
+          } else if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault(); copyItem(it, card);
+          }
         });
         return card;
       }
       function render() {
+        if (editing) endEdit(false);          // the card is about to be rebuilt: save and close the editor
         urls.forEach((u) => URL.revokeObjectURL(u));
         urls = [];
         const frag = document.createDocumentFragment();
@@ -782,6 +1027,7 @@ if (!window.__nouganPasteStackLoaded) {
       // turn the clipboard into a new Load Image node. If a text box has focus we leave it alone.
       window.addEventListener("paste", async (e) => {
         const ae = document.activeElement;
+        if (ae?.classList?.contains("nps-edit")) return;       // pasting into the editor is a normal paste
         if (!hovering && !(ae && root.contains(ae))) return;
         if (ae && ae !== document.body && !root.contains(ae) &&
             (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) return;
