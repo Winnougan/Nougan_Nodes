@@ -22,3 +22,4 @@ One page per node family.
 | [GIF Maker 🎞️](gif-maker.md) | Video to GIF / WebP / MP4 · visual timeline trim · on-video crop · social presets · live size estimate · frames output · HTTP endpoints · troubleshooting |
 | [Canvas Tools 🖱️](canvas-tools.md) | Zip Ties · Bypass Slash · Smart Guides + tidy by dependency · Subgraph Box · Group Box · hold-a-key gestures · key map · troubleshooting |
 | [Automagic 2222: Live Panel 🪟](live-panel.md) | Floating dockable panel · live-edit checkpoint / CLIP / VAE / resolution / duration / samplers / LoRAs · rename, hide, reorder · Reload (R) · visual presets · Support links · troubleshooting |
+| [Automagic 2222: Paste Stack 📋](paste-stack.md) | Floating clipboard history · one-click paste of text, images and copied files · click a card to copy it back · drag an image onto Load Image · minimize to a chip · WebGPU backdrop · storage and limits · troubleshooting |
