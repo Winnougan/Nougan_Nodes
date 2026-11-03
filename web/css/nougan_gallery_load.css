@@ -1,0 +1,373 @@
+/* web/css/nougan_gallery_load.css  —  Nougan Gallery Load */
+
+.ngl-root {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    background: #0d0d12;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 8px;
+    overflow: hidden;
+    font: 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #d9d9e3;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.ngl-main {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+}
+
+/* ── thumbnail area ─────────────────────────────────────────────────────── */
+.ngl-view {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    touch-action: none;
+    /* CSS fallback when WebGPU is unavailable */
+    background:
+        radial-gradient(60% 55% at 25% 30%, rgba(124, 58, 190, 0.20), transparent 70%),
+        radial-gradient(55% 60% at 78% 72%, rgba(30, 120, 170, 0.17), transparent 70%),
+        #0d0d12;
+}
+
+.ngl-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    pointer-events: none;
+}
+.ngl-bg.on { display: block; }
+
+.ngl-grid { position: absolute; inset: 0; }
+
+.ngl-cell {
+    position: absolute;
+    left: 0;
+    top: 0;
+    will-change: transform;
+}
+
+.ngl-in {
+    position: absolute;
+    inset: 3px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    outline: 2px solid transparent;
+    outline-offset: 0;
+    transition: background 0.12s, outline-color 0.12s, box-shadow 0.12s;
+}
+
+.ngl-in img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity 0.18s;
+    pointer-events: none;
+    -webkit-user-drag: none;
+}
+.ngl-cell.ngl-loaded img { opacity: 1; }
+
+.ngl-cell.ngl-err .ngl-in::after {
+    content: "⚠";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #f59e0b;
+    font-size: 18px;
+}
+
+.ngl-cell:hover .ngl-in { background: rgba(255, 255, 255, 0.11); }
+
+.ngl-cell.ngl-sel .ngl-in {
+    outline-color: #c084fc;
+    background: rgba(192, 132, 252, 0.16);
+    box-shadow: 0 0 16px rgba(192, 132, 252, 0.5);
+}
+
+.ngl-badge {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    display: none;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #9333ea;
+    color: #fff;
+    font-weight: 700;
+    font-size: 11px;
+    line-height: 16px;
+    pointer-events: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.ngl-cell.ngl-sel .ngl-badge { display: block; }
+
+.ngl-x {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    display: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.72);
+    color: #fff;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+    cursor: pointer;
+}
+.ngl-cell.ngl-sel .ngl-x { display: block; }
+.ngl-x:hover { background: #dc2626; }
+
+.ngl-marq {
+    position: absolute;
+    display: none;
+    z-index: 5;
+    border: 1px solid #c084fc;
+    background: rgba(192, 132, 252, 0.16);
+    pointer-events: none;
+}
+
+.ngl-empty {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    text-align: center;
+    white-space: pre-line;
+    color: #9d9db0;
+    pointer-events: none;
+}
+
+/* ── right-hand scrub bar ───────────────────────────────────────────────── */
+.ngl-vbar {
+    position: relative;
+    flex: 0 0 14px;
+    width: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 1px solid rgba(255, 255, 255, 0.07);
+    touch-action: none;
+}
+
+.ngl-vthumb {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: 0;
+    min-height: 28px;
+    border-radius: 6px;
+    background: rgba(192, 132, 252, 0.55);
+    cursor: grab;
+    transition: background 0.12s;
+}
+.ngl-vthumb:hover { background: rgba(192, 132, 252, 0.8); }
+.ngl-vthumb.ngl-grab { cursor: grabbing; background: #c084fc; }
+.ngl-vbar.ngl-idle .ngl-vthumb { opacity: 0.18; pointer-events: none; }
+
+/* ── footer: magnify slider + actions ───────────────────────────────────── */
+.ngl-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 6px 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.ngl-zi { flex: 0 0 auto; font-size: 13px; }
+
+.ngl-status {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #a9a9bb;
+}
+
+.ngl-zoom {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1 1 70px;
+    min-width: 40px;
+    height: 18px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.ngl-zoom::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #6d28d9, #c084fc);
+}
+.ngl-zoom::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #9333ea;
+}
+.ngl-zoom::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #6d28d9, #c084fc);
+}
+.ngl-zoom::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #9333ea;
+}
+.ngl-zoom:focus-visible { outline: 2px solid #c084fc; outline-offset: 2px; }
+
+.ngl-btn {
+    flex: 0 0 auto;
+    padding: 3px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #e6e6ef;
+    font: inherit;
+    cursor: pointer;
+}
+.ngl-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.ngl-btn:focus-visible { outline: 2px solid #c084fc; outline-offset: 1px; }
+.ngl-btn:disabled { opacity: 0.4; cursor: default; }
+.ngl-btn-pri { background: #7e22ce; border-color: #9333ea; }
+.ngl-btn-pri:hover:not(:disabled) { background: #9333ea; }
+
+/* ── folder browser modal ───────────────────────────────────────────────── */
+.ngl-modal-ov {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.ngl-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(560px, 92vw);
+    max-height: min(560px, 86vh);
+    padding: 14px;
+    box-sizing: border-box;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    background: #17171f;
+    color: #e6e6ef;
+    font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.ngl-modal-t { font-size: 15px; font-weight: 600; }
+
+.ngl-modal-row { display: flex; gap: 6px; }
+
+.ngl-modal-in {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    background: #0d0d12;
+    color: inherit;
+    font: inherit;
+}
+.ngl-modal-in:focus { outline: 2px solid #c084fc; outline-offset: 0; }
+
+.ngl-modal-list {
+    flex: 1 1 auto;
+    min-height: 160px;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: #0d0d12;
+    color: #9d9db0;
+}
+
+.ngl-modal-item {
+    padding: 6px 10px;
+    color: #e6e6ef;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ngl-modal-item:hover { background: rgba(192, 132, 252, 0.18); }
+
+.ngl-modal-info { min-height: 18px; color: #a9a9bb; }
+
+.ngl-modal-btns { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .ngl-in, .ngl-in img, .ngl-vthumb { transition: none; }
+}
+
+/* ── marked (amber) images, pinned-block divider, right-click menu ───────── */
+.ngl-cell.ngl-act .ngl-in {
+    outline-color: #fbbf24;
+    background: rgba(251, 191, 36, 0.15);
+    box-shadow: 0 0 16px rgba(251, 191, 36, 0.55);
+}
+.ngl-cell.ngl-act .ngl-badge { background: #d97706; }
+
+.ngl-sep {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 0;
+    height: 2px;
+    display: none;
+    z-index: 2;
+    border-radius: 1px;
+    background: linear-gradient(90deg, transparent, rgba(192, 132, 252, 0.75), transparent);
+    pointer-events: none;
+}
+
+.ngl-ctx {
+    position: fixed;
+    z-index: 10001;
+    min-width: 140px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: #17171f;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    color: #e6e6ef;
+    font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+}
+.ngl-ctx-item {
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ngl-ctx-item:hover { background: #dc2626; color: #fff; }
