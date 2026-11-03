@@ -10,6 +10,7 @@
 //   • Double-click a text card (or press F2) → it grows into an editor. Edits autosave; Esc, Ctrl+Enter, Done or clicking away closes it.
 //   • "×" on a card deletes it. "×" in the header minimizes the panel to a small chip; click the chip to reopen.
 //   • DOM for the UI, WebGPU for the animated backdrop (falls back to a plain CSS gradient without WebGPU).
+//   • Settings → "Nougan Paste Stack: show widget" switches the whole widget off (and Ctrl+V goes back to normal).
 //
 // The stack lives in the browser's IndexedDB, so it survives refreshes and is shared by every workflow.
 
@@ -17,6 +18,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const LS_UI = "nougan.pasteStack.ui";
+const ID_ENABLED = "Nougan.PasteStack.Enabled";
 const ID_LIMIT = "Nougan.PasteStack.Limit";
 const ID_GPU = "Nougan.PasteStack.WebGPU";
 const CHIP = 46;
@@ -194,23 +196,34 @@ if (!window.__nouganPasteStackLoaded) {
       // ---- settings ---------------------------------------------------------
       let limit = 50;
       let gpuWanted = true;
-      try {
-        app.ui.settings.addSetting({
-          id: ID_LIMIT,
-          name: "Nougan Paste Stack: maximum saved entries",
-          type: "number",
-          defaultValue: 50,
-          attrs: { min: 5, max: 500, step: 5 },
-          onChange: (v) => { limit = clamp(Number(v) || 50, 5, 500); trim(); render(); },
-        });
-        app.ui.settings.addSetting({
-          id: ID_GPU,
-          name: "Nougan Paste Stack: WebGPU backdrop",
-          type: "boolean",
-          defaultValue: true,
-          onChange: (v) => { gpuWanted = !!v; syncGpuVisibility(); },
-        });
-      } catch { /* old frontend: defaults apply */ }
+      let enabled = true;
+      let applyEnabled = () => {};     // real version is assigned once the DOM exists
+      const tryAdd = (def) => { try { app.ui.settings.addSetting(def); } catch { /* old frontend: defaults apply */ } };
+
+      tryAdd({
+        id: ID_ENABLED,
+        name: "Nougan Paste Stack: show widget",
+        type: "boolean",
+        defaultValue: true,
+        tooltip: "Turn the floating paste stack off. Ctrl+V and clipboard handling return to normal ComfyUI behavior.",
+        onChange: (v) => { enabled = !!v; applyEnabled(); },
+      });
+      tryAdd({
+        id: ID_LIMIT,
+        name: "Nougan Paste Stack: maximum saved entries",
+        type: "number",
+        defaultValue: 50,
+        attrs: { min: 5, max: 500, step: 5 },
+        onChange: (v) => { limit = clamp(Number(v) || 50, 5, 500); try { trim(); render(); } catch { /* not ready yet */ } },
+      });
+      tryAdd({
+        id: ID_GPU,
+        name: "Nougan Paste Stack: WebGPU backdrop",
+        type: "boolean",
+        defaultValue: true,
+        onChange: (v) => { gpuWanted = !!v; try { syncGpuVisibility(); } catch { /* not ready yet */ } },
+      });
+      enabled = !!getSetting(ID_ENABLED, true);
       limit = clamp(Number(getSetting(ID_LIMIT, 50)) || 50, 5, 500);
       gpuWanted = !!getSetting(ID_GPU, true);
 
@@ -309,7 +322,7 @@ if (!window.__nouganPasteStackLoaded) {
       }
       closeBtn.addEventListener("click", minimize);
       chip.addEventListener("click", (e) => { if (e.detail === 0) expand(); });   // keyboard activation
-      window.addEventListener("resize", () => { place(); sizeCanvas(); });
+      window.addEventListener("resize", () => { if (!enabled) return; place(); sizeCanvas(); });
 
       function makeDraggable(handle, { ignore, get, set, tap }) {
         let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, active = false;
@@ -348,10 +361,11 @@ if (!window.__nouganPasteStackLoaded) {
       let editBoost = false;     // true while the panel is temporarily taller for editing
 
       // Persist the size the user drags the panel to, and keep the WebGPU canvas matched to it.
+      // Skipped while the widget is switched off: a hidden panel measures 0×0 and must not be saved.
       let sizeTimer = 0;
       if (window.ResizeObserver) {
         new ResizeObserver(() => {
-          if (ui.state !== "open") return;
+          if (ui.state !== "open" || !enabled) return;
           if (editBoost) { sizeCanvas(); return; }          // temporary editing size: don't save it
           ui.w = panel.offsetWidth; ui.h = panel.offsetHeight;
           clearTimeout(sizeTimer);
@@ -983,6 +997,7 @@ if (!window.__nouganPasteStackLoaded) {
         fill = Math.min(1, n / limit);
       }
       setInterval(() => {
+        if (!enabled) return;
         panel.querySelectorAll("[data-ts]").forEach((s) => { s.textContent = fmtAgo(Number(s.dataset.ts)); });
       }, 30000);
 
@@ -1025,7 +1040,9 @@ if (!window.__nouganPasteStackLoaded) {
 
       // Ctrl+V while hovering. Capture phase + stopImmediatePropagation so ComfyUI doesn't also
       // turn the clipboard into a new Load Image node. If a text box has focus we leave it alone.
+      // When the widget is switched off in Settings, do nothing so ComfyUI's own paste works normally.
       window.addEventListener("paste", async (e) => {
+        if (!enabled) return;
         const ae = document.activeElement;
         if (ae?.classList?.contains("nps-edit")) return;       // pasting into the editor is a normal paste
         if (!hovering && !(ae && root.contains(ae))) return;
@@ -1067,6 +1084,7 @@ if (!window.__nouganPasteStackLoaded) {
       const t0 = performance.now();
       const f32 = new Float32Array(12);
       let gpu = null;
+      let gpuTried = false;      // the GPU device is only requested once the widget is actually shown
       let raf = 0, lastDraw = 0;
 
       function ripple(cx, cy) {
@@ -1080,7 +1098,7 @@ if (!window.__nouganPasteStackLoaded) {
       }
 
       function sizeCanvas() {
-        if (!gpu || ui.state !== "open") return;
+        if (!gpu || ui.state !== "open" || !enabled) return;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const scale = 0.5;      // soft noise doesn't need full resolution
         const w = Math.max(2, Math.round(panel.clientWidth * dpr * scale));
@@ -1154,24 +1172,41 @@ if (!window.__nouganPasteStackLoaded) {
 
       function frame(now) {
         raf = 0;
-        if (!gpu || !gpuWanted || ui.state !== "open" || document.hidden) return;
+        if (!gpu || !gpuWanted || !enabled || ui.state !== "open" || document.hidden) return;
         if (now - lastDraw >= 33) { lastDraw = now; drawGpu(now); }   // ~30 fps is plenty
         raf = requestAnimationFrame(frame);
       }
-      function startLoop() { if (!raf && !reduceMotion && gpu && gpuWanted && ui.state === "open") raf = requestAnimationFrame(frame); }
+      function startLoop() { if (!raf && !reduceMotion && gpu && gpuWanted && enabled && ui.state === "open") raf = requestAnimationFrame(frame); }
       function stopLoop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
       document.addEventListener("visibilitychange", () => { if (!document.hidden) startLoop(); });
 
       function syncGpuVisibility() {
         const on = !!gpu && gpuWanted;
         root.setAttribute("data-gpu", on ? "on" : "off");
-        if (on) { sizeCanvas(); startLoop(); if (reduceMotion) drawGpu(performance.now()); } else stopLoop();
+        if (on) { sizeCanvas(); startLoop(); if (reduceMotion && enabled) drawGpu(performance.now()); } else stopLoop();
       }
+
+      // ---- show / hide the whole widget (Settings → "Nougan Paste Stack: show widget") ---------
+      applyEnabled = () => {
+        root.hidden = !enabled;                    // .nps-root has no display rule, so [hidden] works
+        if (!enabled) {
+          if (editing) endEdit();
+          if (drag) endDrag(null, true);
+          hovering = false;
+          stopLoop();
+          return;
+        }
+        place();
+        if (!gpu && !gpuTried) {                   // only grab a GPU device once the widget is actually shown
+          gpuTried = true;
+          initGpu().then((ok) => { if (ok) syncGpuVisibility(); });
+        } else { sizeCanvas(); startLoop(); }
+      };
 
       // ---- go ---------------------------------------------------------------
       render();
       place();
-      if (await initGpu()) syncGpuVisibility();
+      applyEnabled();
     },
   });
 }
