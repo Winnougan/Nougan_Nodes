@@ -211,6 +211,12 @@ _FEATURES = [
     ("Multi Load Image", "nougan_multi_load_image", [
         ("NouganMultiLoadImage", "NouganMultiLoadImage", "Nougan Multi Load Image 🖼️➕"),
     ]),
+    # Thumbnail-gallery loader: pick/paste a folder, magnify slider, scrub bar, click / shift / marquee select,
+    # one IMAGE output (P1, P2, ...) per selected image (web/nougan_gallery_load.js + web/css/nougan_gallery_load.css).
+    # Registers /nougan/gallery/{list,thumb,dirs} routes (local requests only).
+    ("Gallery Load", "nougan_gallery_load", [
+        ("NouganGalleryLoad", "NouganGalleryLoad", "Nougan Gallery Load 🗂️"),
+    ]),
     ("Resolution Picker", "resolution_picker", [
         ("NouganResolutionPicker", "NouganResolutionPicker", "Nougan Resolution Picker"),
     ]),
