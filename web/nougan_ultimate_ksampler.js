@@ -12,36 +12,46 @@ const STYLE_ID = "ng-uk-stylesheet";
 const GRAPH_PAD_X = 4;
 
 const CSS = `
-.ng-uk-root{width:100%;height:100%;position:relative;background:#181818;color:#b0b0b0;font:12px monospace;display:flex;flex-direction:column;overflow:hidden;user-select:none}
-.ng-uk-image-area{flex:1 1 auto;min-height:80px;position:relative;display:flex;align-items:center;justify-content:center;background:#0a0a0a;overflow:hidden}
+.ng-uk-root{width:100%;height:100%;position:relative;background:#151517;color:#b0b0b0;font:12px monospace;display:flex;flex-direction:column;overflow:hidden;user-select:none;border-radius:8px;box-sizing:border-box}
+.ng-uk-preview-box{flex:1 1 auto;min-height:80px;margin:6px 6px 0;display:flex;flex-direction:column;background:#0a0a0c;border:1px solid #2a2a2e;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+.ng-uk-preview-titlebar{flex:0 0 26px;display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 10px;background:linear-gradient(#232328,#1b1b1f);border-bottom:1px solid #2a2a2e}
+.ng-uk-preview-label{color:#8a8a92;font:10px monospace;letter-spacing:.12em;text-transform:uppercase;pointer-events:none}
+.ng-uk-collapse-btn{flex:0 0 auto;width:20px;height:18px;line-height:1;padding:0;background:transparent;color:#707078;border:1px solid transparent;border-radius:4px;font:11px monospace;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ng-uk-collapse-btn:hover{background:#3a3a40;color:#e0e0e0;border-color:#4a4a52}
+.ng-uk-root.ng-uk-collapsed .ng-uk-image-area,
+.ng-uk-root.ng-uk-collapsed .ng-uk-panel-grip,
+.ng-uk-root.ng-uk-collapsed .ng-uk-panel,
+.ng-uk-root.ng-uk-collapsed .ng-uk-bar{display:none}
+.ng-uk-root.ng-uk-collapsed .ng-uk-preview-box{flex:0 0 26px;min-height:26px;margin-bottom:6px}
+.ng-uk-help{position:fixed;z-index:10000;max-width:320px;background:#1b1b1f;border:1px solid #e8c91a;border-radius:6px;color:#c8c8d0;font:11px/1.5 monospace;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.6);white-space:pre-wrap}
+.ng-uk-help-title{color:#e8c91a;font-weight:bold;letter-spacing:.06em;margin-bottom:5px}
+.ng-uk-image-area{flex:1 1 auto;min-height:80px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .ng-uk-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:block}
-.ng-uk-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#707070;font:12px monospace;pointer-events:none}
+.ng-uk-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#55555e;font:11px monospace;letter-spacing:.08em;pointer-events:none}
 .ng-uk-scrub{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.5);cursor:pointer;z-index:5;transition:height 80ms ease}
 .ng-uk-scrub:hover{height:10px}
 .ng-uk-scrub-fill{height:100%;width:0%;background:#e67e22;pointer-events:none}
 .ng-uk-scrub.ng-uk-paused .ng-uk-scrub-fill{background:#707070}
-.ng-uk-panel-grip{flex:0 0 5px;background:#2a2a2a;cursor:ns-resize;position:relative;z-index:4}
-.ng-uk-panel-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:26px;height:2px;background:#555;border-radius:1px}
-.ng-uk-panel-grip:hover{background:#3a3a3a}
-.ng-uk-panel-grip:hover::after{background:#888}
-.ng-uk-panel{flex:0 0 auto;height:140px;min-height:60px;background:#181818;font:11px monospace;color:#b0b0b0;display:flex;flex-direction:column;overflow:hidden}
-.ng-uk-panel-header{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;gap:8px;background:#202020;border-bottom:1px solid #2a2a2a}
+.ng-uk-panel-grip{flex:0 0 5px;background:transparent;cursor:ns-resize;position:relative;z-index:4}
+.ng-uk-panel-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:26px;height:2px;background:#3a3a40;border-radius:1px}
+.ng-uk-panel-grip:hover::after{background:#6a6a72}
+.ng-uk-panel{flex:0 0 auto;height:140px;min-height:60px;margin:0 6px;background:#17171a;border:1px solid #26262b;border-radius:8px;font:11px monospace;color:#b0b0b0;display:flex;flex-direction:column;overflow:hidden}
+.ng-uk-panel-header{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;gap:8px;background:#1e1e22;border-bottom:1px solid #2a2a2e}
 .ng-uk-header-left{display:flex;align-items:center;gap:8px}
-.ng-uk-panel-title{color:#b0b0b0;font-size:11px}
-.ng-uk-panel-summary{color:#707070;font-size:10px}
+.ng-uk-panel-title{color:#a0a0a8;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.ng-uk-panel-summary{color:#707078;font-size:10px}
 .ng-uk-graphs-grid{display:flex;align-items:stretch;padding:6px 6px 7px;gap:6px;flex:1 1 auto;min-height:0;box-sizing:border-box}
-.ng-uk-graph-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:#0e0e0e;border:1px solid #1c1c1c;border-radius:3px;overflow:hidden}
-.ng-uk-graph-head{flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;padding:3px 6px 2px;background:#161616;border-bottom:1px solid #1c1c1c;font-size:10px;line-height:1.1;gap:4px}
-.ng-uk-graph-label{color:#707070;letter-spacing:.05em;flex:0 0 auto}
+.ng-uk-graph-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:#101013;border:1px solid #1e1e22;border-radius:4px;overflow:hidden}
+.ng-uk-graph-head{flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;padding:3px 6px 2px;background:#151518;border-bottom:1px solid #1e1e22;font-size:10px;line-height:1.1;gap:4px}
+.ng-uk-graph-label{color:#707078;letter-spacing:.05em;flex:0 0 auto}
 .ng-uk-graph-value{color:#b0b0b0;font-size:10px;text-align:right;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ng-uk-graph-canvas{flex:1 1 auto;display:block;width:100%;min-height:0}
-.ng-uk-spec{flex:0 0 auto;display:flex;flex-direction:column;border-top:1px solid #2a2a2a;background:#141414}
+.ng-uk-spec{flex:0 0 auto;display:flex;flex-direction:column;border-top:1px solid #2a2a2e;background:#131316}
 .ng-uk-spec-canvas{display:block;width:100%;height:44px}
-.ng-uk-audio-btn{background:#262626;color:#707070;border:1px solid #333;border-radius:3px;font-size:11px;line-height:1;padding:1px 4px;cursor:pointer}
-.ng-uk-audio-btn:hover{background:#333;color:#b0b0b0}
+.ng-uk-audio-btn{background:#26262b;color:#707070;border:1px solid #333338;border-radius:4px;font-size:11px;line-height:1;padding:1px 4px;cursor:pointer}
+.ng-uk-audio-btn:hover{background:#333338;color:#b0b0b0}
 .ng-uk-audio-btn.ng-uk-audio-on{color:#e67e22;border-color:#e67e22}
-.ng-uk-bar{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;padding:5px 8px 7px;background:#141414;border-top:1px solid #2a2a2a}
-.ng-uk-bar-row{display:flex;justify-content:space-between;font:10px monospace;color:#707070}
+.ng-uk-bar{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;padding:5px 10px 7px;margin:6px 6px 6px;background:#17171a;border:1px solid #26262b;border-radius:8px}
+.ng-uk-bar-row{display:flex;justify-content:space-between;font:10px monospace;color:#707078}
 .ng-uk-bar-canvas{display:block;width:100%;height:14px;border-radius:7px}
 `;
 
@@ -538,7 +548,50 @@ app.registerExtension({
             const node = this;
 
             const root = el("div", "ng-uk-root");
-            const imageArea = el("div", "ng-uk-image-area", root);
+
+            // Boxed preview region with its own titlebar + minimize button
+            const previewBox = el("div", "ng-uk-preview-box", root);
+            const previewBar = el("div", "ng-uk-preview-titlebar", previewBox);
+            const previewLabel = el("span", "ng-uk-preview-label", previewBar);
+            previewLabel.textContent = "Preview";
+            const collapseBtn = el("button", "ng-uk-collapse-btn", previewBar);
+            collapseBtn.textContent = "\u2715";
+            collapseBtn.title = "Minimize preview";
+            const imageArea = el("div", "ng-uk-image-area", previewBox);
+
+            let previewCollapsed = false;
+            let expandedNodeH = null;
+            function collapsedHeight() {
+                // widgets + title + the slim titlebar; computeSize honours the widget's getMinHeight
+                try {
+                    const h = node.computeSize?.()?.[1];
+                    if (Number.isFinite(h) && h > 40 && (expandedNodeH == null || h < expandedNodeH - 20)) return h;
+                } catch {}
+                return 44 + 30 + (node.widgets?.length ?? 0) * 24;   // titlebar + node title + widget rows
+            }
+            function applyCollapse(restoreSize = true) {
+                // class on the ROOT: image area, graphs panel and progress bar all hide
+                root.classList.toggle("ng-uk-collapsed", previewCollapsed);
+                collapseBtn.textContent = previewCollapsed ? "\u25A2" : "\u2715";
+                collapseBtn.title = previewCollapsed ? "Bring the preview back" : "Minimize preview";
+                node.properties.ngUkPreviewCollapsed = previewCollapsed;
+                if (restoreSize) {
+                    if (previewCollapsed) {
+                        expandedNodeH = node.size?.[1] ?? null;
+                        node.setSize([node.size[0], collapsedHeight()]);
+                    } else if (expandedNodeH != null) {
+                        node.setSize([node.size[0], Math.max(expandedNodeH, 460)]);
+                        expandedNodeH = null;
+                    }
+                }
+                node.graph?.change?.();
+            }
+            collapseBtn.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+            collapseBtn.addEventListener("click", (ev) => {
+                ev.preventDefault(); ev.stopPropagation();
+                previewCollapsed = !previewCollapsed;
+                applyCollapse(true);
+            });
 
             // double-buffered <img>
             const imgA = el("img", "ng-uk-img", imageArea);
@@ -611,6 +664,10 @@ app.registerExtension({
             });
             chainCallback(node, "onConfigure", function () {
                 if (typeof node.properties?.ngUkPanelH === "number") panel.style.height = node.properties.ngUkPanelH + "px";
+                if (node.properties?.ngUkPreviewCollapsed) {
+                    previewCollapsed = true;
+                    applyCollapse(false);   // visual state only; saved node size is already correct
+                }
             });
 
             const grid = el("div", "ng-uk-graphs-grid", panel);
@@ -1116,7 +1173,7 @@ app.registerExtension({
             addMiddleClickPan(root);
             addWheelPassthrough(root);
 
-            node.addDOMWidget("preview", "ng_uk_preview", root, { serialize: false, getMinHeight: () => 360 });
+            node.addDOMWidget("preview", "ng_uk_preview", root, { serialize: false, getMinHeight: () => previewCollapsed ? 40 : 380 });
             node.setSize([Math.max(node.size?.[0] ?? 440, 440), Math.max(node.size?.[1] ?? 940, 940)]);
 
             // ---- incoming data ----
@@ -1194,6 +1251,54 @@ app.registerExtension({
                 stopVideoLoop();
                 if (scrubRafId != null) cancelAnimationFrame(scrubRafId);
             });
+        });
+
+        // ---- yellow ? badge on the node title bar (Kijai-style node help) ----
+        const HELP_TEXT = (nodeData?.description || "Nougan Ultimate KSampler")
+            + "\n\nModel + conditioning + latent in; latent, image/video and audio out. Built-in samplers plus RES4LYF clown: samplers with bongmath, optional NOISE / GUIDER / SIGMAS overrides, VAE and audio-VAE decode, and a live Model-Preview-Override panel (vendored from KJNodes) with animated previews, sigma/delta graphs, step timing and audio spectrogram. The \u2715 on the preview box minimizes the whole panel.";
+        const BADGE_R = 8;
+        const badgeCenter = (n) => [(n.size?.[0] ?? 200) - BADGE_R - 7, -14];  // node-local, in the title bar
+        let helpEl = null;
+        const hideHelp = () => { helpEl?.remove(); helpEl = null; };
+        document.addEventListener("pointerdown", (ev) => {
+            if (helpEl && !helpEl.contains(ev.target)) hideHelp();
+        }, true);
+
+        chainCallback(nodeType.prototype, "onDrawForeground", function (ctx) {
+            const [bx, by] = badgeCenter(this);
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(bx, by, BADGE_R, 0, Math.PI * 2);
+            ctx.fillStyle = "#e8c91a";
+            ctx.fill();
+            ctx.fillStyle = "#1a1a1a";
+            ctx.font = "bold 11px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("?", bx, by + 0.5);
+            ctx.restore();
+        });
+
+        chainCallback(nodeType.prototype, "onMouseDown", function (e, pos) {
+            const [bx, by] = badgeCenter(this);
+            if (Math.abs(pos[0] - bx) <= BADGE_R + 2 && Math.abs(pos[1] - by) <= BADGE_R + 2) {
+                if (helpEl) { hideHelp(); return true; }
+                hideHelp();
+                helpEl = document.createElement("div");
+                helpEl.className = "ng-uk-help";
+                const t = document.createElement("div");
+                t.className = "ng-uk-help-title";
+                t.textContent = "Nougan Ultimate KSampler";
+                const bodyEl = document.createElement("div");
+                bodyEl.textContent = HELP_TEXT;
+                helpEl.append(t, bodyEl);
+                document.body.appendChild(helpEl);
+                const x = Math.min(e.clientX ?? 40, window.innerWidth - 340);
+                const y = Math.min(e.clientY ?? 40, window.innerHeight - 220);
+                helpEl.style.left = Math.max(8, x) + "px";
+                helpEl.style.top = Math.max(8, y) + "px";
+                return true;   // consume: no drag / box-select from the badge
+            }
         });
     },
 });
