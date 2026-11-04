@@ -225,10 +225,11 @@ _FEATURES = [
     ("Model Preview Mirror", "nougan_preview_mirror", [
         ("NouganModelPreviewMirror", "NouganModelPreviewMirror", "Nougan Model Preview Mirror 🪞"),
     ]),
-    # ClownsharK + built-in samplers, bongmath toggle, VAE encode/decode, image/video + audio out, live preview + WebGPU progress bar
-    # (web/nougan_ultimate_ksampler.js). RES4LYF and KJNodes are soft dependencies.
+    # ClownsharK + built-in samplers, bongmath toggle, VAE decode, optional NOISE/GUIDER/SIGMAS inputs,
+    # image/video + audio out, live preview + WebGPU progress bar (web/nougan_ultimate_ksampler.js).
+    # RES4LYF is the only soft dependency; the live preview is vendored in nougan_preview_override.py.
     ("Ultimate KSampler", "nougan_ultimate_ksampler", [
-        ("NouganUltimateKSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler 🦈"),
+        ("NouganUltimateKSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler"),
     ]),
     # Batch stopwatch: elapsed / progress / avg per item / ETA / finish time, WebGPU shader backdrop
     # (web/nougan_timer.js). Registers /nougan_timer/state and /nougan_timer/reset routes.

@@ -1,22 +1,28 @@
 """
 Nougan Ultimate KSampler
 ------------------------
-One node: model + conditioning + latent (or an image + VAE to encode) in, latent / image(video) / audio out.
+One node: model + conditioning + latent in, latent / image(video) / audio out.
 
   * Sampler dropdown merges ComfyUI's built-in samplers with RES4LYF's (ClownsharK) samplers.
     Entries prefixed "clown: " run through ClownsharKSampler_Beta (eta, bongmath, sampler_mode and the
     optional OPTIONS input apply); everything else runs through the stock ComfyUI sampling path.
   * `bongmath` is the on/off toggle for RES4LYF's bongmath.
-  * `image` + `vae`          -> encoded as the starting video latent (no separate VAE Encode node).
-  * `audio` + `audio_vae`    -> encoded as the audio latent; with `image` the two are joined into one
-                               audio+video latent (MiniMax H3 / LTX style). Connect a Load Video's image + audio.
-  * `vae` / `audio_vae`      -> also decode the result into the image/video and AUDIO outputs.
-  * Live preview: KJNodes' Model Preview Override wrapper is attached to the model for this run, so the
-    node's own DOM panel (web/nougan_ultimate_ksampler.js) gets the same stream the Preview Mirror uses.
+  * `vae` / `audio_vae`      -> decode the result into the image/video and AUDIO outputs.
+  * `noise` / `guider` / `sigmas` -> optional advanced inputs (SamplerCustomAdvanced style). Wire any of
+                               them and the run switches to the custom sampling path: a connected NOISE
+                               replaces `seed`, a connected GUIDER replaces positive/negative/cfg,
+                               connected SIGMAS replace scheduler/steps/denoise.
+  * Live preview: the Model Preview Override wrapper (vendored from KJNodes into
+    nougan_preview_override.py) is attached to the model for this run, so the node's own DOM panel
+    (web/nougan_ultimate_ksampler.js) gets the same stream the Preview Mirror uses.
+  * `preview_tiny_vae`       -> tiny VAE decoder from models/vae_approx for true-RGB previews, like the
+                               tiny_vae input on KJ's Model Preview Override. Needs the decoder code:
+                               a vendored tiny_vae.py or a live KJNodes install (borrowed at runtime).
 
 Soft dependencies, resolved at call time and never imported at module load:
-  RES4LYF (ClownsharK samplers) and KJNodes (live preview). Without them the node still works as a
-  plain KSampler + VAE decode and says so in the console.
+  RES4LYF (ClownsharK samplers). Without it the node still works as a plain KSampler + VAE decode and
+  says so in the console. The live preview is baked in (nougan_preview_override.py, vendored from
+  KJNodes) and needs nothing external.
 """
 
 import logging
@@ -26,6 +32,7 @@ import torch
 
 import comfy.patcher_extension
 import comfy.samplers
+import folder_paths
 import nodes
 
 try:
@@ -81,7 +88,22 @@ def _clown_scheduler_names():
 
 
 def _kj_wrapper_class():
+    """Preview wrapper: the baked-in copy (nougan_preview_override.py) wins; a live KJNodes
+    install is only a fallback. Returns None if neither is available."""
+    try:
+        from .nougan_preview_override import _PreviewOverrideWrapper
+        return _PreviewOverrideWrapper
+    except Exception:
+        pass
     return _find_in_modules("_PreviewOverrideWrapper", "preview_override_node")
+
+
+def _tiny_vae_choices():
+    """Tiny VAE decoders from models/vae_approx for true-RGB previews ('none' = core previewer / Latent2RGB)."""
+    try:
+        return ["none"] + list(folder_paths.get_filename_list("vae_approx"))
+    except Exception:
+        return ["none"]
 
 
 def _sampler_choices():
@@ -140,24 +162,6 @@ def _decode_audio(audio_vae, latent):
     return _first(LTXVAudioVAEDecode.execute(latent, audio_vae))
 
 
-def _encode_inputs(vae, audio_vae, image, audio):
-    """image (+ audio) -> starting latent. Video + audio become a joint nested AV latent (video stream first)."""
-    video_lat = audio_lat = None
-    if image is not None:
-        if vae is None:
-            raise ValueError(f"{_LOG} `image` is connected but there is no `vae` to encode it with.")
-        video_lat = {"samples": vae.encode(image[:, :, :, :3])}
-    if audio is not None:
-        if audio_vae is None:
-            raise ValueError(f"{_LOG} `audio` is connected but there is no `audio_vae` to encode it with.")
-        from comfy_extras.nodes_audio import VAEEncodeAudio
-        audio_lat = _first(VAEEncodeAudio.execute(audio_vae, audio))
-    if video_lat is not None and audio_lat is not None:
-        from comfy_extras.nodes_lt import LTXVConcatAVLatent
-        return _first(LTXVConcatAVLatent.execute(video_lat, audio_lat))
-    return video_lat if video_lat is not None else audio_lat
-
-
 class NouganUltimateKSampler:
     @classmethod
     def INPUT_TYPES(cls):
@@ -166,6 +170,7 @@ class NouganUltimateKSampler:
                 "model": ("MODEL",),
                 "positive": ("CONDITIONING",),
                 "negative": ("CONDITIONING",),
+                "latent_image": ("LATENT",),
                 "sampler_name": (_sampler_choices(), {
                     "default": "euler",
                     "tooltip": "Built-in ComfyUI samplers plus RES4LYF samplers (prefixed 'clown: ').",
@@ -193,18 +198,20 @@ class NouganUltimateKSampler:
                                         "tooltip": "Playback FPS of the live preview (ignored for clips with audio)."}),
             },
             "optional": {
-                "latent_image": ("LATENT",),
-                "image": ("IMAGE", {"tooltip": "Image / video frames. Encoded with `vae` into the starting latent when latent_image is not connected."}),
-                "audio": ("AUDIO", {"tooltip": "Audio track. Encoded with `audio_vae`; combined with `image` into one audio+video latent."}),
-                "vae": ("VAE", {"tooltip": "Video/image VAE: encodes `image`, decodes the result, and can drive the preview."}),
-                "audio_vae": ("VAE", {"tooltip": "Audio VAE: encodes `audio`, decodes the audio half of the result, and drives the spectrogram preview."}),
-                "sigmas": ("SIGMAS",),
+                "vae": ("VAE", {"tooltip": "Video/image VAE: decodes the result into the IMAGE output and can drive the preview."}),
+                "audio_vae": ("VAE", {"tooltip": "Audio VAE: decodes the audio half of the result into the AUDIO output and drives the spectrogram preview."}),
+                "noise": ("NOISE", {"tooltip": "Advanced: custom noise source (e.g. RandomNoise). Replaces the seed widget when connected."}),
+                "guider": ("GUIDER", {"tooltip": "Advanced: custom guider (e.g. CFGGuider / BasicGuider). Replaces positive / negative / cfg when connected."}),
+                "sigmas": ("SIGMAS", {"tooltip": "Advanced: custom sigma schedule. Replaces scheduler / steps / denoise when connected."}),
                 "options": ("OPTIONS", {"tooltip": "RES4LYF options chain (clown samplers only)."}),
                 "preview": ("BOOLEAN", {"default": True, "label_on": "preview ON", "label_off": "preview OFF"}),
                 "preview_max_res": ("INT", {"default": 1024, "min": 0, "max": 8192, "step": 8}),
                 "preview_frames": ("INT", {"default": 1, "min": 1, "max": 1024,
                                            "tooltip": "Frames per step for the animated video preview (1 = single frame)."}),
                 "preview_jpeg_quality": ("INT", {"default": 80, "min": 30, "max": 100}),
+                "preview_tiny_vae": (_tiny_vae_choices(), {
+                    "default": "none",
+                    "tooltip": "Tiny VAE decoder (models/vae_approx) for true-RGB previews, like KJ's Model Preview Override. Needs the decoder code: vendored tiny_vae.py or a KJNodes install."}),
             },
             "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPRMPT"},
         }
@@ -219,16 +226,16 @@ class NouganUltimateKSampler:
 
     # ───────────────────────────── preview wiring ─────────────────────────────
     @staticmethod
-    def _attach_preview(model, node_id, vae, audio_vae, max_res, quality, frames, fps):
+    def _attach_preview(model, node_id, vae, audio_vae, max_res, quality, frames, fps, tiny_vae="none"):
         cls = _kj_wrapper_class()
         if cls is None:
-            logging.warning(f"{_LOG} KJNodes preview wrapper not found; using ComfyUI's default preview only.")
+            logging.warning(f"{_LOG} preview wrapper unavailable (nougan_preview_override.py missing/broken and no KJNodes); using ComfyUI's default preview only.")
             return model
         try:
             m = model.clone()
             m.add_wrapper_with_key(
                 comfy.patcher_extension.WrappersMP.OUTER_SAMPLE, _WRAPPER_KEY,
-                cls(max_res, node_id, quality, True, frames, fps, vae, "none", audio_vae),
+                cls(max_res, node_id, quality, True, frames, fps, vae, tiny_vae, audio_vae),
             )
             return m
         except Exception as e:
@@ -259,33 +266,56 @@ class NouganUltimateKSampler:
                                     positive, negative, latent, denoise=denoise)[0]
         return out, out
 
+    # ─────────────── advanced path: custom noise / guider / sigmas ───────────────
+    def _sample_custom(self, model, positive, negative, latent, sampler_name, scheduler, steps, cfg,
+                       denoise, seed, noise, guider, sigmas):
+        """SamplerCustomAdvanced-style run, delegating to ComfyUI's own node classes (same pattern as the clown path)."""
+        from comfy_extras import nodes_custom_sampler as ncs
+        if noise is None:
+            noise = _first(ncs.RandomNoise.execute(int(seed)))
+        if guider is None:
+            guider = _first(ncs.CFGGuider.execute(model, positive, negative, cfg))
+        sampler_obj = _first(ncs.KSamplerSelect.execute(sampler_name))
+        if sigmas is None:
+            if scheduler not in comfy.samplers.SCHEDULER_NAMES:
+                logging.warning(f"{_LOG} scheduler '{scheduler}' is RES4LYF-only; using 'beta' with '{sampler_name}'.")
+                scheduler = "beta"
+            ms = model.get_model_object("model_sampling")
+            if denoise >= 0.9999:
+                sigmas = comfy.samplers.calculate_sigmas(ms, scheduler, steps)
+            else:
+                sigmas = comfy.samplers.calculate_sigmas(ms, scheduler, max(1, int(steps / max(denoise, 1e-6))))[-(steps + 1):]
+        out = ncs.SamplerCustomAdvanced.execute(noise, guider, sampler_obj, sigmas, latent)
+        args = out.args if hasattr(out, "args") else out
+        return args[0], (args[1] if len(args) > 1 and args[1] is not None else args[0])
+
     # ──────────────────────────────── entry ──────────────────────────────────
     def run(self, model, positive, negative, sampler_name, scheduler, steps, cfg, denoise, seed, eta,
             sampler_mode, bongmath, decode, tiled_decode, preview_fps,
-            latent_image=None, image=None, audio=None, vae=None, audio_vae=None, sigmas=None, options=None,
+            latent_image, vae=None, audio_vae=None,
+            noise=None, guider=None, sigmas=None, options=None,
             preview=True, preview_max_res=1024, preview_frames=1, preview_jpeg_quality=80,
+            preview_tiny_vae="none",
             unique_id=None, dynprompt=None):
         node_id = _display_id(unique_id, dynprompt)
         _emit("nougan_uk_phase", {"node": node_id, "phase": "sampling"})
 
-        # starting latent: a connected latent wins; otherwise encode image / audio with their VAEs
         latent = latent_image
-        if latent is not None and (image is not None or audio is not None):
-            logging.warning(f"{_LOG} latent_image is connected, so image/audio inputs are ignored.")
-        if latent is None:
-            latent = _encode_inputs(vae, audio_vae, image, audio)
-            if latent is None:
-                raise ValueError(f"{_LOG} connect latent_image, or image (+ vae) and/or audio (+ audio_vae) to encode from.")
 
         work_model = model
         if preview:
             work_model = self._attach_preview(model, node_id, vae, audio_vae, preview_max_res,
-                                              preview_jpeg_quality, preview_frames, preview_fps)
+                                              preview_jpeg_quality, preview_frames, preview_fps,
+                                              tiny_vae=preview_tiny_vae)
 
         if sampler_name.startswith(_CLOWN_PREFIX):
             out_latent, denoised = self._sample_clown(work_model, positive, negative, latent, sampler_name,
                                                       scheduler, steps, cfg, denoise, seed, eta,
                                                       sampler_mode, bongmath, sigmas, options)
+        elif noise is not None or guider is not None or sigmas is not None:
+            out_latent, denoised = self._sample_custom(work_model, positive, negative, latent, sampler_name,
+                                                       scheduler, steps, cfg, denoise, seed,
+                                                       noise, guider, sigmas)
         else:
             out_latent, denoised = self._sample_standard(work_model, positive, negative, latent, sampler_name,
                                                          scheduler, steps, cfg, denoise, seed)
@@ -316,4 +346,4 @@ class NouganUltimateKSampler:
 
 
 NODE_CLASS_MAPPINGS = {"NouganUltimateKSampler": NouganUltimateKSampler}
-NODE_DISPLAY_NAME_MAPPINGS = {"NouganUltimateKSampler": "Nougan Ultimate KSampler 🦈"}
+NODE_DISPLAY_NAME_MAPPINGS = {"NouganUltimateKSampler": "Nougan Ultimate KSampler"}
