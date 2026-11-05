@@ -220,16 +220,27 @@ _FEATURES = [
     ("Resolution Picker", "resolution_picker", [
         ("NouganResolutionPicker", "NouganResolutionPicker", "Nougan Resolution Picker"),
     ]),
+    # Sister to the Resolution Picker: pick an upscale factor or a target MP count and get an H3-safe
+    # width/height (same scale on both axes, snapped to the 16 px latent grid) for
+    # MiniMax H3 Latent Upscale With Model. Animated preview lives in web/nougan_h3_upscale_picker.js.
+    ("H3 Upscale Picker", "nougan_h3_upscale_picker", [
+        ("NouganH3UpscalePicker", "NouganH3UpscalePicker", "Nougan H3 Upscale Picker 📈"),
+    ]),
     # Mirrors KJNodes' Model Preview Override live preview on its own node (web/nougan_preview_mirror.js).
     # Needs KJNodes installed. No model input = follow any preview; connect a model to follow just that one.
     ("Model Preview Mirror", "nougan_preview_mirror", [
         ("NouganModelPreviewMirror", "NouganModelPreviewMirror", "Nougan Model Preview Mirror 🪞"),
     ]),
-    # ClownsharK + built-in samplers, bongmath toggle, VAE decode, optional NOISE/GUIDER/SIGMAS inputs,
+    # ClownsharK + built-in samplers, bongmath toggle, CFG on/off, VAE decode, optional SIGMAS input,
     # image/video + audio out, live preview + WebGPU progress bar (web/nougan_ultimate_ksampler.js).
     # RES4LYF is the only soft dependency; the live preview is vendored in nougan_preview_override.py.
     ("Ultimate KSampler", "nougan_ultimate_ksampler", [
         ("NouganUltimateKSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler"),
+    ]),
+    # MiniMax H3 exclusive: SamplerCustomAdvanced-shaped (noise/guider/sigmas in), always CFG-free,
+    # VAE + audio-VAE decode and the same live preview panel (web/nougan_ultimate_ksampler.js).
+    ("MiniMax H3 KSampler", "nougan_h3_ksampler", [
+        ("NouganH3KSampler", "NouganH3KSampler", "Nougan MiniMax H3 KSampler 🎬"),
     ]),
     # Batch stopwatch: elapsed / progress / avg per item / ETA / finish time, WebGPU shader backdrop
     # (web/nougan_timer.js). Registers /nougan_timer/state and /nougan_timer/reset routes.

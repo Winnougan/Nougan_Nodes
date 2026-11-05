@@ -45,17 +45,26 @@ except Exception:
 
 
 def _find_kj_attr(attr):
-    """Fall back to a live KJNodes install for helpers we did not vendor."""
+    """Fall back to a live KJNodes install for helpers we did not vendor.
+
+    Only accepts CALLABLES: torch.ops / torch.classes and friends have a __getattr__ that
+    fabricates a dummy namespace object for ANY attribute name, and those shells are never
+    callable — which is how `load_tiny_vae_decoder` twice 'resolved' to a torch namespace
+    and exploded with '_OpNamespace'/'_ClassNamespace' object is not callable."""
     import sys
     for mod in list(sys.modules.values()):
         if mod is None:
+            continue
+        mod_name = getattr(mod, "__name__", "") or ""
+        if mod_name == "torch.ops" or mod_name.startswith(("torch.ops.", "torch._ops", "torch._classes")):
             continue
         try:
             obj = getattr(mod, attr, None)
         except Exception:
             continue
-        if obj is not None:
-            return obj
+        if obj is None or not callable(obj):
+            continue
+        return obj
     return None
 
 
@@ -626,7 +635,15 @@ class _PreviewOverrideWrapper:
         # Tiny VAE from models/vae_approx
         tiny_vae = None
         if self.tiny_vae and self.tiny_vae != "none" and load_tiny_vae_decoder is not None:
-            tiny_vae = load_tiny_vae_decoder(self.tiny_vae)
+            try:
+                tiny_vae = load_tiny_vae_decoder(self.tiny_vae)
+            except Exception as e:
+                # A broken preview decoder must never kill the sampling run.
+                logging.warning(
+                    f"[KJ PreviewOverride] tiny VAE '{self.tiny_vae}' failed to load "
+                    f"({type(e).__name__}: {e}); falling back to the default previewer."
+                )
+                tiny_vae = None
             if tiny_vae is not None and latent_shapes and len(latent_shapes[0]) >= 2:
                 channels = int(latent_shapes[0][1])
                 if channels != tiny_vae.latent_channels:
@@ -686,6 +703,13 @@ class _PreviewOverrideWrapper:
         max_res = self.max_resolution
         quality = self.jpeg_quality
         self.frames = []
+        logging.info(f"[KJ PreviewOverride] wrapper active: node_id={node_id!r} "
+                     f"tiny_vae={self.tiny_vae!r} frames={self.preview_frames} "
+                     f"PromptServer={'ok' if PromptServer is not None else 'MISSING'}")
+        if node_id is None:
+            logging.warning("[KJ PreviewOverride] node_id is None — preview events cannot be tagged to a node")
+        if PromptServer is None:
+            logging.warning("[KJ PreviewOverride] PromptServer unavailable — preview events will NOT be sent")
 
         # N+1 boundaries for N steps: keep them all so the step marker advances through each.
         sigmas_list = sigmas.detach().cpu().tolist() if sigmas is not None else []
@@ -755,6 +779,8 @@ class _PreviewOverrideWrapper:
             except Exception as e:
                 logging.warning(f"Initial noise preview failed (sigmas still sent): {e}")
             PromptServer.instance.send_sync("kj_preview_override", init_payload, PromptServer.instance.client_id)
+            logging.info(f"[KJ PreviewOverride] init payload (step 0) sent for node_id={node_id!r} "
+                         f"({'with' if 'image' in init_payload else 'no'} image, {len(sigmas_list)} sigmas)")
 
         encoder = _AsyncPreviewEncoder()
         animate_video = self.preview_frames > 1
@@ -980,6 +1006,10 @@ class _PreviewOverrideWrapper:
                                 },
                                 PromptServer.instance.client_id,
                             )
+                            if not state.get("frame_send_logged"):
+                                state["frame_send_logged"] = True
+                                logging.info(f"[KJ PreviewOverride] first frame sent for node_id={node_id!r} "
+                                             f"(step {sent_step}/{total_steps_}, {mime})")
 
                         encoder.submit(_encode_and_send)
                 except Exception as e:

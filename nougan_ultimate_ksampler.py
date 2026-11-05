@@ -1,23 +1,28 @@
 """
 Nougan Ultimate KSampler
 ------------------------
-One node: model + conditioning + latent in, latent / image(video) / audio out.
+The regular-workflow sampler: model + conditioning + latent in, latent / image(video) / audio out.
 
   * Sampler dropdown merges ComfyUI's built-in samplers with RES4LYF's (ClownsharK) samplers.
     Entries prefixed "clown: " run through ClownsharKSampler_Beta (eta, bongmath, sampler_mode and the
     optional OPTIONS input apply); everything else runs through the stock ComfyUI sampling path.
   * `bongmath` is the on/off toggle for RES4LYF's bongmath.
+  * `steps_to_run`           -> chainsampling, RES4LYF-style: run only the FIRST N steps of the schedule and
+                               stop partially denoised (-1 = all). Passed straight through to clown samplers;
+                               with built-in samplers the run moves to the guider path and slices the schedule.
+  * `cfg_enabled` OFF runs positive-only guidance (BasicGuider) for CFG-free models, ignoring negative
+    and cfg at half the per-step cost. Clown samplers get cfg=1.0 instead.
   * `vae` / `audio_vae`      -> decode the result into the image/video and AUDIO outputs.
-  * `noise` / `guider` / `sigmas` -> optional advanced inputs (SamplerCustomAdvanced style). Wire any of
-                               them and the run switches to the custom sampling path: a connected NOISE
-                               replaces `seed`, a connected GUIDER replaces positive/negative/cfg,
-                               connected SIGMAS replace scheduler/steps/denoise.
+  * `sigmas`                 -> optional custom sigma schedule (replaces scheduler/steps/denoise).
   * Live preview: the Model Preview Override wrapper (vendored from KJNodes into
     nougan_preview_override.py) is attached to the model for this run, so the node's own DOM panel
     (web/nougan_ultimate_ksampler.js) gets the same stream the Preview Mirror uses.
   * `preview_tiny_vae`       -> tiny VAE decoder from models/vae_approx for true-RGB previews, like the
                                tiny_vae input on KJ's Model Preview Override. Needs the decoder code:
                                a vendored tiny_vae.py or a live KJNodes install (borrowed at runtime).
+
+MiniMax H3 has its own node — Nougan MiniMax H3 KSampler (nougan_h3_ksampler.py) — built for the
+SamplerCustomAdvanced-shaped reference workflow (noise / guider / sigmas in, no CFG anywhere).
 
 Soft dependencies, resolved at call time and never imported at module load:
   RES4LYF (ClownsharK samplers). Without it the node still works as a plain KSampler + VAE decode and
@@ -47,6 +52,15 @@ _LOG = "[Nougan UltimateKSampler]"
 
 # ───────────────────────── soft-dependency discovery ─────────────────────────
 
+def _is_torch_ops(module_name, obj):
+    """torch.ops / torch.classes and friends have a __getattr__ that fabricates a dummy namespace
+    object for ANY attribute name, so a sys.modules scan can 'find' anything there. Those shells
+    are never callable; real targets here (classes, functions) always are."""
+    if module_name == "torch.ops" or module_name.startswith(("torch.ops.", "torch._ops", "torch._classes")):
+        return True
+    return obj is not None and not callable(obj)
+
+
 def _find_in_modules(attr, name_hint=None):
     """Search already-imported custom-node modules for `attr` (so we never depend on the install folder name)."""
     for mod_name, mod in list(sys.modules.items()):
@@ -58,7 +72,7 @@ def _find_in_modules(attr, name_hint=None):
             obj = getattr(mod, attr, None)
         except Exception:
             continue
-        if obj is not None:
+        if obj is not None and not _is_torch_ops(mod_name, obj):
             return obj
     return None
 
@@ -162,6 +176,19 @@ def _decode_audio(audio_vae, latent):
     return _first(LTXVAudioVAEDecode.execute(latent, audio_vae))
 
 
+def _apply_steps_to_run(sigmas, steps_to_run):
+    """RES4LYF chainsampler semantics: keep only the FIRST N steps of the schedule (N >= 1);
+    -1 (or N >= total) means run everything. The result is a partially denoised latent."""
+    if steps_to_run is None or steps_to_run < 1:
+        return sigmas
+    total = len(sigmas) - 1
+    if steps_to_run >= total:
+        return sigmas
+    logging.info(f"{_LOG} steps_to_run={steps_to_run}: running the first {steps_to_run} of {total} steps "
+                 f"(partial denoise — continue with another sampler).")
+    return sigmas[:steps_to_run + 1]
+
+
 class NouganUltimateKSampler:
     @classmethod
     def INPUT_TYPES(cls):
@@ -180,7 +207,16 @@ class NouganUltimateKSampler:
                     "tooltip": "RES4LYF-only schedulers (e.g. beta57) fall back to 'beta' on a built-in sampler.",
                 }),
                 "steps": ("INT", {"default": 30, "min": 1, "max": 10000}),
-                "cfg": ("FLOAT", {"default": 5.5, "min": -100.0, "max": 100.0, "step": 0.01, "round": False}),
+                "steps_to_run": ("INT", {"default": -1, "min": -1, "max": 10000,
+                                         "tooltip": "Chainsampling: run only the FIRST N steps of the schedule, then stop "
+                                                    "partially denoised (a second sampler continues from there). -1 = all steps."}),
+                "cfg": ("FLOAT", {"default": 5.5, "min": -100.0, "max": 100.0, "step": 0.01, "round": False,
+                                  "tooltip": "Classifier-free guidance scale. Ignored when cfg_enabled is OFF."}),
+                "cfg_enabled": ("BOOLEAN", {
+                    "default": True, "label_on": "CFG ON", "label_off": "CFG OFF",
+                    "tooltip": "OFF for CFG-free models: samples with positive conditioning only "
+                               "(BasicGuider) at half the per-step cost. negative and cfg are ignored while OFF. "
+                               "(MiniMax H3 has its own node: Nougan MiniMax H3 KSampler.)"}),
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "eta": ("FLOAT", {"default": 0.5, "min": -100.0, "max": 100.0, "step": 0.01, "round": False,
@@ -200,8 +236,6 @@ class NouganUltimateKSampler:
             "optional": {
                 "vae": ("VAE", {"tooltip": "Video/image VAE: decodes the result into the IMAGE output and can drive the preview."}),
                 "audio_vae": ("VAE", {"tooltip": "Audio VAE: decodes the audio half of the result into the AUDIO output and drives the spectrogram preview."}),
-                "noise": ("NOISE", {"tooltip": "Advanced: custom noise source (e.g. RandomNoise). Replaces the seed widget when connected."}),
-                "guider": ("GUIDER", {"tooltip": "Advanced: custom guider (e.g. CFGGuider / BasicGuider). Replaces positive / negative / cfg when connected."}),
                 "sigmas": ("SIGMAS", {"tooltip": "Advanced: custom sigma schedule. Replaces scheduler / steps / denoise when connected."}),
                 "options": ("OPTIONS", {"tooltip": "RES4LYF options chain (clown samplers only)."}),
                 "preview": ("BOOLEAN", {"default": True, "label_on": "preview ON", "label_off": "preview OFF"}),
@@ -213,7 +247,7 @@ class NouganUltimateKSampler:
                     "default": "none",
                     "tooltip": "Tiny VAE decoder (models/vae_approx) for true-RGB previews, like KJ's Model Preview Override. Needs the decoder code: vendored tiny_vae.py or a KJNodes install."}),
             },
-            "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPRMPT"},
+            "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPROMPT"},
         }
 
     RETURN_TYPES = ("LATENT", "LATENT", "IMAGE", "AUDIO")
@@ -222,7 +256,8 @@ class NouganUltimateKSampler:
     OUTPUT_NODE = True
     CATEGORY = "Nougan/sampling"
     DESCRIPTION = ("KSampler + ClownsharK sampler + VAE encode/decode + live preview in one node. "
-                   "Image/video and audio outputs.")
+                   "Image/video and audio outputs. For MiniMax H3 (SamplerCustomAdvanced-style: "
+                   "noise / guider / sigmas in, no CFG) use the Nougan MiniMax H3 KSampler instead.")
 
     # ───────────────────────────── preview wiring ─────────────────────────────
     @staticmethod
@@ -244,14 +279,14 @@ class NouganUltimateKSampler:
 
     # ─────────────────────────────── sampling ────────────────────────────────
     def _sample_clown(self, model, positive, negative, latent, sampler_name, scheduler, steps, cfg, denoise,
-                      seed, eta, sampler_mode, bongmath, sigmas, options):
+                      seed, eta, sampler_mode, bongmath, sigmas, options, steps_to_run=-1):
         clown = _clown_class()
         if clown is None:
             raise RuntimeError(f"{_LOG} '{sampler_name}' needs RES4LYF (ClownsharK), which is not installed/loaded.")
         out = clown.execute(
             model=model, positive=positive, negative=negative, latent_image=latent,
             sampler_name=sampler_name[len(_CLOWN_PREFIX):], scheduler=scheduler,
-            steps=steps, steps_to_run=-1, denoise=denoise, cfg=cfg, seed=seed,
+            steps=steps, steps_to_run=steps_to_run, denoise=denoise, cfg=cfg, seed=seed,
             eta=eta, sampler_mode=sampler_mode, bongmath=bool(bongmath), sigmas=sigmas,
             options_group={"options0": options} if options is not None else None,
         )
@@ -266,15 +301,17 @@ class NouganUltimateKSampler:
                                     positive, negative, latent, denoise=denoise)[0]
         return out, out
 
-    # ─────────────── advanced path: custom noise / guider / sigmas ───────────────
+    # ─────────────── CFG-off / custom-sigmas path ───────────────
     def _sample_custom(self, model, positive, negative, latent, sampler_name, scheduler, steps, cfg,
-                       denoise, seed, noise, guider, sigmas):
-        """SamplerCustomAdvanced-style run, delegating to ComfyUI's own node classes (same pattern as the clown path)."""
+                       denoise, seed, sigmas, cfg_enabled=True, steps_to_run=-1):
+        """Guider-based run for cfg_enabled OFF, a wired custom sigma schedule, or a partial
+        (steps_to_run) run — delegating to ComfyUI's own node classes."""
         from comfy_extras import nodes_custom_sampler as ncs
-        if noise is None:
-            noise = _first(ncs.RandomNoise.execute(int(seed)))
-        if guider is None:
+        noise = _first(ncs.RandomNoise.execute(int(seed)))
+        if cfg_enabled:
             guider = _first(ncs.CFGGuider.execute(model, positive, negative, cfg))
+        else:
+            guider = _first(ncs.BasicGuider.execute(model, positive))
         sampler_obj = _first(ncs.KSamplerSelect.execute(sampler_name))
         if sigmas is None:
             if scheduler not in comfy.samplers.SCHEDULER_NAMES:
@@ -285,20 +322,23 @@ class NouganUltimateKSampler:
                 sigmas = comfy.samplers.calculate_sigmas(ms, scheduler, steps)
             else:
                 sigmas = comfy.samplers.calculate_sigmas(ms, scheduler, max(1, int(steps / max(denoise, 1e-6))))[-(steps + 1):]
+        sigmas = _apply_steps_to_run(sigmas, steps_to_run)
         out = ncs.SamplerCustomAdvanced.execute(noise, guider, sampler_obj, sigmas, latent)
         args = out.args if hasattr(out, "args") else out
         return args[0], (args[1] if len(args) > 1 and args[1] is not None else args[0])
 
     # ──────────────────────────────── entry ──────────────────────────────────
-    def run(self, model, positive, negative, sampler_name, scheduler, steps, cfg, denoise, seed, eta,
-            sampler_mode, bongmath, decode, tiled_decode, preview_fps,
-            latent_image, vae=None, audio_vae=None,
-            noise=None, guider=None, sigmas=None, options=None,
+    def run(self, model, positive, negative, latent_image, sampler_name, scheduler, steps, steps_to_run, cfg, cfg_enabled,
+            denoise, seed, eta, sampler_mode, bongmath, decode, tiled_decode, preview_fps,
+            vae=None, audio_vae=None, sigmas=None, options=None,
             preview=True, preview_max_res=1024, preview_frames=1, preview_jpeg_quality=80,
             preview_tiny_vae="none",
             unique_id=None, dynprompt=None):
         node_id = _display_id(unique_id, dynprompt)
-        _emit("nougan_uk_phase", {"node": node_id, "phase": "sampling"})
+        node_raw = str(unique_id)
+        logging.info(f"{_LOG} run start: unique_id={unique_id!r} node_id={node_id!r} "
+                     f"(dynprompt {'available' if dynprompt is not None else 'MISSING'})")
+        _emit("nougan_uk_phase", {"node": node_id, "node_raw": node_raw, "phase": "sampling"})
 
         latent = latent_image
 
@@ -308,21 +348,25 @@ class NouganUltimateKSampler:
                                               preview_jpeg_quality, preview_frames, preview_fps,
                                               tiny_vae=preview_tiny_vae)
 
+        if not cfg_enabled:
+            logging.info(f"{_LOG} CFG OFF — positive-only guidance; negative and cfg are ignored.")
         if sampler_name.startswith(_CLOWN_PREFIX):
+            # Clown samplers have no guider concept; cfg=1.0 is the CFG-free equivalent there.
             out_latent, denoised = self._sample_clown(work_model, positive, negative, latent, sampler_name,
-                                                      scheduler, steps, cfg, denoise, seed, eta,
-                                                      sampler_mode, bongmath, sigmas, options)
-        elif noise is not None or guider is not None or sigmas is not None:
+                                                      scheduler, steps, cfg if cfg_enabled else 1.0, denoise, seed, eta,
+                                                      sampler_mode, bongmath, sigmas, options, steps_to_run=steps_to_run)
+        elif sigmas is not None or not cfg_enabled or steps_to_run >= 1:
+            # common_ksampler can't do partial runs, so steps_to_run routes here where we can slice the schedule.
             out_latent, denoised = self._sample_custom(work_model, positive, negative, latent, sampler_name,
                                                        scheduler, steps, cfg, denoise, seed,
-                                                       noise, guider, sigmas)
+                                                       sigmas, cfg_enabled=cfg_enabled, steps_to_run=steps_to_run)
         else:
             out_latent, denoised = self._sample_standard(work_model, positive, negative, latent, sampler_name,
                                                          scheduler, steps, cfg, denoise, seed)
 
         image_out, audio_out = None, _silent_audio()
         if decode and vae is not None:
-            _emit("nougan_uk_phase", {"node": node_id, "phase": "decoding"})
+            _emit("nougan_uk_phase", {"node": node_id, "node_raw": node_raw, "phase": "decoding"})
             video_lat, audio_lat = _split_nested(out_latent["samples"])
             sub = {"samples": video_lat}
             if tiled_decode:
@@ -340,7 +384,7 @@ class NouganUltimateKSampler:
         if image_out is None:
             image_out = torch.zeros((1, 64, 64, 3))  # placeholder so downstream IMAGE links never receive None
 
-        _emit("nougan_uk_phase", {"node": node_id, "phase": "done"})
+        _emit("nougan_uk_phase", {"node": node_id, "node_raw": node_raw, "phase": "done"})
         return {"ui": {"nougan_source_id": [node_id]},
                 "result": (out_latent, denoised, image_out, audio_out)}
 
