@@ -447,6 +447,11 @@ textarea.nlp-text { display: block; min-height: 54px; resize: vertical; line-hei
 .nlp-draw-host { position: relative; width: 100%; height: 560px; margin-top: 4px; resize: vertical; overflow: hidden; min-height: 340px; }
 .nlp-draw-host > .nd-root { height: 100%; }
 
+/* Nougan Save Video player lent to the panel (the player keeps its own purple styling) */
+.nlp-videocard { padding-bottom: 5px; }
+.nlp-video-host { position: relative; width: 100%; height: 440px; margin-top: 4px; resize: vertical; overflow: hidden; min-height: 300px; }
+.nlp-video-host > .nsv { height: 100%; }
+
 /* ---------- support links (footer label, double-click to reveal the row) ---------- */
 .nlp-sup-label {
     flex: none;
