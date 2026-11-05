@@ -21,6 +21,10 @@
 // and each widget has an x. That only hides it in the panel (the real node is never touched),
 // and Default brings everything back.
 //
+// Video: drop a Nougan Save Video node on the panel (or right-click it, "Move player to Live Panel") and its
+// whole player (timeline, A-B loop, snapshot, speed ...) moves into the panel. The node keeps a "bring it back"
+// box; the x on the card sends the player home. Needs nougan_save_video.js.
+//
 // Put this file and nougan_panel_preview.js in web/, and nougan_live_panel.css in web/css/.
 
 import { app } from "../../scripts/app.js";
@@ -275,7 +279,7 @@ function pinKind(ref) {
     const w = ref?.w;
     if (!w || w.hidden || w.name === "control_after_generate") return null;
     const t = String(w.type);
-    if (t === "button" || t.startsWith("converted")) return null;
+    if (t === "button" || t.startsWith("converted") || t === "nougan_video_player") return null;
     if (t === "combo") return "combo";
     if (typeof w.value === "boolean" || t === "toggle") return "toggle";
     if (typeof w.value === "number" || t === "number" || t === "slider") {
@@ -360,6 +364,46 @@ function unpinSketch(k) {
 window.addEventListener("nougan-draw-released", (e) => {
     const n = e.detail?.node;
     if (n && isSketchPinned(n)) unpinSketch(nkey(n));
+});
+
+// ---- video players (Nougan Save Video nodes dropped onto the panel) ----
+// Same idea as the sketch pads: the node's own player is lent to the panel (mountInto / release in
+// nougan_save_video.js), so there is one <video>, one timeline and one A-B loop, shown in only one place.
+const videoPlayer = (n) => { try { return window.NouganSaveVideo?.playerOf?.(n) || null; } catch { return null; } };
+const isVideoNode = (n) => !!n && nodeType(n) === "NouganSaveVideo";
+const isVideoPinned = (n) => (readCfg().videos || []).includes(nkey(n));
+
+function collectVideos(nodes) {
+    const keys = readCfg().videos || [];
+    const live = [];
+    let missing = 0;
+    if (!keys.length) return { live, missing };
+    const byKey = new Map(nodes.map((n) => [nkey(n), n]));
+    for (const k of keys) {
+        const node = byKey.get(k);
+        const player = node ? videoPlayer(node) : null;
+        if (!player) { missing++; continue; }   // node deleted, bypassed, or the save video script is not loaded
+        live.push({ k, node, player });
+    }
+    return { live, missing };
+}
+
+function pinVideo(n) {
+    if (!videoPlayer(n)) { toast("The Save Video script isn't loaded (web/nougan_save_video.js)"); return; }
+    const k = nkey(n);
+    if (isVideoPinned(n)) { toast(`\u201C${n.title || "Save Video"}\u201D is already in the panel`); return; }
+    editCfg((c) => { c.videos.push(k); });
+    toast(`Player from \u201C${n.title || "Save Video"}\u201D moved into the panel`);
+}
+
+function unpinVideo(k) {
+    editCfg((c) => { c.videos = (c.videos || []).filter((x) => x !== k); delete c.names[`video:${k}`]; });
+}
+
+// "Bring it back here" on the node itself: drop it from the panel's list too
+window.addEventListener("nougan-video-released", (e) => {
+    const n = e.detail?.node;
+    if (n && isVideoPinned(n)) unpinVideo(nkey(n));
 });
 
 // ---- subgraph contents ----
@@ -651,6 +695,7 @@ function buildModel() {
     m.sub = collectSubgraphs(nodes, claimedBy(m));
     m.cmp = collectCompare(nodes);
     m.draws = collectDraws(nodes);
+    m.videos = collectVideos(nodes);
     return m;
 }
 
@@ -679,6 +724,7 @@ function signature(m) {
             nd.rows.map((r) => `${r.key}:${rsig(r.ref)}:${r.kind}`).join(",") + "]").join("")).join(";"),
         m.cmp.srcs.map((x) => `${x.k}:${x.node ? 1 : 0}`).join(","),
         m.draws.live.map((d) => d.k).join(",") + `#${m.draws.missing}`,
+        m.videos.live.map((d) => d.k).join(",") + `#${m.videos.missing}`,
         JSON.stringify(readCfg()),
     ].join("|");
 }
@@ -704,14 +750,14 @@ function touchWorkflow() {
 // ---- user layout: renamed labels, hidden items, custom order ----
 // Stored inside the workflow itself (graph.extra.nougan_live_panel), so it
 // travels with the file and each workflow keeps its own layout.
-const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {}, draws: [] };
+const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {}, draws: [], videos: [] };
 const readCfg = () => app.graph?.extra?.nougan_live_panel || EMPTY_CFG;
 function editCfg(fn) {
     const g = app.graph;
     if (!g) return;
     g.extra = g.extra || {};
     const c = g.extra.nougan_live_panel || (g.extra.nougan_live_panel = {});
-    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {}; c.draws = c.draws || [];
+    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {}; c.draws = c.draws || []; c.videos = c.videos || [];
     fn(c);
     touchWorkflow();
     rebuild();
@@ -724,7 +770,8 @@ function resetCfg() {
         const pins = Array.isArray(cur.pins) ? cur.pins.slice() : [];
         const cmp = cur.cmp?.srcs?.length ? cur.cmp : null;
         const draws = Array.isArray(cur.draws) ? cur.draws.slice() : [];
-        if (pins.length || cmp || draws.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, draws, ...(cmp ? { cmp } : {}) };
+        const videos = Array.isArray(cur.videos) ? cur.videos.slice() : [];
+        if (pins.length || cmp || draws.length || videos.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, draws, videos, ...(cmp ? { cmp } : {}) };
         else delete g.extra.nougan_live_panel;
         touchWorkflow();
     }
@@ -1338,9 +1385,29 @@ function drawCard(d) {
     return card;
 }
 
+// video players currently lent to the panel; any that are no longer pinned go back to their node
+const mountedVideos = new Set();
+function pauseVideos() { for (const p of mountedVideos) { try { p.pause?.(); } catch {} } }
+
+function videoCard(d) {
+    const key = `video:${d.k}`;
+    const card = cardShell(key, "Video", d.node);
+    const head = card.firstChild;
+    head.querySelector(".nlp-x")?.remove();
+    head.append(xBtn(key, () => unpinVideo(d.k), "Send the player back to its node"));
+    card.classList.add("nlp-videocard");
+    const host = el("div", "nlp-video-host");
+    card.append(host);
+    d.player.mountInto(host);
+    mountedVideos.add(d.player);
+    return card;
+}
+
 function render(m) {
     const liveDraws = new Set(m.draws.live.map((d) => d.editor));
     for (const ed of mountedDraws) if (!liveDraws.has(ed)) { try { ed.release(); } catch {} mountedDraws.delete(ed); }
+    const liveVideos = new Set(m.videos.live.map((d) => d.player));
+    for (const pl of mountedVideos) if (!liveVideos.has(pl)) { try { pl.release(); } catch {} mountedVideos.delete(pl); }
     closeComboList();
     bindings = [];
     body.textContent = "";
@@ -1384,13 +1451,14 @@ function render(m) {
     if (hiddenCount) note.push(`${hiddenCount} hidden`);
     if (m.pins.missing) note.push(`${m.pins.missing} pin${m.pins.missing > 1 ? "s" : ""} off`);
     if (m.draws.missing) note.push(`${m.draws.missing} sketch pad${m.draws.missing > 1 ? "s" : ""} off`);
+    if (m.videos.missing) note.push(`${m.videos.missing} video player${m.videos.missing > 1 ? "s" : ""} off`);
     hiddenNote.textContent = note.join(" \u00B7 ");
     hiddenNote.title = m.pins.missing
         ? "Some pinned widgets are not shown: their node was deleted, bypassed or muted"
         : "";
 
     const total = ckpt.length + clip.length + vae.length + smps.length + loras.length
-        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length + m.draws.live.length;
+        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length + m.draws.live.length + m.videos.live.length;
     if (!total) {
         body.append(el("div", "nlp-empty", hiddenCount
             ? "Everything is hidden. Press Default to bring it all back."
@@ -1496,6 +1564,11 @@ function render(m) {
     if (m.draws.live.length) {
         const items = m.draws.live.map((d) => ({ key: `draw:${d.k}`, build: () => drawCard(d) }));
         fill(section(m.draws.live.length > 1 ? "Sketch pads" : "Sketch pad", "draws"), "draws", items);
+    }
+
+    if (m.videos.live.length) {
+        const items = m.videos.live.map((d) => ({ key: `video:${d.k}`, build: () => videoCard(d) }));
+        fill(section(m.videos.live.length > 1 ? "Videos" : "Video", "videos"), "videos", items);
     }
 
     if (m.cmp.srcs.length) fill(section("Compare", "cmp"), "cmp", [{ key: "cmp", build: () => cmpCard(m.cmp) }]);
@@ -1658,6 +1731,7 @@ function openThemeMenu(anchor) {
 // `visible` = the setting (extension enabled). `state.minimized` = shrunk to the launcher box.
 let launcher = null;
 function updateVisibility() {
+    if (!(visible && !state.minimized)) pauseVideos();
     if (panel) panel.style.display = visible && !state.minimized ? "" : "none";
     if (launcher) launcher.style.display = visible && state.minimized ? "" : "none";
     if (visible && state.minimized) placeLauncher();
@@ -1753,6 +1827,7 @@ function createPanel() {
     function toggleCollapse() {
         state.collapsed = !state.collapsed;
         collapseBtn.textContent = state.collapsed ? "+" : "\u2212";
+        if (state.collapsed) pauseVideos();
         applyLayout();
         saveState();
         syncPreview();
@@ -1970,8 +2045,16 @@ function nodeMenuItems(node) {
         const any = (node.widgets || []).some((w) => pinKind({ node, w }));
         const img = isImageNode(node);
         const sketch = isDrawNode(node) && !!sketchEditor(node);
-        if (!hover && !any && !img && !sketch) return [];
+        const video = isVideoNode(node) && !!videoPlayer(node);
+        if (!hover && !any && !img && !sketch && !video) return [];
         const out = [null];
+        if (video) {
+            const on = isVideoPinned(node);
+            out.push({
+                content: on ? "Send player back to this node" : "Move player to Live Panel",
+                callback: () => { if (on) { unpinVideo(nkey(node)); toast("Player is back on its node"); } else pinVideo(node); },
+            });
+        }
         if (sketch) {
             const on = isSketchPinned(node);
             out.push({
@@ -2260,6 +2343,8 @@ function pinNodeWidgets(n) {
 function dropNode(n, ev, single) {
     // a Nougan Draw Image node: its sketch pad moves into the panel
     if (isDrawNode(n)) { pinSketch(n); return; }
+    // a Nougan Save Video node: its player moves into the panel
+    if (isVideoNode(n)) { pinVideo(n); return; }
     // subgraph: bring its whole group back
     if (n.subgraph) {
         // clear every hidden flag (sampler / loader / LoRA / resolution cards and the Subgraphs

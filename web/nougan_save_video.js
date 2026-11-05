@@ -6,6 +6,9 @@
 // (no seek pile-up), frame-accurate stepping with press-and-hold, SVG icon buttons, speed menu,
 // hover-reveal volume, draggable A/B handles, keyboard shortcuts, requestVideoFrameCallback UI sync.
 //
+// Live Panel: the player can be lent to the Live Panel (nougan_live_panel.js). Drop this node on the panel
+// and the whole player moves in; window.NouganSaveVideo.playerOf(node) exposes mountInto(host) / release().
+//
 // Shortcuts (click the player first):  Space/K play   ←/→ frame   Shift+←/→ 1 s   , . frame
 //   Home/End jump   I/O set loop in/out   L loop   M mute   F fullscreen   double-click = fullscreen
 
@@ -174,6 +177,14 @@ function injectStyles() {
 .nsv-chip.note { border-color: #8f7a2f; color: #ffe08a; }
 .nsv-chip.accent { border-color: #8e6bff; color: #fff; background: #3a2a78; }
 .nsv-note { color: #8f86b3; font-size: 11px; }
+
+/* left on the node itself while its player is lent to the Live Panel */
+.nsv-away { box-sizing: border-box; width: 100%; height: 100%; min-height: 120px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px; padding: 12px; text-align: center; cursor: pointer;
+  font: 12px/1.3 system-ui, sans-serif; color: #8f86b3; border: 1px dashed #5b47a0; border-radius: 10px;
+  background: rgba(20, 14, 36, .55); user-select: none; }
+.nsv-away b { font-size: 14px; color: #b9aee6; }
+.nsv-away:hover { color: #d9ceff; border-color: #8e6bff; }
 
 @container (max-width: 400px) {
   .nsv-hide-s { display: none !important; }
@@ -1067,13 +1078,77 @@ function buildPlayer(node) {
         try { audioCtx?.close(); } catch { /* ignore */ }
     }
 
+    // ------------------------------------------------ lend the player to another container (Live Panel)
+    // The one player (one <video>, one timeline, one A-B loop) is moved, never cloned. While it is away the
+    // node keeps a small "bring it back" box in its place.
+    let mountedIn = null, home = null, homeNext = null, holder = null;
+    const refit = () => {
+        if (state.dead) return;
+        drawStrip(); drawWave(); positionRange(); updateUI();
+    };
+    // Moving a <video> between parents can pause it on some browsers: carry on if it was playing.
+    const carryOn = (wasPlaying) => {
+        if (!wasPlaying) return;
+        requestAnimationFrame(() => { if (!state.dead && video.paused) video.play().catch(() => {}); });
+    };
+
+    function mountInto(host) {
+        if (state.dead || !host) return false;
+        const wasPlaying = !video.paused;
+        if (!mountedIn) {
+            home = root.parentNode;
+            homeNext = root.nextSibling;
+            if (home) {
+                holder = el("div", "nsv-away");
+                holder.append(el("b", "", "Player is in the Live Panel"), el("span", "", "Click here to bring it back"));
+                holder.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    release();
+                    window.dispatchEvent(new CustomEvent("nougan-video-released", { detail: { node } }));
+                });
+                home.insertBefore(holder, root);
+            }
+        }
+        mountedIn = host;
+        host.append(root);
+        requestAnimationFrame(refit);
+        carryOn(wasPlaying);
+        return true;
+    }
+
+    function release() {
+        if (!mountedIn) return;
+        const wasPlaying = !video.paused;
+        mountedIn = null;
+        holder?.remove();
+        holder = null;
+        if (home) {
+            if (homeNext && homeNext.parentNode === home) home.insertBefore(root, homeNext);
+            else home.append(root);
+        } else {
+            root.remove();
+        }
+        home = homeNext = null;
+        requestAnimationFrame(refit);
+        carryOn(wasPlaying);
+    }
+
     drawStrip();
     drawWave();
     syncVol();
     syncPlayState();
     showEncoders();
-    return { root, setEntry, video, dispose };
+    return {
+        root, setEntry, video, dispose, mountInto, release,
+        pause: () => { try { video.pause(); } catch { /* ignore */ } },
+        get mounted() { return !!mountedIn; },
+    };
 }
+
+// What the Live Panel looks up: window.NouganSaveVideo.playerOf(node) -> player | null
+window.NouganSaveVideo = {
+    playerOf: (node) => (node && node._nsv && typeof node._nsv.mountInto === "function" ? node._nsv : null),
+};
 
 // ---------------------------------------------------------------- extension
 

@@ -7,9 +7,11 @@
 const { app } = window.comfyAPI.app;
 const { api } = window.comfyAPI.api;
 
-const NODE_NAME = "NouganUltimateKSampler";
+const NODE_NAMES = new Set(["NouganUltimateKSampler", "NouganH3KSampler"]);
 const STYLE_ID = "ng-uk-stylesheet";
 const GRAPH_PAD_X = 4;
+
+console.log("[Nougan.UKS] extension loaded — build 2026-11-05a (multi-id routing + diagnostics)");
 
 const CSS = `
 .ng-uk-root{width:100%;height:100%;position:relative;background:#151517;color:#b0b0b0;font:12px monospace;display:flex;flex-direction:column;overflow:hidden;user-select:none;border-radius:8px;box-sizing:border-box}
@@ -479,18 +481,40 @@ function createProgressBar(parent) {
     };
 }
 
+// ---------- id matching (subgraph-safe) ----------
+// Backend events tag nodes inside subgraphs by colon path ("140:230") while the frontend
+// node's id is the local one ("230"). Match exactly, or by trailing segment.
+function ngIdMatches(eventId, nodeId) {
+    if (eventId == null || nodeId == null) return false;
+    const a = String(eventId), b = String(nodeId);
+    return a === b || a.endsWith(":" + b) || b.endsWith(":" + a);
+}
+// Events may carry several id spellings (display id, raw colon path, local id) — any match wins.
+function ngMatchesAny(eventIds, node) {
+    for (const eid of eventIds) {
+        if (eid == null) continue;
+        if (ngIdMatches(eid, node._ngSource ?? node.id) || ngIdMatches(eid, node.id)) return true;
+    }
+    return false;
+}
+
 // ---------- progress routing (independent of KJNodes so the bar works with the default preview too) ----------
 const bars = new Set();
-function forBars(detailNode, fn) {
+function forBars(detailNodes, fn) {
+    const ids = Array.isArray(detailNodes) ? detailNodes : [detailNodes];
+    const open = ids.every((i) => i == null);
     for (const n of [...bars]) {
         if (!n.graph) { bars.delete(n); continue; }
-        if (detailNode == null || String(detailNode) === String(n._ngSource ?? n.id) || String(detailNode) === String(n.id)) fn(n);
+        if (open || ngMatchesAny(ids, n)) fn(n);
     }
 }
-api.addEventListener("execution_start", () => { for (const n of bars) { n._ngBar?.phase("idle"); n._ngBar?.text("queued", ""); } });
+api.addEventListener("execution_start", () => {
+    console.log("[Nougan.UKS] execution_start — bars:", bars.size, "mirrors:", mirrors.size);
+    for (const n of bars) { n._ngBar?.phase("idle"); n._ngBar?.text("queued", ""); }
+});
 api.addEventListener("progress", (e) => {
     const d = e.detail || {};
-    forBars(d.node, (n) => {
+    forBars([d.node, d.display_node_id, d.real_node_id], (n) => {
         const bar = n._ngBar;
         if (!bar || bar.current === "decoding" || bar.current === "done") return;
         if (bar.current !== "sampling") bar.phase("sampling");
@@ -501,7 +525,8 @@ api.addEventListener("progress", (e) => {
 });
 api.addEventListener("nougan_uk_phase", (e) => {
     const d = e.detail || {};
-    forBars(d.node, (n) => {
+    console.log("[Nougan.UKS] nougan_uk_phase:", d.node, d.node_raw ?? "", d.phase);
+    forBars([d.node, d.node_raw], (n) => {
         const bar = n._ngBar;
         if (!bar) return;
         bar.phase(d.phase);
@@ -517,16 +542,21 @@ const lastInit = new Map();   // source node_id -> step-0 payload (sigmas etc., 
 
 api.addEventListener("kj_preview_override", (e) => {
     const data = e.detail;
-    if (!data || data.node_id == null) return;
-    const id = String(data.node_id);
+    if (!data) return;
+    const ids = [data.node_id, data.node, data.node_raw, data.node_local]
+        .filter((v) => v != null).map(String);
+    if (!ids.length) return;
+    const id = ids[0];
+    console.log("[Nougan.UKS] kj_preview_override: node_id=", data.node_id,
+        "step=", data.step, "mirrors=", [...mirrors].map((m) => `${m.id}→${m._ngSource}`).join(",") || "(none)");
 
     if (data.step === 0 && Array.isArray(data.sigmas)) {
         const { image, ...init } = data;
-        lastInit.set(id, init);
+        for (const k of ids) lastInit.set(k, init);
     }
     for (const m of [...mirrors]) {
         if (!m.graph) { mirrors.delete(m); continue; }                 // node removed
-        if (m._ngSource != null && m._ngSource !== id) continue;       // bound to a different preview
+        if (!ngMatchesAny(ids, m)) continue;                           // bound to a different preview
         if (m._ngSeen !== id) {                                        // new source (or joined mid-run)
             m._ngSeen = id;
             m._ngSetLabel?.(id);
@@ -541,7 +571,7 @@ api.addEventListener("kj_preview_override", (e) => {
 app.registerExtension({
     name: "Nougan.UltimateKSampler",
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData?.name !== NODE_NAME) return;
+        if (!NODE_NAMES.has(nodeData?.name)) return;
 
         chainCallback(nodeType.prototype, "onNodeCreated", function () {
             ensureStyles();
@@ -668,7 +698,54 @@ app.registerExtension({
                     previewCollapsed = true;
                     applyCollapse(false);   // visual state only; saved node size is already correct
                 }
+                refreshInputWidgets();
             });
+
+            // ---------- wired inputs replace fallback widgets (H3 node) ----------
+            // sampler input -> hides sampler_name; sigmas -> hides scheduler/steps/denoise;
+            // noise -> hides seed. Values are kept (serialization untouched), only hidden.
+            const WIDGET_INPUT_MAP = [
+                ["sampler", ["sampler_name"]],
+                ["sigmas", ["scheduler", "steps", "denoise"]],
+                ["noise", ["seed"]],
+            ];
+            const inputConnected = (name) => {
+                const slot = node.inputs?.find((i) => i?.name === name);
+                return !!slot && slot.link != null;
+            };
+            const setWidgetHidden = (name, hide) => {
+                const w = node.widgets?.find((x) => x.name === name);
+                if (!w) return false;
+                if (hide) {
+                    if (w._ngUkHidden) return false;
+                    w._ngUkHidden = true;
+                    w._ngUkOrigCompute = w.computeSize;
+                    w.computeSize = () => [0, -4];   // litegraph collapse
+                    w.hidden = true;                  // new-frontend flag
+                    return true;
+                }
+                if (!w._ngUkHidden) return false;
+                w._ngUkHidden = false;
+                w.computeSize = w._ngUkOrigCompute;
+                w.hidden = false;
+                return true;
+            };
+            function refreshInputWidgets() {
+                let changed = false;
+                for (const [inputName, widgetNames] of WIDGET_INPUT_MAP) {
+                    const connected = inputConnected(inputName);
+                    for (const wn of widgetNames) changed = setWidgetHidden(wn, connected) || changed;
+                }
+                if (changed && !previewCollapsed) {
+                    const min = node.computeSize();           // grow if widgets came back; never shrink the user's size
+                    if (node.size[1] < min[1]) node.setSize([node.size[0], min[1]]);
+                    node.graph?.setDirtyCanvas?.(true, true);
+                }
+            }
+            chainCallback(node, "onConnectionsChange", function () {
+                refreshInputWidgets();
+            });
+            refreshInputWidgets();
 
             const grid = el("div", "ng-uk-graphs-grid", panel);
             function makeCell(labelText) {
@@ -1231,6 +1308,7 @@ app.registerExtension({
             node._ngSeen = null;
             node._ngSetLabel = (id) => { headerTitle.textContent = `Preview ← ${id}`; };
             mirrors.add(node);
+            console.log("[Nougan.UKS] panel created for node", String(node.id), `(${node.comfyClass ?? nodeData?.name})`);
 
             chainCallback(node, "onExecuted", function (msg) {
                 const ids = msg?.nougan_source_id;
@@ -1255,7 +1333,8 @@ app.registerExtension({
 
         // ---- yellow ? badge on the node title bar (Kijai-style node help) ----
         const HELP_TEXT = (nodeData?.description || "Nougan Ultimate KSampler")
-            + "\n\nModel + conditioning + latent in; latent, image/video and audio out. Built-in samplers plus RES4LYF clown: samplers with bongmath, optional NOISE / GUIDER / SIGMAS overrides, VAE and audio-VAE decode, and a live Model-Preview-Override panel (vendored from KJNodes) with animated previews, sigma/delta graphs, step timing and audio spectrogram. The \u2715 on the preview box minimizes the whole panel.";
+            + "\n\nLive Model-Preview-Override panel (vendored from KJNodes) with animated previews, sigma/delta graphs, step timing and audio spectrogram, plus a WebGPU progress bar along the bottom. The \u2715 on the preview box minimizes the whole panel."
+            + "\n\nUltimate KSampler: the regular workflow — model + positive + negative in, CFG on/off switch, built-in + clown samplers. MiniMax H3 KSampler: the SamplerCustomAdvanced-shaped H3 workflow — noise / guider / sigmas in, always CFG-free; wire model + positive and it builds the BasicGuider for you.";
         const BADGE_R = 8;
         const badgeCenter = (n) => [(n.size?.[0] ?? 200) - BADGE_R - 7, -14];  // node-local, in the title bar
         let helpEl = null;
