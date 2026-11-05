@@ -170,8 +170,9 @@ class NouganH3KSampler:
                     "default": "euler",
                     "tooltip": "Built-in ComfyUI samplers (same list as KSamplerSelect).",
                 }),
-                "scheduler": (list(comfy.samplers.SCHEDULER_NAMES), {
+                "scheduler": (["none"] + list(comfy.samplers.SCHEDULER_NAMES), {
                     "default": "beta" if "beta" in comfy.samplers.SCHEDULER_NAMES else comfy.samplers.SCHEDULER_NAMES[0],
+                    "tooltip": "'none' = the schedule comes from the wired sigmas input.",
                 }),
                 "steps": ("INT", {"default": 8, "min": 1, "max": 10000,
                                   "tooltip": "H3 is distilled: the reference workflow uses 8 steps."}),
@@ -256,11 +257,16 @@ class NouganH3KSampler:
             guider = _first(ncs.BasicGuider.execute(model, positive))
         sampler_obj = sampler if sampler is not None else _first(ncs.KSamplerSelect.execute(sampler_name))
         if sigmas is None:
+            if scheduler == "none":
+                raise ValueError(f"{_LOG} scheduler is 'none' but no sigmas input is connected — "
+                                 f"pick a scheduler, or wire a custom sigmas schedule.")
             ms = model.get_model_object("model_sampling")
             if denoise >= 0.9999:
                 sigmas = comfy.samplers.calculate_sigmas(ms, scheduler, steps)
             else:
                 sigmas = comfy.samplers.calculate_sigmas(ms, scheduler, max(1, int(steps / max(denoise, 1e-6))))[-(steps + 1):]
+        else:
+            logging.info(f"{_LOG} sigmas input connected — it wins over the scheduler/steps/denoise widgets.")
         sigmas = _apply_steps_to_run(sigmas, steps_to_run)
         out = ncs.SamplerCustomAdvanced.execute(noise, guider, sampler_obj, sigmas, latent)
         args = out.args if hasattr(out, "args") else out

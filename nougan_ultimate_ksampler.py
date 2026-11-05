@@ -125,7 +125,8 @@ def _sampler_choices():
 
 
 def _scheduler_choices():
-    out = list(comfy.samplers.SCHEDULER_NAMES)
+    # "none" = the schedule comes from the wired sigmas input (scheduler/steps/denoise unused).
+    out = ["none"] + list(comfy.samplers.SCHEDULER_NAMES)
     for n in _clown_scheduler_names():
         if n not in out:
             out.append(n)
@@ -196,7 +197,6 @@ class NouganUltimateKSampler:
             "required": {
                 "model": ("MODEL",),
                 "positive": ("CONDITIONING",),
-                "negative": ("CONDITIONING",),
                 "latent_image": ("LATENT",),
                 "sampler_name": (_sampler_choices(), {
                     "default": "euler",
@@ -204,7 +204,8 @@ class NouganUltimateKSampler:
                 }),
                 "scheduler": (_scheduler_choices(), {
                     "default": "beta" if "beta" in comfy.samplers.SCHEDULER_NAMES else comfy.samplers.SCHEDULER_NAMES[0],
-                    "tooltip": "RES4LYF-only schedulers (e.g. beta57) fall back to 'beta' on a built-in sampler.",
+                    "tooltip": "'none' = the schedule comes from the wired sigmas input. "
+                               "RES4LYF-only schedulers (e.g. beta57) fall back to 'beta' on a built-in sampler.",
                 }),
                 "steps": ("INT", {"default": 30, "min": 1, "max": 10000}),
                 "steps_to_run": ("INT", {"default": -1, "min": -1, "max": 10000,
@@ -234,6 +235,7 @@ class NouganUltimateKSampler:
                                         "tooltip": "Playback FPS of the live preview (ignored for clips with audio)."}),
             },
             "optional": {
+                "negative": ("CONDITIONING", {"tooltip": "Optional: leave unplugged for positive-only (CFG-free) sampling — cfg is ignored then."}),
                 "vae": ("VAE", {"tooltip": "Video/image VAE: decodes the result into the IMAGE output and can drive the preview."}),
                 "audio_vae": ("VAE", {"tooltip": "Audio VAE: decodes the audio half of the result into the AUDIO output and drives the spectrogram preview."}),
                 "sigmas": ("SIGMAS", {"tooltip": "Advanced: custom sigma schedule. Replaces scheduler / steps / denoise when connected."}),
@@ -328,9 +330,9 @@ class NouganUltimateKSampler:
         return args[0], (args[1] if len(args) > 1 and args[1] is not None else args[0])
 
     # ──────────────────────────────── entry ──────────────────────────────────
-    def run(self, model, positive, negative, latent_image, sampler_name, scheduler, steps, steps_to_run, cfg, cfg_enabled,
+    def run(self, model, positive, latent_image, sampler_name, scheduler, steps, steps_to_run, cfg, cfg_enabled,
             denoise, seed, eta, sampler_mode, bongmath, decode, tiled_decode, preview_fps,
-            vae=None, audio_vae=None, sigmas=None, options=None,
+            negative=None, vae=None, audio_vae=None, sigmas=None, options=None,
             preview=True, preview_max_res=1024, preview_frames=1, preview_jpeg_quality=80,
             preview_tiny_vae="none",
             unique_id=None, dynprompt=None):
@@ -342,14 +344,28 @@ class NouganUltimateKSampler:
 
         latent = latent_image
 
+        # No negative wired: run positive-only. positive as its own negative cancels CFG at
+        # any cfg (cond − uncond = 0); forcing cfg off also skips the wasted second eval.
+        if negative is None:
+            logging.info(f"{_LOG} no negative connected — positive-only sampling this run (cfg ignored).")
+            negative = positive
+            cfg_enabled = False
+
         work_model = model
         if preview:
             work_model = self._attach_preview(model, node_id, vae, audio_vae, preview_max_res,
                                               preview_jpeg_quality, preview_frames, preview_fps,
                                               tiny_vae=preview_tiny_vae)
 
+        if scheduler == "none":
+            if sigmas is None:
+                raise ValueError(f"{_LOG} scheduler is 'none' but no sigmas input is connected — "
+                                 f"pick a scheduler, or wire a custom sigmas schedule.")
+            scheduler = "beta"  # inert placeholder; the wired sigmas replace the schedule downstream
         if not cfg_enabled:
             logging.info(f"{_LOG} CFG OFF — positive-only guidance; negative and cfg are ignored.")
+        if sigmas is not None:
+            logging.info(f"{_LOG} sigmas input connected — it wins over the scheduler/steps/denoise widgets.")
         if sampler_name.startswith(_CLOWN_PREFIX):
             # Clown samplers have no guider concept; cfg=1.0 is the CFG-free equivalent there.
             out_latent, denoised = self._sample_clown(work_model, positive, negative, latent, sampler_name,
