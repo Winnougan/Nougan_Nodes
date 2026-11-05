@@ -2,7 +2,7 @@
 
 # 🖱️ Canvas Tools
 <img width="1672" height="940" alt="canvas nodes" src="https://github.com/user-attachments/assets/3f2504c7-e748-4bfc-938f-3c568c33c057" />
-Six frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
+Seven frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
 
 | Tool | Gesture | What it does |
 |------|---------|--------------|
@@ -12,6 +12,7 @@ Six frontend-only extensions for ComfyUI's classic canvas. They add no nodes and
 | [Subgraph Box](#-subgraph-box) | Hold **V**, drag a box | Boxed nodes become a subgraph; box a subgraph to unpack it |
 | [Group Box](#-group-box) | Hold **G**, drag a box | Boxed nodes get wrapped in a group; box a whole group to remove it |
 | [Group Switch](#-group-switch) | Hold **S**, click a group's title | Bypasses everything inside a group; click again to restore |
+| [Minimize](#-minimize) | Hold **C**, drag a box (**Shift** for a slash) | Collapses the nodes under it; do it again to expand them |
 
 All settings live under **Settings → Nougan**.
 
@@ -30,7 +31,8 @@ Nougan_Nodes/
     ├── nougan_smart_guides.js
     ├── nougan_subgraph_box.js
     ├── nougan_group_box.js
-    └── nougan_group_switch.js
+    ├── nougan_group_switch.js
+    └── nougan_minimize.js
 ```
 
 `__init__.py` lists them in `_WEB_ONLY`, so the startup banner confirms each one is present:
@@ -43,6 +45,7 @@ _WEB_ONLY = [
     ("Subgraph Box", "nougan_subgraph_box.js"),
     ("Group Box", "nougan_group_box.js"),
     ("Group Switch", "nougan_group_switch.js"),
+    ("Minimize", "nougan_minimize.js"),
 ]
 ```
 
@@ -236,6 +239,41 @@ Other ways in and out: right-click the canvas → **Slash group** arms the next 
 
 ---
 
+## ▭ Minimize
+
+Hold **C** with your left hand and drag a box over nodes with the mouse. Release and they collapse to just their title bars. Do it again over minimized nodes and they expand. Hold **Shift** as you start the drag and the box becomes a **slash**: a line that minimizes every node it crosses.
+
+"Minimize" is ComfyUI's own node collapse, the exact same state you get from **Alt+C** or the dot in a node's title bar. Nothing here is a custom node state, so minimized nodes save, copy and behave like any other collapsed node.
+
+### Using it
+
+1. Hold **C**. A hint pill appears and the cursor becomes a crosshair. The pill shows the current shape and which one **Shift** flips to.
+2. Drag a box (or, with **Shift**, a line) over the nodes you want. The preview tells you what will happen when you let go:
+   - **Sky blue**: MINIMIZE
+   - **Green**: EXPAND
+   - **Dashed white**: nothing will happen (no nodes, or none that can collapse)
+3. Release. The affected nodes flash and the change is applied as **one undo step**.
+
+**The rule:** if *every* node under the box or slash is already minimized, they all expand. Otherwise they all minimize (ones that are already minimized stay as they are). A label shows which one you're about to get.
+
+Nodes that can't be collapsed, such as pinned nodes and Reroutes, are ignored. A tiny drag counts as a click and is ignored.
+
+Other ways in and out:
+
+- Right-click the canvas → **Box minimize** or **Slash minimize** arms the next drag as that shape, no key needed.
+- **Esc** cancels a stroke in progress, or disarms the menu option.
+- **Shift** is the only modifier that works with the gesture (it flips box ↔ slash). The gesture is ignored while Alt/Ctrl/Cmd is down, so **Alt+C** (ComfyUI's native collapse) is untouched.
+- The key is ignored while you're typing in a text field.
+- Works inside a subgraph too, on whatever graph you are viewing.
+
+### Settings (Nougan → Minimize)
+
+- **Key to hold while minimizing nodes**: C, X, T, Y, E, D or A, all left-hand letters ComfyUI doesn't bind on its own. If you pick the same key as any other canvas tool, that tool keeps it and Minimize is inactive.
+- **Default drag shape**: *Box* (default) or *Slash*. Hold **Shift** as you start the drag to get the other one.
+- **Which nodes a box captures**: *Fully enclosed* (default, only nodes completely inside) or *Anything touched* (every node the box overlaps). A slash always hits every node the line crosses.
+
+---
+
 ## Key map at a glance
 
 | Key | Used by | Notes |
@@ -246,10 +284,11 @@ Other ways in and out: right-click the canvas → **Slash group** arms the next 
 | **V** (hold) | Subgraph Box | Configurable: V E D S A |
 | **G** (hold) | Group Box | Configurable: G E D S A |
 | **S** (hold) | Group Switch | Configurable: S E D A |
+| **C** (hold) | Minimize | Configurable: C X T Y E D A. **Shift** at drag start flips box ↔ slash |
 | **Alt+L** | Smart Guides | Tidy by dependency; rebindable |
-| **Esc** | Bypass Slash | Cancels a stroke or armed mode |
+| **Esc** | Box and slash tools | Cancels a stroke or armed mode |
 
-Zip Ties, Bypass Slash, Subgraph Box, Group Box and Group Switch all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash, then Subgraph Box, then Group Box, and Group Switch yields to all of them.
+Zip Ties, Bypass Slash, Subgraph Box, Group Box, Group Switch and Minimize all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash, then Subgraph Box, then Group Box, then Group Switch, and Minimize yields to all of them.
 
 ---
 
@@ -260,11 +299,13 @@ Zip Ties, Bypass Slash, Subgraph Box, Group Box and Group Switch all read a held
 - **Zip Ties does nothing and the console mentions `safzan.ZipTies`**: the original extension is installed. Remove one of the two.
 - **A ComfyUI toast pops up repeatedly while holding the key**: another shortcut is bound to that letter. Group Box swallows its own key, but if it still happens, pick a different key in settings (or unbind the shortcut in ComfyUI's Keybinding settings).
 - **The key does nothing**: check you're not holding a modifier, not focused in a text box, and that the key isn't also assigned to the other gesture.
+- **Minimize does nothing to some nodes**: pinned nodes and Reroutes can't be collapsed and are skipped. If *every* node under the box is one of those, the preview stays dashed white.
+- **Minimize draws a slash when you wanted a box (or the reverse)**: check **Nougan → Minimize → Default drag shape**, and whether you're holding **Shift** as the drag starts.
 
 ---
 
 ## Credits
 
-Zip Ties is based on **safzan**'s *ZipTies* ComfyUI extension. Bypass Slash, Smart Guides, Subgraph Box, Group Box and Group Switch are original to the Nougan suite.
+Zip Ties is based on **safzan**'s *ZipTies* ComfyUI extension. Bypass Slash, Smart Guides, Subgraph Box, Group Box, Group Switch and Minimize are original to the Nougan suite.
 
 Made by **Winnougan**.
