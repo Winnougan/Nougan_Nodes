@@ -11,7 +11,7 @@ const NODE_NAMES = new Set(["NouganUltimateKSampler", "NouganH3KSampler"]);
 const STYLE_ID = "ng-uk-stylesheet";
 const GRAPH_PAD_X = 4;
 
-console.log("[Nougan.UKS] extension loaded — build 2026-11-05a (multi-id routing + diagnostics)");
+console.log("[Nougan.UKS] extension loaded — build 2026-11-05b (scheduler/steps/denoise always visible)");
 
 const CSS = `
 .ng-uk-root{width:100%;height:100%;position:relative;background:#151517;color:#b0b0b0;font:12px monospace;display:flex;flex-direction:column;overflow:hidden;user-select:none;border-radius:8px;box-sizing:border-box}
@@ -701,12 +701,13 @@ app.registerExtension({
                 refreshInputWidgets();
             });
 
-            // ---------- wired inputs replace fallback widgets (H3 node) ----------
-            // sampler input -> hides sampler_name; sigmas -> hides scheduler/steps/denoise;
-            // noise -> hides seed. Values are kept (serialization untouched), only hidden.
+            // ---------- wired inputs replace fallback widgets ----------
+            // sampler input -> hides sampler_name; noise -> hides seed. Values are kept
+            // (serialization untouched), only hidden. scheduler/steps/denoise are NEVER
+            // hidden: when a sigmas input is wired it wins over them (the backend logs a
+            // line saying so), but the fallback schedule stays visible and editable.
             const WIDGET_INPUT_MAP = [
                 ["sampler", ["sampler_name"]],
-                ["sigmas", ["scheduler", "steps", "denoise"]],
                 ["noise", ["seed"]],
             ];
             const inputConnected = (name) => {

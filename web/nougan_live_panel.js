@@ -25,6 +25,10 @@
 // whole player (timeline, A-B loop, snapshot, speed ...) moves into the panel. The node keeps a "bring it back"
 // box; the x on the card sends the player home. Needs nougan_save_video.js.
 //
+// Nougan Compare: drop a Nougan Compare node on the panel (or right-click it, "Move compare to Live Panel") and its
+// slider / box / diff / toggle / mask view moves into the panel. The node keeps a "bring it back" box; the x on the
+// card sends the view home. Needs nougan_compare.js.
+//
 // Put this file and nougan_panel_preview.js in web/, and nougan_live_panel.css in web/css/.
 
 import { app } from "../../scripts/app.js";
@@ -40,6 +44,11 @@ const POLL_MS = 400;
 const CHECKPOINT_WIDGETS = ["ckpt_name", "unet_name"];
 const CLIP_WIDGETS = ["clip_name", "clip_name1", "clip_name2", "clip_name3", "clip_name4"];
 const VAE_WIDGETS = ["vae_name"];
+// Per-node-type widget -> role map for nodes whose widget names are too generic (or too custom) for the
+// lists above. Keyed by node class so e.g. an upscale loader's "model_name" is never mistaken for a checkpoint.
+const NODE_LOADER_WIDGETS = {
+    NouganUltimateModelLoader: { model_name: "ckpt", clip1_name: "clip", clip2_name: "clip", vae_name: "vae", audio_vae_name: "vae" },
+};
 const EXCLUDE_TYPES = /save/i;   // skip saver nodes
 const SG_SKIP_TYPES = /^(Note|MarkdownNote|Reroute)$/;   // Subgraphs card: nodes with nothing to edit
 const GENERIC_WIDGET = /^(value|int|float|number|text|string|boolean|bool|val)$/i;   // such rows get the node title as label
@@ -226,6 +235,13 @@ function collectSamplers(nodes) {
                 scheduler: resolve(n, "scheduler"),
                 denoise: resolve(n, "denoise"),
                 seed: resolve(n, "seed") || resolve(n, "noise_seed"),
+                // Nougan Ultimate / MiniMax H3 KSampler extras (null on nodes without them)
+                cfgOn: resolve(n, "cfg_enabled"),
+                stepsRun: resolve(n, "steps_to_run"),
+                eta: resolve(n, "eta"),
+                mode: resolve(n, "sampler_mode"),
+                bong: resolve(n, "bongmath"),
+                decode: resolve(n, "decode"),
             };
         } else if (hasIn("sigmas") && hasIn("sampler")) {
             // SamplerCustom / SamplerCustomAdvanced: settings live on upstream nodes
@@ -279,7 +295,7 @@ function pinKind(ref) {
     const w = ref?.w;
     if (!w || w.hidden || w.name === "control_after_generate") return null;
     const t = String(w.type);
-    if (t === "button" || t.startsWith("converted") || t === "nougan_video_player") return null;
+    if (t === "button" || t.startsWith("converted") || t === "nougan_video_player" || t === "NouganCompareWidget") return null;
     if (t === "combo") return "combo";
     if (typeof w.value === "boolean" || t === "toggle") return "toggle";
     if (typeof w.value === "number" || t === "number" || t === "slider") {
@@ -406,6 +422,48 @@ window.addEventListener("nougan-video-released", (e) => {
     if (n && isVideoPinned(n)) unpinVideo(nkey(n));
 });
 
+// ---- Nougan Compare views (Nougan Compare nodes dropped onto the panel) ----
+// Same idea as the video players: the node's own view is lent to the panel (mountInto / release in
+// nougan_compare.js), so there is one set of modes, one box / divider state and one playback, shown in only one place.
+// (Not to be confused with the older "Compare" section below, which wipes between Preview / Save Image sources.)
+const compareView = (n) => { try { return window.NouganCompare?.viewOf?.(n) || null; } catch { return null; } };
+const isNCompareNode = (n) => !!n && nodeType(n) === "NouganCompare";
+const isNComparePinned = (n) => (readCfg().ncompares || []).includes(nkey(n));
+const mountedNCompares = new Set();
+
+function collectNCompares(nodes) {
+    const keys = readCfg().ncompares || [];
+    const live = [];
+    let missing = 0;
+    if (!keys.length) return { live, missing };
+    const byKey = new Map(nodes.map((n) => [nkey(n), n]));
+    for (const k of keys) {
+        const node = byKey.get(k);
+        const view = node ? compareView(node) : null;
+        if (!view) { missing++; continue; }   // node deleted, bypassed, or the compare script is not loaded
+        live.push({ k, node, view });
+    }
+    return { live, missing };
+}
+
+function pinNCompare(n) {
+    if (!compareView(n)) { toast("The Compare script isn't loaded (web/nougan_compare.js)"); return; }
+    const k = nkey(n);
+    if (isNComparePinned(n)) { toast(`\u201C${n.title || "Compare"}\u201D is already in the panel`); return; }
+    editCfg((c) => { c.ncompares.push(k); });
+    toast(`Compare from \u201C${n.title || "Compare"}\u201D moved into the panel`);
+}
+
+function unpinNCompare(k) {
+    editCfg((c) => { c.ncompares = (c.ncompares || []).filter((x) => x !== k); delete c.names[`ncmp:${k}`]; });
+}
+
+// "Bring it back here" on the node itself: drop it from the panel's list too
+window.addEventListener("nougan-compare-released", (e) => {
+    const n = e.detail?.node;
+    if (n && isNComparePinned(n)) unpinNCompare(nkey(n));
+});
+
 // ---- subgraph contents ----
 // Widgets already shown by another section (loaders, samplers, resolution, pins) or owned by a
 // LoRA node are "claimed" and are not repeated in the Subgraphs section.
@@ -414,7 +472,7 @@ function claimedBy(m) {
     const add = (r) => { if (r?.w) W.add(r.w); };
     for (const k of ["ckpt", "clip", "vae"]) m[k].forEach(add);
     for (const s of m.samplers) {
-        for (const k of ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl"]) add(s[k]);
+        for (const k of ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl", "cfgOn", "stepsRun", "eta", "mode", "bong", "decode"]) add(s[k]);
     }
     const hid = readCfg().hidden || {};
     for (const l of m.loras) {
@@ -679,9 +737,10 @@ function buildModel() {
         for (const w of n.widgets || []) {
             if (w.type !== "combo") continue;
             const base = w.name.replace(/_\d+$/, "");
-            const role = CHECKPOINT_WIDGETS.includes(base) ? "ckpt"
+            const role = NODE_LOADER_WIDGETS[nodeType(n)]?.[w.name]
+                || (CHECKPOINT_WIDGETS.includes(base) ? "ckpt"
                 : (CLIP_WIDGETS.includes(w.name) || CLIP_WIDGETS.includes(base)) ? "clip"
-                : VAE_WIDGETS.includes(base) ? "vae" : null;
+                : VAE_WIDGETS.includes(base) ? "vae" : null);
             if (!role) continue;
             const ref = resolve(n, w.name);
             if (!ref || ref.linked || seen.has(ref.w)) continue;
@@ -696,6 +755,7 @@ function buildModel() {
     m.cmp = collectCompare(nodes);
     m.draws = collectDraws(nodes);
     m.videos = collectVideos(nodes);
+    m.ncompares = collectNCompares(nodes);
     return m;
 }
 
@@ -714,7 +774,7 @@ function signature(m) {
     return [
         L(m.ckpt), L(m.clip), L(m.vae),
         m.samplers.map((s) => `${s.node.id}:${s.node.title}:` +
-            ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl"].map((k) => rsig(s[k])).join("/")).join(";"),
+            ["steps", "cfg", "sampler", "scheduler", "denoise", "seed", "seedCtl", "cfgOn", "stepsRun", "eta", "mode", "bong", "decode"].map((k) => rsig(s[k])).join("/")).join(";"),
         m.loras.map((l) => `${l.node.id}:${rsig(l.on)}/${rsig(l.name)}/${rsig(l.strength)}/${rsig(l.strengthClip)}`).join(";"),
         m.out.res.map((r) => `${r.node.id}:${rsig(r.aspect)}/${rsig(r.mp)}/${rsig(r.multiple)}`).join(";"),
         m.out.sizes.map((r) => `${r.node.id}:${rsig(r.width)}/${rsig(r.height)}`).join(";"),
@@ -725,6 +785,7 @@ function signature(m) {
         m.cmp.srcs.map((x) => `${x.k}:${x.node ? 1 : 0}`).join(","),
         m.draws.live.map((d) => d.k).join(",") + `#${m.draws.missing}`,
         m.videos.live.map((d) => d.k).join(",") + `#${m.videos.missing}`,
+        m.ncompares.live.map((d) => d.k).join(",") + `#${m.ncompares.missing}`,
         JSON.stringify(readCfg()),
     ].join("|");
 }
@@ -750,14 +811,14 @@ function touchWorkflow() {
 // ---- user layout: renamed labels, hidden items, custom order ----
 // Stored inside the workflow itself (graph.extra.nougan_live_panel), so it
 // travels with the file and each workflow keeps its own layout.
-const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {}, draws: [], videos: [] };
+const EMPTY_CFG = { names: {}, hidden: {}, order: {}, pins: [], collapsed: {}, draws: [], videos: [], ncompares: [] };
 const readCfg = () => app.graph?.extra?.nougan_live_panel || EMPTY_CFG;
 function editCfg(fn) {
     const g = app.graph;
     if (!g) return;
     g.extra = g.extra || {};
     const c = g.extra.nougan_live_panel || (g.extra.nougan_live_panel = {});
-    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {}; c.draws = c.draws || []; c.videos = c.videos || [];
+    c.names = c.names || {}; c.hidden = c.hidden || {}; c.order = c.order || {}; c.pins = c.pins || []; c.collapsed = c.collapsed || {}; c.draws = c.draws || []; c.videos = c.videos || []; c.ncompares = c.ncompares || [];
     fn(c);
     touchWorkflow();
     rebuild();
@@ -771,7 +832,8 @@ function resetCfg() {
         const cmp = cur.cmp?.srcs?.length ? cur.cmp : null;
         const draws = Array.isArray(cur.draws) ? cur.draws.slice() : [];
         const videos = Array.isArray(cur.videos) ? cur.videos.slice() : [];
-        if (pins.length || cmp || draws.length || videos.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, draws, videos, ...(cmp ? { cmp } : {}) };
+        const ncompares = Array.isArray(cur.ncompares) ? cur.ncompares.slice() : [];
+        if (pins.length || cmp || draws.length || videos.length || ncompares.length) g.extra.nougan_live_panel = { names: {}, hidden: {}, order: {}, pins, draws, videos, ncompares, ...(cmp ? { cmp } : {}) };
         else delete g.extra.nougan_live_panel;
         touchWorkflow();
     }
@@ -1387,7 +1449,10 @@ function drawCard(d) {
 
 // video players currently lent to the panel; any that are no longer pinned go back to their node
 const mountedVideos = new Set();
-function pauseVideos() { for (const p of mountedVideos) { try { p.pause?.(); } catch {} } }
+function pauseVideos() {
+    for (const p of mountedVideos) { try { p.pause?.(); } catch {} }
+    for (const v of mountedNCompares) { try { v.pause?.(); } catch {} }
+}
 
 function videoCard(d) {
     const key = `video:${d.k}`;
@@ -1403,11 +1468,27 @@ function videoCard(d) {
     return card;
 }
 
+function nCompareCard(d) {
+    const key = `ncmp:${d.k}`;
+    const card = cardShell(key, "Compare", d.node);
+    const head = card.firstChild;
+    head.querySelector(".nlp-x")?.remove();
+    head.append(xBtn(key, () => unpinNCompare(d.k), "Send the compare view back to its node"));
+    card.classList.add("nlp-comparecard");
+    const host = el("div", "nlp-compare-host");
+    card.append(host);
+    d.view.mountInto(host);
+    mountedNCompares.add(d.view);
+    return card;
+}
+
 function render(m) {
     const liveDraws = new Set(m.draws.live.map((d) => d.editor));
     for (const ed of mountedDraws) if (!liveDraws.has(ed)) { try { ed.release(); } catch {} mountedDraws.delete(ed); }
     const liveVideos = new Set(m.videos.live.map((d) => d.player));
     for (const pl of mountedVideos) if (!liveVideos.has(pl)) { try { pl.release(); } catch {} mountedVideos.delete(pl); }
+    const liveNC = new Set(m.ncompares.live.map((d) => d.view));
+    for (const v of mountedNCompares) if (!liveNC.has(v)) { try { v.release(); } catch {} mountedNCompares.delete(v); }
     closeComboList();
     bindings = [];
     body.textContent = "";
@@ -1452,13 +1533,14 @@ function render(m) {
     if (m.pins.missing) note.push(`${m.pins.missing} pin${m.pins.missing > 1 ? "s" : ""} off`);
     if (m.draws.missing) note.push(`${m.draws.missing} sketch pad${m.draws.missing > 1 ? "s" : ""} off`);
     if (m.videos.missing) note.push(`${m.videos.missing} video player${m.videos.missing > 1 ? "s" : ""} off`);
+    if (m.ncompares.missing) note.push(`${m.ncompares.missing} compare view${m.ncompares.missing > 1 ? "s" : ""} off`);
     hiddenNote.textContent = note.join(" \u00B7 ");
     hiddenNote.title = m.pins.missing
         ? "Some pinned widgets are not shown: their node was deleted, bypassed or muted"
         : "";
 
     const total = ckpt.length + clip.length + vae.length + smps.length + loras.length
-        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length + m.draws.live.length + m.videos.live.length;
+        + res.length + sizes.length + durs.length + pinned.length + subRows + m.cmp.srcs.length + m.draws.live.length + m.videos.live.length + m.ncompares.live.length;
     if (!total) {
         body.append(el("div", "nlp-empty", hiddenCount
             ? "Everything is hidden. Press Default to bring it all back."
@@ -1530,6 +1612,13 @@ function render(m) {
                 row(card, "Sampler", s.sampler, "combo");
                 row(card, "Scheduler", s.scheduler, "combo");
                 if (s.denoise) row(card, "Denoise", s.denoise, "number");
+                // Nougan KSampler extras
+                if (s.cfgOn) row(card, "CFG on", s.cfgOn, "toggle", "Off = CFG-free sampling (positive only, half the cost)");
+                if (s.stepsRun) row(card, "Steps to run", s.stepsRun, "number", "Chainsampling: run only the first N steps (-1 = all)");
+                if (s.mode) row(card, "Mode", s.mode, "combo", "Clown samplers only");
+                if (s.eta) row(card, "Eta", s.eta, "number", "Clown samplers only", { prec: 2, step: 0.05 });
+                if (s.bong) row(card, "Bongmath", s.bong, "toggle", "Clown samplers only");
+                if (s.decode) row(card, "Decode", s.decode, "toggle", "Decode with the connected VAE(s); off = latent only");
                 return card;
             } };
         });
@@ -1569,6 +1658,11 @@ function render(m) {
     if (m.videos.live.length) {
         const items = m.videos.live.map((d) => ({ key: `video:${d.k}`, build: () => videoCard(d) }));
         fill(section(m.videos.live.length > 1 ? "Videos" : "Video", "videos"), "videos", items);
+    }
+
+    if (m.ncompares.live.length) {
+        const items = m.ncompares.live.map((d) => ({ key: `ncmp:${d.k}`, build: () => nCompareCard(d) }));
+        fill(section("Nougan Compare", "ncompares"), "ncompares", items);
     }
 
     if (m.cmp.srcs.length) fill(section("Compare", "cmp"), "cmp", [{ key: "cmp", build: () => cmpCard(m.cmp) }]);
@@ -2046,13 +2140,21 @@ function nodeMenuItems(node) {
         const img = isImageNode(node);
         const sketch = isDrawNode(node) && !!sketchEditor(node);
         const video = isVideoNode(node) && !!videoPlayer(node);
-        if (!hover && !any && !img && !sketch && !video) return [];
+        const ncmp = isNCompareNode(node) && !!compareView(node);
+        if (!hover && !any && !img && !sketch && !video && !ncmp) return [];
         const out = [null];
         if (video) {
             const on = isVideoPinned(node);
             out.push({
                 content: on ? "Send player back to this node" : "Move player to Live Panel",
                 callback: () => { if (on) { unpinVideo(nkey(node)); toast("Player is back on its node"); } else pinVideo(node); },
+            });
+        }
+        if (ncmp) {
+            const on = isNComparePinned(node);
+            out.push({
+                content: on ? "Send compare back to this node" : "Move compare to Live Panel",
+                callback: () => { if (on) { unpinNCompare(nkey(node)); toast("Compare is back on its node"); } else pinNCompare(node); },
             });
         }
         if (sketch) {
@@ -2345,6 +2447,8 @@ function dropNode(n, ev, single) {
     if (isDrawNode(n)) { pinSketch(n); return; }
     // a Nougan Save Video node: its player moves into the panel
     if (isVideoNode(n)) { pinVideo(n); return; }
+    // a Nougan Compare node: its compare view moves into the panel
+    if (isNCompareNode(n)) { pinNCompare(n); return; }
     // subgraph: bring its whole group back
     if (n.subgraph) {
         // clear every hidden flag (sampler / loader / LoRA / resolution cards and the Subgraphs
