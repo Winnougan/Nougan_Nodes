@@ -89,8 +89,12 @@ def get_krea2_lora_status():
 #  The same class may be registered under several node IDs (legacy aliases).
 # ═════════════════════════════════════════════════════════════════════════════
 _FEATURES = [
-    ("Diffusers Loader", "diffusers_loader", [
-        ("NouganDiffusersLoader", "NouganDiffusersLoader", "Nougan Diffusers Loader 🚀"),
+    # All-in-one loader: quantized diffusion model (bf16 / int8 / w4a8 / w6a8 convrot, auto-detected),
+    # attention/efficiency backend switches (comfy-kitchen, sage 2/3, triton, flash 2, pytorch,
+    # sparse attention, VSA), main + prompt-enhancer CLIPs, video/default + audio VAEs.
+    # Boxed renamable drag-sortable DOM sections live in web/nougan_ultimate_loader.js.
+    ("Ultimate Model Loader", "nougan_ultimate_loader", [
+        ("NouganUltimateModelLoader", "NouganUltimateModelLoader", "Nougan Ultimate Model Loader 🚀"),
     ]),
     ("Get Image", "get_image", [
         ("NouganGetImage", "NouganGetImage", "Nougan Get Image 🖼️"),
@@ -141,8 +145,10 @@ _FEATURES = [
     ("Match Image Size", "nougan_match_size", [
         ("NouganMatchImageSize", "NouganMatchImageSize", "Nougan Match Image Size 📐"),
     ]),
-    ("Before / After Compare", "nougan_before_after", [
-        ("NouganBeforeAfterCompare", "NouganBeforeAfterCompare", "Nougan Before / After 🔀"),
+    # Interactive compare (slider / box / diff / toggle / mask) for up to 4 images or batches, WebGPU backdrop + diff
+    # heatmap with CSS / 2D fallbacks (web/nougan_compare.js). Replaces the old Before / After node. No KJNodes needed.
+    ("Compare", "nougan_compare", [
+        ("NouganCompare", "NouganCompare", "Nougan Compare"),
     ]),
     ("Edit Prompt Template", "nougan_edit_prompt", [
         ("NouganEditPromptTemplate", "NouganEditPromptTemplate", "Nougan Edit Prompt Template 🧩"),

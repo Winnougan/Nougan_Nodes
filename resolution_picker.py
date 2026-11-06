@@ -2,7 +2,11 @@
 
 Pick a size either from an aspect ratio + megapixels, or from a prebuilt
 WIDTHxHEIGHT preset. Outputs width and height as INT, so it can replace
-ComfyUI's ResolutionSelector without rewiring.
+ComfyUI's ResolutionSelector without rewiring. It also outputs an empty LATENT at the chosen
+size, so you can feed a KSampler directly.
+
+The latent is a plain empty latent (like EmptyLatentImage). ComfyUI's sampler fixes up the
+channel count and spatial downscale for the loaded model on its own.
 
 The ratio and preset lists are plain labels. Both this file and the browser
 preview (web/nougan_resolution_picker.js) read the numbers out of the labels,
@@ -18,6 +22,10 @@ MODES = [MODE_RATIO, MODE_PRESET]
 
 # 1.0 MP means 1024 x 1024 pixels, the same convention as ComfyUI's ResolutionSelector.
 PIXELS_PER_MP = 1024 * 1024
+
+# Base empty latent layout, same as EmptyLatentImage. ComfyUI adapts it to the model when sampling.
+LATENT_CHANNELS = 4
+LATENT_DOWNSCALE = 8
 
 # Label format: "<w>:<h> (Name)". Decimals are fine, e.g. "2.39:1".
 RATIOS = [
@@ -100,8 +108,8 @@ def _snap(value, multiple):
 def _parse_ratio(label):
     match = _RATIO_RE.match(label or "")
     if not match:
-        return 1.0, 1.0, "1:1"
-    return float(match.group(1)), float(match.group(2)), f"{match.group(1)}:{match.group(2)}"
+        return 1.0, 1.0
+    return float(match.group(1)), float(match.group(2))
 
 
 def _parse_preset(label):
@@ -111,35 +119,37 @@ def _parse_preset(label):
     return int(match.group(1)), int(match.group(2))
 
 
-def _fmt(number):
-    return f"{number:.2f}".rstrip("0").rstrip(".")
+def make_latent(width, height, batch_size):
+    """Empty latent dict ({"samples": zeros}) at width x height."""
+    import torch
 
-
-def _nearest_ratio_text(width, height):
-    """Name the closest known ratio, or fall back to a decimal like 1.76:1."""
-    actual = math.log(width / height)
-    best, best_gap = None, 0.02
-    for label in RATIOS:
-        if label == "Custom":
-            continue
-        rw, rh, text = _parse_ratio(label)
-        gap = abs(actual - math.log(rw / rh))
-        if gap < best_gap:
-            best, best_gap = text, gap
-    return best or f"{math.floor(width / height * 100 + 0.5) / 100:.2f}:1"
+    try:
+        import comfy.model_management as mm
+        device = mm.intermediate_device()
+    except Exception:  # running outside ComfyUI (tests)
+        device = "cpu"
+    samples = torch.zeros(
+        [
+            max(1, int(batch_size)),
+            LATENT_CHANNELS,
+            max(1, height // LATENT_DOWNSCALE),
+            max(1, width // LATENT_DOWNSCALE),
+        ],
+        device=device,
+    )
+    return {"samples": samples, "downscale_ratio_spacial": LATENT_DOWNSCALE}
 
 
 def resolve(mode, aspect_ratio, megapixels, multiple, preset_resolution,
             custom_ratio_w, custom_ratio_h, swap_orientation, snap_presets):
-    """Return (width, height, ratio_text). Pure function, no ComfyUI needed."""
+    """Return (width, height). Pure function, no ComfyUI needed."""
     multiple = max(1, int(multiple))
     if mode == MODE_RATIO:
         if aspect_ratio == "Custom":
             rw = min(100.0, max(0.1, float(custom_ratio_w)))
             rh = min(100.0, max(0.1, float(custom_ratio_h)))
-            ratio_text = f"{_fmt(rw)}:{_fmt(rh)}"
         else:
-            rw, rh, ratio_text = _parse_ratio(aspect_ratio)
+            rw, rh = _parse_ratio(aspect_ratio)
         pixels = min(16.0, max(0.05, float(megapixels))) * PIXELS_PER_MP
         scale = math.sqrt(pixels / (rw * rh))
         width, height = _snap(rw * scale, multiple), _snap(rh * scale, multiple)
@@ -147,21 +157,19 @@ def resolve(mode, aspect_ratio, megapixels, multiple, preset_resolution,
         width, height = _parse_preset(preset_resolution)
         if snap_presets:
             width, height = _snap(width, multiple), _snap(height, multiple)
-        ratio_text = _nearest_ratio_text(width, height)
     if swap_orientation:
         width, height = height, width
-        ratio_text = ":".join(reversed(ratio_text.split(":")))
-    return width, height, ratio_text
+    return width, height
 
 
 class NouganResolutionPicker:
     CATEGORY = "Nougan"
     FUNCTION = "pick"
-    RETURN_TYPES = ("INT", "INT", "STRING")
-    RETURN_NAMES = ("width", "height", "info")
+    RETURN_TYPES = ("INT", "INT", "LATENT")
+    RETURN_NAMES = ("width", "height", "latent")
     DESCRIPTION = (
         "Pick a size from an aspect ratio and megapixels, or from a prebuilt resolution. "
-        "Outputs width and height. Connect only what you need."
+        "Outputs width, height, and an empty latent at that size. Connect only what you need."
     )
 
     @classmethod
@@ -177,16 +185,15 @@ class NouganResolutionPicker:
                 "snap_presets": ("BOOLEAN", {"default": True, "label_on": "snap to multiple", "label_off": "exact preset"}),
                 "multiple": ("INT", {"default": 32, "min": 1, "max": 256, "step": 1}),
                 "swap_orientation": ("BOOLEAN", {"default": False, "label_on": "portrait/landscape swapped", "label_off": "as listed"}),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
             }
         }
 
     def pick(self, mode, aspect_ratio, custom_ratio_w, custom_ratio_h, megapixels,
-             preset_resolution, snap_presets, multiple, swap_orientation, **_ignored):
-        # **_ignored swallows latent_type / batch_size values left over in old saved workflows.
-        width, height, ratio_text = resolve(
+             preset_resolution, snap_presets, multiple, swap_orientation, batch_size=1):
+        width, height = resolve(
             mode, aspect_ratio, megapixels, multiple, preset_resolution,
             custom_ratio_w, custom_ratio_h, swap_orientation, snap_presets,
         )
-        actual_mp = width * height / PIXELS_PER_MP
-        info = f"{width}x{height} | {ratio_text} | {actual_mp:.2f} MP"
-        return (width, height, info)
+        latent = make_latent(width, height, batch_size)
+        return (width, height, latent)
