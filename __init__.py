@@ -60,13 +60,15 @@ def _banner():
     print(line)
 
 
-def _footer(loaded, failed, total_nodes):
+def _footer(loaded, failed, total_nodes, skipped=()):
     line = _magenta("═" * 62)
     print(line)
     status = f"{OK} {_green(str(loaded) + ' modules loaded')}"
     if failed:
         status += f"   {FAIL} {_red(str(len(failed)) + ' failed')} {_dim('(' + ', '.join(failed) + ')')}"
     print(f"  {status}")
+    if skipped:
+        print(f"  {_dim('– ' + str(len(skipped)) + ' skipped (removed or disabled): ' + ', '.join(skipped))}")
     print(f"  {_cyan('◆')} {_bold(str(total_nodes))} nodes registered")
     if not failed:
         print(f"  {_yellow('★')} {_dim('Enjoying Nougan? Support on')} {_orange('Patreon')}{_dim(' / ')}{_cyan('Ko-fi')} {_dim('— thank you!')}")
@@ -289,6 +291,28 @@ _WEB_ONLY = [
 ]
 
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _module_present(module_name):
+    """True if the module's file (or package folder) still exists. A node you deleted on purpose is
+    skipped quietly; a file that exists but fails to import is still reported as a real failure."""
+    return (os.path.isfile(os.path.join(_HERE, module_name + ".py"))
+            or os.path.isdir(os.path.join(_HERE, module_name)))
+
+
+def _read_disabled():
+    """Optional nougan_disabled.txt next to this file: one module name or feature label per line
+    ('#' starts a comment). Lets you switch features off without deleting files, so updates
+    can't bring them back."""
+    try:
+        with open(os.path.join(_HERE, "nougan_disabled.txt"), encoding="utf-8") as f:
+            lines = (ln.split("#", 1)[0].strip().lower() for ln in f)
+            return {ln for ln in lines if ln}
+    except OSError:
+        return set()
+
+
 def _load_feature(label, module_name, spec):
     """Import one module and register its nodes. Returns node count; raises on failure."""
     mod = importlib.import_module(f".{module_name}", package=__name__)
@@ -321,8 +345,13 @@ _banner()
 
 _loaded = 0
 _failed = []
+_skipped = []
+_disabled = _read_disabled()
 
 for _label, _module, _spec in _FEATURES:
+    if _label.lower() in _disabled or _module.lower() in _disabled or not _module_present(_module):
+        _skipped.append(_label)
+        continue
     try:
         _n = _load_feature(_label, _module, _spec)
         _loaded += 1
@@ -335,6 +364,9 @@ for _label, _module, _spec in _FEATURES:
 
 _web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), WEB_DIRECTORY)
 for _label, _file, *_extra in _WEB_ONLY:
+    if not os.path.isfile(os.path.join(_web_dir, _file)):
+        _skipped.append(_label)  # main script removed on purpose
+        continue
     _missing = [f for f in (_file, *_extra) if not os.path.isfile(os.path.join(_web_dir, f))]
     if not _missing:
         _loaded += 1
@@ -391,6 +423,6 @@ def _register_routes():
 
 _register_routes()
 
-_footer(_loaded, _failed, len(NODE_CLASS_MAPPINGS))
+_footer(_loaded, _failed, len(NODE_CLASS_MAPPINGS), _skipped)
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
