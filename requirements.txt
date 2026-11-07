@@ -1,0 +1,12 @@
+# Nougan suite — python dependencies
+# Install with:  pip install -r requirements.txt
+#
+# NOTE: ImageMagick (the `magick` command) is NOT a pip package and cannot be
+# listed here. The R34 scraper's convert/compress knobs need ImageMagick 7 on
+# the system PATH:
+#   Windows: https://imagemagick.org/script/download.php  (tick
+#            "Add application directory to your system PATH" in the installer)
+#   Linux:   sudo apt install imagemagick
+# Then restart ComfyUI.
+
+requests>=2.31.0

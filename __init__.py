@@ -225,6 +225,31 @@ _FEATURES = [
     ("Gallery Load", "nougan_gallery_load", [
         ("NouganGalleryLoad", "NouganGalleryLoad", "Nougan Gallery Load 🗂️"),
     ]),
+    # Load an audio file (AUDIO upload widget), crop it with a visual waveform editor:
+    # drag the region edges to crop, drag anywhere to scrub with audible preview,
+    # WebGPU waveform + Canvas2D fallback (web/nougan_audio_loader.js).
+    ("Audio Loader", "nougan_audio_loader", [
+        ("NouganAudioLoader", "NouganAudioLoader", "Nougan Audio Loader 🎵"),
+    ]),
+    # HandBrake-style transcode: IMAGE batch + AUDIO in -> visual trim/cut/crop editor
+    # (cut list + magnetic timeline + draw-a-box crop, web/nougan_convert_video.js) ->
+    # H.264/H.265/AV1 8/10-bit via ffmpeg, CPU or NVENC (auto-probed). Registers
+    # its own /nougan/convert/* routes.
+    ("Convert Video", "nougan_convert_video", [
+        ("NouganConvertVideo", "NouganConvertVideo", "Nougan Convert Video 🎞️"),
+    ]),
+    # Gelbooru-style scraper: list URL in -> raw images to a folder in output/
+    # (web/nougan_r34_scraper.js: live preview + progress bar). Optional
+    # ImageMagick convert/compress + sequential rename. Registers /nougan/r34/state.
+    ("R34 Scraper", "nougan_r34_scraper", [
+        ("NouganR34Scraper", "NouganR34Scraper", "Nougan R34 Scraper 🕸️"),
+    ]),
+    # Pixiv scraper: artist / works URL in -> raw images to a folder in output/ (PHPSESSID cookie for
+    # R-18 / locked works, see nougan_pixiv_credentials.example.json). Live preview + progress with a
+    # WebGPU backdrop (CSS fallback) in web/nougan_pixiv_scraper.js. Registers /nougan/pixiv/* routes.
+    ("Pixiv Scraper", "nougan_pixiv_scraper", [
+        ("NouganPixivScraper", "NouganPixivScraper", "Nougan Pixiv Scraper 🅿️"),
+    ]),
     ("Resolution Picker", "resolution_picker", [
         ("NouganResolutionPicker", "NouganResolutionPicker", "Nougan Resolution Picker"),
     ]),
