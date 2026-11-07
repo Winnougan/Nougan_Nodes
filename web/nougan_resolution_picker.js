@@ -1,5 +1,6 @@
 // Nougan Resolution Picker: animated ratio / megapixel preview and mode-aware widgets.
-// The size math mirrors resolution_picker.py (Python is what actually produces the outputs).
+// The size math mirrors resolve() in resolution_picker.py (Python is what actually produces
+// the outputs). If the Python changes, change this file to match.
 import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "NouganResolutionPicker";
@@ -8,8 +9,10 @@ const PIXELS_PER_MP = 1024 * 1024;
 const REF_SIDE = 1024; // the dashed "1 MP" reference square
 const RATIO_RE = /^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/;
 const PRESET_RE = /^\s*(\d+)\s*x\s*(\d+)/i;
-const RATIO_WEIGHT = 20; // keep in step with resolution_picker.py
-const RATIO_NOTE_MIN = 0.0005;
+// Show the "actual ratio" note only when snapping to the grid pushes the real ratio
+// ~1% or more away from the wanted one. Plain per-side snapping drifts a little at
+// almost every setting, so a tighter threshold would leave the note permanently on.
+const RATIO_NOTE_MIN = 0.01;
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const snap = (value, multiple) => Math.max(multiple, Math.floor(value / multiple + 0.5) * multiple);
@@ -38,8 +41,11 @@ export function computeResolution(v, ratioLabels) {
         ratio = "1:1";
       }
     }
+    // Same math as resolve() in resolution_picker.py: scale, then plain per-side snap.
     const pixels = clamp(Number(v.megapixels) || 1, 0.05, 16) * PIXELS_PER_MP;
-    [w, h] = fitRatio(rw, rh, pixels, multiple);
+    const scale = Math.sqrt(pixels / (rw * rh));
+    w = snap(rw * scale, multiple);
+    h = snap(rh * scale, multiple);
     drift = ratioError(w, h, rw, rh);
   } else {
     const m = PRESET_RE.exec(v.preset_resolution || "");
@@ -55,7 +61,7 @@ export function computeResolution(v, ratioLabels) {
     [w, h] = [h, w];
     ratio = ratio.split(":").reverse().join(":");
   }
-  const note = drift > RATIO_NOTE_MIN ? `actual ${(Math.floor((w / h) * 1000 + 0.5) / 1000).toFixed(3)}` : "";
+  const note = drift > RATIO_NOTE_MIN ? `actual ${(w / h).toFixed(3)}` : "";
   return { w, h, ratio, note };
 }
 
@@ -65,36 +71,6 @@ const ratioError = (w, h, rw, rh) => {
   const b = h * rw;
   return Math.abs(a - b) / ((a + b) / 2);
 };
-
-// The same search as _fit_ratio in resolution_picker.py (Python produces the real outputs).
-function fitRatio(rw, rh, pixels, multiple) {
-  if (rh > rw) {
-    // search landscape only, so a ratio and its mirror always give mirrored sizes
-    const [h, w] = fitRatio(rh, rw, pixels, multiple);
-    return [w, h];
-  }
-  const scale = Math.sqrt(pixels / (rw * rh));
-  const idealW = rw * scale;
-  // plain per-side rounding is always a candidate, so the result is never worse than it
-  const candidates = [[snap(rw * scale, multiple), snap(rh * scale, multiple)]];
-  const first = Math.max(1, Math.floor((idealW * 0.7) / multiple));
-  const last = Math.ceil((idealW * 1.3) / multiple) + 1;
-  for (let k = first; k <= last; k++) {
-    const w = k * multiple;
-    const rows = Math.floor((w * rh) / rw / multiple);
-    for (const r of [rows, rows + 1]) candidates.push([w, Math.max(1, r) * multiple]);
-  }
-  let best = null;
-  let bestCost = 0;
-  for (const [w, h] of candidates) {
-    const cost = RATIO_WEIGHT * ratioError(w, h, rw, rh) + Math.abs((w * h) / pixels - 1);
-    if (!best || cost < bestCost || (cost === bestCost && w < best[0])) {
-      best = [w, h];
-      bestCost = cost;
-    }
-  }
-  return best;
-}
 
 function nearestRatio(w, h, labels) {
   const actual = Math.log(w / h);
@@ -344,7 +320,11 @@ function setupNode(node) {
   const byName = (name) => node.widgets?.find((w) => w.name === name);
   const readValues = () => {
     const values = {};
-    for (const w of node.widgets || []) if (w.name !== "ratio_preview") values[w.name] = w.value;
+    // ratio_preview is the canvas, and batch_size has no effect on the preview, so
+    // leave both out: changing batch size should not retrigger the pulse animation.
+    for (const w of node.widgets || []) {
+      if (w.name !== "ratio_preview" && w.name !== "batch_size") values[w.name] = w.value;
+    }
     return values;
   };
   const ratioLabels = () => byName("aspect_ratio")?.options?.values ?? [];
