@@ -131,8 +131,8 @@ class NouganCompare:
     DESCRIPTION = (
         "Interactive image comparison.\n\n"
         "Modes: slider (Shift+drag rotates), box, diff (WebGPU heatmap), toggle and mask.\n"
-        "Up to 4 inputs (images, image batches or videos), the first one is the reference. Batches and videos "
-        "play back in sync, frame by frame; single images among them stay still. Video audio is ignored.\n"
+        "Two inputs (image, image batch or video), the first one is the reference. Batches and videos "
+        "play back in sync, frame by frame; a single image next to a batch stays still. Video audio is ignored.\n"
         "The optional mask (first frame) reveals the compared image where it is white."
     )
 
@@ -144,22 +144,17 @@ class NouganCompare:
                 "image2": ("IMAGE,VIDEO", {"tooltip": "Compared against the reference."}),
             },
             "optional": {
-                "image3": ("IMAGE,VIDEO",),
-                "image4": ("IMAGE,VIDEO",),
                 "mask": ("MASK", {"tooltip": "Mask mode: white shows the compared image, black the reference, gray blends. Only the first frame is used."}),
                 "fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.1,
                                   "tooltip": "Playback frame rate for image batches. A connected video overrides it with its own frame rate."}),
                 # Labels are only read by the browser UI (web/nougan_compare.js)
                 "text1": ("STRING", {"default": "Before"}),
                 "text2": ("STRING", {"default": "After"}),
-                "text3": ("STRING", {"default": "Image 3"}),
-                "text4": ("STRING", {"default": "Image 4"}),
             },
         }
 
-    def compare(self, image1, image2, image3=None, image4=None, mask=None, fps=24.0,
-                text1="Before", text2="After", text3="Image 3", text4="Image 4"):
-        inputs = [x for x in (image1, image2, image3, image4) if x is not None]
+    def compare(self, image1, image2, mask=None, fps=24.0, text1="Before", text2="After"):
+        inputs = [x for x in (image1, image2) if x is not None]
         fps = float(fps)
         # A connected video sets the playback rate (read from the file header, nothing is decoded for it)
         for x in inputs:
