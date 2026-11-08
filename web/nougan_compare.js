@@ -1,7 +1,7 @@
 // Nougan Compare: interactive image / batch comparison.
 // Based on KJNodes' Image Compare. Layers are real <img>/<video>/<canvas> elements composited by CSS, so the
 // browser scales them at native quality and interaction only touches styles.
-// Extras: WebGPU diff heatmap, sliding mode pill, corner labels (text1..text4 widgets).
+// Extras: WebGPU diff heatmap, sliding mode pill, corner labels (text1/text2 widgets).
 // The WebGPU diff falls back to the plain 2D canvas when WebGPU is missing.
 // Live Panel: window.NouganCompare.viewOf(node) lends the whole view to the panel (mountInto / release / pause),
 // same idea as the Save Video player, so there is one view and one state, shown in only one place at a time.
@@ -481,10 +481,10 @@ app.registerExtension({
 
       const fpsWidget = node.widgets?.find((w) => w.name === "fps");
       const fps = () => dataFps || fpsWidget?.value || 24;
-      // Labels come from the text1..text4 widgets, read live so edits show without a re-run
+      // Labels come from the text1/text2 widgets, read live so edits show without a re-run
       const label = (i) => (node.widgets?.find((w) => w.name === `text${i + 1}`)?.value ?? "").toString().trim() || "ABCD"[i] || String(i + 1);
       for (const w of node.widgets || []) {
-        if (!/^text[1-4]$/.test(w.name)) continue;
+        if (!/^text[1-2]$/.test(w.name)) continue;
         const original = w.callback;
         w.callback = function () {
           const result = original ? original.apply(this, arguments) : undefined;
