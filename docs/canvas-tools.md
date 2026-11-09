@@ -291,6 +291,48 @@ Other ways in and out:
 Zip Ties, Bypass Slash, Subgraph Box, Group Box, Group Switch and Minimize all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash, then Subgraph Box, then Group Box, then Group Switch, and Minimize yields to all of them.
 
 ---
+## 🔌 Node Wrangler
+
+Hold **X** with your left hand and drag from one node to another with the mouse. Release and the best matching sockets are connected. Drag across wires from empty canvas and they're cut.
+
+Based on *CRZ Node Wrangler* (Blender-style node connection shortcuts), reworked to match the rest of the suite. It uses ComfyUI's own link connect/disconnect, so undo works as one step.
+
+### Using it
+
+1. Hold **X**. A hint pill appears next to the cursor and the cursor becomes a crosshair.
+2. Drag from a node onto another node. The pill lists exactly what will connect (e.g. `image → image`, `(replaces)` if an occupied input will be overwritten), and the preview noodle shows it:
+   - **Blue**: CONNECT
+   - **Purple**: CONNECT, REVERSED (nothing matched A → B, so B → A is used)
+   - **Gold**: CONNECT and HIDE the new links
+   - **Red**: no matching sockets
+3. Release. The links are made as **one undo step**.
+
+| Modifier (while dragging) | Effect |
+|---------------------------|--------|
+| **Shift** | Connect **all** matching socket pairs, not just one |
+| **Alt** | Hide the links it makes |
+
+**Force a socket.** Start the drag on a socket, or drop right on one, and that exact socket is used. Anywhere else on the node, it picks automatically.
+
+**How it picks.** Free inputs before occupied ones, same-name sockets before same-type ones, then ComfyUI's usual type order (MODEL, CLIP, VAE, CONDITIONING, LATENT, IMAGE…). Wildcard `*` sockets come last. Connect-all only overwrites an occupied input when the names match exactly.
+
+### Cutting and hiding wires
+
+Start the drag on **empty canvas** (still holding **X**) and slash across wires to cut them. Hold **Alt** and they are hidden instead (native *Hide Link*).
+
+### Other ways in and out
+
+- Right-click the canvas → **Wrangle (connect / cut)** arms the next drag with no key.
+- **Esc** cancels a drag in progress, or disarms the menu option.
+- The key is ignored while a modifier (Ctrl/Cmd/Alt) is down when you press it, and while you're typing in a text field.
+- **Right-button gestures** from the original still work (switch off in settings): **Alt+RMB** connect one pair · **Ctrl+Alt+RMB** connect all · **Ctrl+Alt+Shift+RMB** connect all and hide · **Ctrl+RMB** cut · **Shift+RMB** hide. If the original `CRZ.NodeWrangler` is also installed, these are left to it.
+
+### Settings (Nougan → Node Wrangler)
+
+- **Node Wrangler enabled**: master switch.
+- **Key to hold while dragging between nodes**: X, E, D, A, T or Y (or Off to use only the right-button gestures). If you pick the same key as another canvas tool, that tool keeps it and Node Wrangler is inactive.
+- **Auto-reverse when A → B has no match**: on by default.
+- **Right-button gestures**: on by default.
 
 ## Troubleshooting
 
