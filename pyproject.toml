@@ -1,7 +1,7 @@
 [project]
 name = "nougan_nodes"
 description = "Nougan's Nodes: loaders, LoRA tooling, masks, bounding boxes, smart image/video saving, dataset captioning, remote Set/Get, Prompt Relay and an LM Studio bridge for ComfyUI."
-version = "1.1.48"
+version = "1.1.49"
 license = { file = "LICENSE" }
 dependencies = []
 
