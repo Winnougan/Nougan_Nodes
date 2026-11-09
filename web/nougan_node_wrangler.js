@@ -1,7 +1,7 @@
 // Nougan Node Wrangler  —  web/nougan_node_wrangler.js
 // Based on CRZ Node Wrangler (Blender-style node connection shortcuts), reworked for the Nougan suite.
 //
-// HOLD  C  (rebindable in Settings) and LEFT-drag:
+// HOLD  X  (rebindable in Settings) and LEFT-drag:
 //   node  → node ................ connect the best matching socket pair
 //     + Shift ................... connect ALL matching pairs
 //     + Alt ..................... hide the new links as they're made
@@ -50,7 +50,9 @@ try {
 app = app || (typeof window !== "undefined" && window.comfyAPI?.app?.app);
 
 // Settings live at module scope so onChange can fire before setup() runs.
-const S = { enabled: true, key: "c", legacy: true, autoReverse: true };
+const S = { enabled: true, key: "x", code: "KeyX", legacy: true, autoReverse: true };
+const keyCode = (k) => (/^[a-z]$/.test(k) ? "Key" + k.toUpperCase() : "");
+const isHoldKey = (e) => !!S.key && (String(e.key).toLowerCase() === S.key || (!!S.code && e.code === S.code));
 let legacyLocked = false;   // true when the original CRZ.NodeWrangler is installed too
 let resetFn = () => {};     // assigned in setup()
 
@@ -71,8 +73,8 @@ if (app) {
                 name: "Nougan Node Wrangler: hold-key (hold it, then left-drag)",
                 type: "combo",
                 options: ["C", "X", "E", "D", "A", "Off"],
-                defaultValue: "C",
-                onChange: (v) => { S.key = (!v || v === "Off") ? "" : String(v).toLowerCase(); resetFn(); },
+                defaultValue: "X",
+                onChange: (v) => { S.key = (!v || v === "Off") ? "" : String(v).toLowerCase(); S.code = keyCode(S.key); resetFn(); },
             },
             {
                 id: "Nougan.Wrangler.AutoReverse",
@@ -685,14 +687,14 @@ if (app) {
             window.addEventListener("keydown", (e) => {
                 if (e.key === "Escape" && g) { cancelGesture(true); killEvent(e); return; }
                 if (!S.enabled || !S.key || armed) return;
-                if (String(e.key).toLowerCase() !== S.key) return;
+                if (!isHoldKey(e)) return;
                 if (e.ctrlKey || e.metaKey || e.altKey) return; // leave Ctrl+C / Alt+C etc. alone
                 if (isTyping(e.target)) return;
                 setArmed(true);
             }, true);
 
             window.addEventListener("keyup", (e) => {
-                if (armed && String(e.key).toLowerCase() === S.key) setArmed(false);
+                if (armed && isHoldKey(e)) setArmed(false);
             }, true);
 
             window.addEventListener("blur", () => { cancelGesture(false); setArmed(false); });
