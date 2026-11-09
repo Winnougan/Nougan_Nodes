@@ -2,7 +2,7 @@
 
 # 🖱️ Canvas Tools
 <img width="1672" height="940" alt="canvas nodes" src="https://github.com/user-attachments/assets/3f2504c7-e748-4bfc-938f-3c568c33c057" />
-Seven frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
+Eight frontend-only extensions for ComfyUI's classic canvas. They add no nodes and need no Python beyond the suite's `__init__.py`, which only checks the files are present and prints them in the startup banner.
 
 | Tool | Gesture | What it does |
 |------|---------|--------------|
@@ -13,6 +13,7 @@ Seven frontend-only extensions for ComfyUI's classic canvas. They add no nodes a
 | [Group Box](#-group-box) | Hold **G**, drag a box | Boxed nodes get wrapped in a group; box a whole group to remove it |
 | [Group Switch](#-group-switch) | Hold **S**, click a group's title | Bypasses everything inside a group; click again to restore |
 | [Minimize](#-minimize) | Hold **C**, drag a box (**Shift** for a slash) | Collapses the nodes under it; do it again to expand them |
+| [Node Wrangler](#-node-wrangler) | Hold **X**, drag node → node | Connects the best matching sockets (**Shift** for all); drag across wires to cut |
 
 All settings live under **Settings → Nougan**.
 
@@ -32,7 +33,8 @@ Nougan_Nodes/
     ├── nougan_subgraph_box.js
     ├── nougan_group_box.js
     ├── nougan_group_switch.js
-    └── nougan_minimize.js
+    ├── nougan_minimize.js
+    └── nougan_node_wrangler.js
 ```
 
 `__init__.py` lists them in `_WEB_ONLY`, so the startup banner confirms each one is present:
@@ -46,6 +48,7 @@ _WEB_ONLY = [
     ("Group Box", "nougan_group_box.js"),
     ("Group Switch", "nougan_group_switch.js"),
     ("Minimize", "nougan_minimize.js"),
+    ("Node Wrangler", "nougan_node_wrangler.js"),
 ]
 ```
 
@@ -274,33 +277,16 @@ Other ways in and out:
 
 ---
 
-## Key map at a glance
-
-| Key | Used by | Notes |
-|-----|---------|-------|
-| **Z** (hold) | Zip Ties | Configurable: Z X C G T Y |
-| **B** (hold) | Bypass Slash | Configurable: B X C G T Y |
-| **Ctrl/Cmd or Shift** (while dragging a node) | Smart Guides | Disables snapping |
-| **V** (hold) | Subgraph Box | Configurable: V E D S A |
-| **G** (hold) | Group Box | Configurable: G E D S A |
-| **S** (hold) | Group Switch | Configurable: S E D A |
-| **C** (hold) | Minimize | Configurable: C X T Y E D A. **Shift** at drag start flips box ↔ slash |
-| **Alt+L** | Smart Guides | Tidy by dependency; rebindable |
-| **Esc** | Box and slash tools | Cancels a stroke or armed mode |
-
-Zip Ties, Bypass Slash, Subgraph Box, Group Box, Group Switch and Minimize all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash, then Subgraph Box, then Group Box, then Group Switch, and Minimize yields to all of them.
-
----
 ## 🔌 Node Wrangler
 
-Hold **X** with your left hand and drag from one node to another with the mouse. Release and the best matching sockets are connected. Drag across wires from empty canvas and they're cut.
+Hold **X** with your left hand and drag from one node to another with the mouse. Release and the best matching sockets are connected. Start the drag on empty canvas and slash across wires to cut them.
 
 Based on *CRZ Node Wrangler* (Blender-style node connection shortcuts), reworked to match the rest of the suite. It uses ComfyUI's own link connect/disconnect, so undo works as one step.
 
 ### Using it
 
 1. Hold **X**. A hint pill appears next to the cursor and the cursor becomes a crosshair.
-2. Drag from a node onto another node. The pill lists exactly what will connect (e.g. `image → image`, `(replaces)` if an occupied input will be overwritten), and the preview noodle shows it:
+2. Drag from a node onto another node. The pill lists exactly what will connect (e.g. `image → image`, with `(replaces)` if an occupied input will be overwritten), and the preview noodle shows it:
    - **Blue**: CONNECT
    - **Purple**: CONNECT, REVERSED (nothing matched A → B, so B → A is used)
    - **Gold**: CONNECT and HIDE the new links
@@ -318,21 +304,43 @@ Based on *CRZ Node Wrangler* (Blender-style node connection shortcuts), reworked
 
 ### Cutting and hiding wires
 
-Start the drag on **empty canvas** (still holding **X**) and slash across wires to cut them. Hold **Alt** and they are hidden instead (native *Hide Link*).
+Start the drag on **empty canvas** (still holding **X**) and slash across wires to cut them. Hold **Alt** and they are hidden instead (ComfyUI's native *Hide Link*). Cutting is one undo step.
 
 ### Other ways in and out
 
 - Right-click the canvas → **Wrangle (connect / cut)** arms the next drag with no key.
 - **Esc** cancels a drag in progress, or disarms the menu option.
-- The key is ignored while a modifier (Ctrl/Cmd/Alt) is down when you press it, and while you're typing in a text field.
-- **Right-button gestures** from the original still work (switch off in settings): **Alt+RMB** connect one pair · **Ctrl+Alt+RMB** connect all · **Ctrl+Alt+Shift+RMB** connect all and hide · **Ctrl+RMB** cut · **Shift+RMB** hide. If the original `CRZ.NodeWrangler` is also installed, these are left to it.
+- The key is ignored if **Ctrl/Cmd/Alt** is down when you press it (so **Ctrl+C** and **Alt+C** are untouched), and while you're typing in a text field.
+- **Right-button gestures** from the original still work (switch them off in settings): **Alt+RMB** connect one pair · **Ctrl+Alt+RMB** connect all · **Ctrl+Alt+Shift+RMB** connect all and hide · **Ctrl+RMB** cut · **Shift+RMB** hide. If the original `CRZ.NodeWrangler` is also installed, these are left to it.
+- Unlike Minimize, **Shift** here means "connect all" and **Alt** means "hide links". The two tools never share a key, so they don't interfere.
 
 ### Settings (Nougan → Node Wrangler)
 
 - **Node Wrangler enabled**: master switch.
-- **Key to hold while dragging between nodes**: X, E, D, A, T or Y (or Off to use only the right-button gestures). If you pick the same key as another canvas tool, that tool keeps it and Node Wrangler is inactive.
+- **Key to hold while dragging between nodes**: X, E, D, A, T or Y (or *Off* to use only the right-button gestures). If you pick the same key as another canvas tool, that tool keeps it and Node Wrangler is inactive.
 - **Auto-reverse when A → B has no match**: on by default.
 - **Right-button gestures**: on by default.
+
+---
+
+## Key map at a glance
+
+| Key | Used by | Notes |
+|-----|---------|-------|
+| **Z** (hold) | Zip Ties | Configurable: Z X C G T Y |
+| **B** (hold) | Bypass Slash | Configurable: B X C G T Y |
+| **Ctrl/Cmd or Shift** (while dragging a node) | Smart Guides | Disables snapping |
+| **V** (hold) | Subgraph Box | Configurable: V E D S A |
+| **G** (hold) | Group Box | Configurable: G E D S A |
+| **S** (hold) | Group Switch | Configurable: S E D A |
+| **C** (hold) | Minimize | Configurable: C X T Y E D A. **Shift** at drag start flips box ↔ slash |
+| **X** (hold) | Node Wrangler | Configurable: X E D A T Y. **Shift** connects all, **Alt** hides links |
+| **Alt+L** | Smart Guides | Tidy by dependency; rebindable |
+| **Esc** | Box, slash and wrangler tools | Cancels a stroke or armed mode |
+
+Zip Ties, Bypass Slash, Subgraph Box, Group Box, Group Switch, Minimize and Node Wrangler all read a held letter key. Pick different letters for each; on a clash Zip Ties wins, then Bypass Slash, then Subgraph Box, then Group Box, then Group Switch, then Minimize, and Node Wrangler yields to all of them.
+
+---
 
 ## Troubleshooting
 
@@ -343,11 +351,15 @@ Start the drag on **empty canvas** (still holding **X**) and slash across wires 
 - **The key does nothing**: check you're not holding a modifier, not focused in a text box, and that the key isn't also assigned to the other gesture.
 - **Minimize does nothing to some nodes**: pinned nodes and Reroutes can't be collapsed and are skipped. If *every* node under the box is one of those, the preview stays dashed white.
 - **Minimize draws a slash when you wanted a box (or the reverse)**: check **Nougan → Minimize → Default drag shape**, and whether you're holding **Shift** as the drag starts.
+- **Node Wrangler says "No matching sockets"**: no output on the first node has a compatible type for an input on the second, in either direction. Drop on a specific socket to see which one you're aiming at.
+- **Node Wrangler connects the wrong pair**: drop the cursor right on the input you want (or start the drag on the output you want) to force it.
+- **Node Wrangler's key does nothing**: another canvas tool is using the same letter and wins the clash. Pick a different key under **Nougan → Node Wrangler**.
+- **Cutting with Node Wrangler misses a wire**: slash straight across it, not along it. A plain click without moving does nothing.
 
 ---
 
 ## Credits
 
-Zip Ties is based on **safzan**'s *ZipTies* ComfyUI extension. Bypass Slash, Smart Guides, Subgraph Box, Group Box, Group Switch and Minimize are original to the Nougan suite.
+Zip Ties is based on **safzan**'s *ZipTies* ComfyUI extension. Node Wrangler is based on *CRZ Node Wrangler*. Bypass Slash, Smart Guides, Subgraph Box, Group Box, Group Switch and Minimize are original to the Nougan suite.
 
 Made by **Winnougan**.
