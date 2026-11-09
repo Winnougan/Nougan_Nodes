@@ -307,6 +307,10 @@ _WEB_ONLY = [
     ("Group Box", "nougan_group_box.js"),
     # Hold S and click a group's title (or slash across several) to bypass everything inside; again to restore.
     ("Group Switch", "nougan_group_switch.js"),
+    # Hold C and drag node -> node to connect the best matching sockets (Shift = all, Alt = hide links); hold C and
+    # drag across wires to cut them. Live preview HUD, auto-reverse, drop on a socket to force it, Esc cancels.
+    # Legacy Alt/Ctrl/Shift + RMB gestures kept. Based on CRZ Node Wrangler.
+    ("Node Wrangler", "nougan_node_wrangler.js"),
     # Floating, dockable panel: reads the loaded checkpoint / CLIP / VAE / every sampler / LoRAs and edits
     # the real node values live (no cables). Stylesheet lives in web/css/.
     ("Automagic 2222: Live Panel", "nougan_live_panel.js", "css/nougan_live_panel.css"),
