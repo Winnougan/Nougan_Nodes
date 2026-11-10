@@ -14,11 +14,19 @@ const CONVERTED = "converted-widget"; // core widgetInputs marker — conversion
 
 // section key -> heading widget + member widgets, in default order
 const SECTIONS = [
-    { key: "model",  heading: "heading_model",  widgets: ["model_name", "quant_format", "model_type"] },
+    { key: "model",  heading: "heading_model",  widgets: ["model_enabled", "model_name", "quant_format", "model_type"] },
     { key: "engine", heading: "heading_engine", widgets: ["kitchen", "sage2", "sage3", "triton", "flash2", "pytorch", "sparse", "vsa"] },
-    { key: "clips",  heading: "heading_clips",  widgets: ["clip1_name", "clip1_type", "clip1_device", "clip2_enabled", "clip2_name", "clip2_type", "clip2_device"] },
-    { key: "vaes",   heading: "heading_vaes",   widgets: ["vae_name", "audio_vae_enabled", "audio_vae_name"] },
+    { key: "clips",  heading: "heading_clips",  widgets: ["clip1_enabled", "clip1_name", "clip1_type", "clip1_device", "clip2_enabled", "clip2_name", "clip2_type", "clip2_device"] },
+    { key: "vaes",   heading: "heading_vaes",   widgets: ["vae_enabled", "vae_name", "audio_vae_enabled", "audio_vae_name"] },
 ];
+// on/off knob -> the rows it switches. Off = dimmed here, skipped by the backend.
+const KNOBS = {
+    model_enabled:     ["model_name", "quant_format"],
+    clip1_enabled:     ["clip1_name", "clip1_type", "clip1_device"],
+    clip2_enabled:     ["clip2_name", "clip2_type", "clip2_device"],
+    vae_enabled:       ["vae_name"],
+    audio_vae_enabled: ["audio_vae_name"],
+};
 const HIDDEN_ALWAYS = ["section_order"];
 const ORDER_WIDGET = "section_order";
 const PANEL_WIDGET = "nguml_panel";
@@ -57,6 +65,7 @@ const CSS = `
 .nguml-switch.on::after{transform:translateX(16px);background:#fff;}
 .nguml-switch-label{color:#c9ced8;}
 .nguml-drop-hint{outline:1px dashed #7c3aed;outline-offset:-1px;}
+.nguml-row.nguml-off{opacity:.4;}
 .nguml-row.nguml-wired{opacity:.45;}
 .nguml-row.nguml-wired input,.nguml-row.nguml-wired .nguml-switch{pointer-events:none;}
 .nguml-row.nguml-wired .nguml-label::after{content:" ⚡";color:#7c3aed;}
@@ -142,6 +151,7 @@ function hideDataWidgets(node) {
 
 function niceLabel(name) {
     const map = {
+        model_enabled: "model · on/off", clip1_enabled: "clip 1 · on/off", vae_enabled: "vae · on/off",
         model_name: "model", quant_format: "format", model_type: "type",
         kitchen: "comfy-kitchen", sage2: "sageattention 2", sage3: "sageattention 3",
         triton: "triton", flash2: "flashattention 2", pytorch: "pytorch",
@@ -260,8 +270,20 @@ function makeCombo(node, widget, onChanged) {
         hi = -1;
     };
 
-    input.addEventListener("focus", openList);
-    input.addEventListener("pointerdown", () => setTimeout(openList, 0));
+    // focus -> select the whole value so typing immediately replaces it (no manual select-all).
+    // The first mouseup after a click would collapse the selection, so swallow it.
+    let justFocused = false;
+    input.addEventListener("focus", () => {
+        justFocused = true;
+        setTimeout(() => input.select(), 0);
+        openList();
+    });
+    input.addEventListener("mouseup", (e) => {
+        if (justFocused) { e.preventDefault(); justFocused = false; }
+    });
+    input.addEventListener("pointerdown", () => setTimeout(() => {
+        if (document.activeElement === input && !openDroplist) openList();
+    }, 0));
     input.addEventListener("input", () => {
         if (comboValues(widget).includes(input.value)) {
             if (widget.value !== input.value) { widget.value = input.value; widget.callback?.(widget.value); onChanged(); }
@@ -575,9 +597,14 @@ app.registerExtension({
             onDrawBackground?.apply(this, arguments);
             const st = this._nguml;
             if (!st) return;
+            const off = new Set();
+            for (const [knob, deps] of Object.entries(KNOBS)) {
+                if (wByName(this, knob)?.value === false) deps.forEach(d => off.add(d));
+            }
             for (const row of st.inner.querySelectorAll(".nguml-row")) {
                 const w = row._ngWidget;
                 if (!w) continue;
+                row.classList.toggle("nguml-off", off.has(w.name));
                 if ((w.type === CONVERTED) !== row._ngWired) row.sync();
                 else row.pull?.();
             }
@@ -616,7 +643,7 @@ function api_addStatusListener() {
             ?? app.graph?.getNodeById?.(nid) ?? app.graph?.getNodeById?.(+nid);
         if (!node || node.type !== NODE_ID) return;
         const bits = [];
-        bits.push(d.quant_detected?.length ? d.quant_detected.join("+") : "bf16");
+        if (d.model !== "(model off)") bits.push(d.quant_detected?.length ? d.quant_detected.join("+") : "bf16");
         if (d.backend) bits.push(`attn:${d.backend}`);
         if (d.sparse) bits.push("sparse");
         if (d.vsa) bits.push("vsa");
