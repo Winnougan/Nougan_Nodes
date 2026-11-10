@@ -232,6 +232,10 @@ class NouganUltimateModelLoader:
                 "heading_clips": ("STRING", {"default": "Text Encoders"}),
                 "heading_vaes": ("STRING", {"default": "VAEs"}),
                 "section_order": ("STRING", {"default": "model,engine,clips,vaes"}),
+                # ── on/off knobs (appended last so older saved workflows keep their widget order) ──
+                "model_enabled": ("BOOLEAN", {"default": True, "tooltip": "Off = don't load the diffusion model (MODEL output is None)."}),
+                "clip1_enabled": ("BOOLEAN", {"default": True, "tooltip": "Off = don't load the main CLIP (output is None)."}),
+                "vae_enabled": ("BOOLEAN", {"default": True, "tooltip": "Off = don't load the video/default VAE (output is None)."}),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
@@ -247,7 +251,8 @@ class NouganUltimateModelLoader:
              vae_name, audio_vae_enabled, audio_vae_name,
              heading_model="Model", heading_engine="Efficiencies",
              heading_clips="Text Encoders", heading_vaes="VAEs",
-             section_order="model,engine,clips,vaes", unique_id=None):
+             section_order="model,engine,clips,vaes",
+             model_enabled=True, clip1_enabled=True, vae_enabled=True, unique_id=None):
 
         logging.info(f"{_LOG} load: model='{model_name}' quant={quant_format} type={model_type} "
                      f"node={unique_id!r}")
@@ -256,70 +261,78 @@ class NouganUltimateModelLoader:
             raise ValueError(f"{_LOG} sparseattention and vsa are both on — they conflict. "
                              f"Pick one (VSA is for MiniMax-H3/FastH3 weights).")
 
-        # ── triton opt-in (affects how the quant layers below are built) ────────
-        if triton:
-            _enable_triton_backend()
+        model, det_names, chosen = None, [], None
+        if model_enabled:
+            # ── triton opt-in (affects how the quant layers below are built) ────────
+            if triton:
+                _enable_triton_backend()
 
-        # ── diffusion model ─────────────────────────────────────────────────────
-        try:
-            model_path = folder_paths.get_full_path_or_raise("diffusion_models", model_name)
-        except Exception:
-            model_path = folder_paths.get_full_path_or_raise("unet", model_name)
-        model = comfy.sd.load_diffusion_model(model_path, model_options={})
-        logging.info(f"{_LOG} diffusion model '{model_name}' loaded.")
+            # ── diffusion model ─────────────────────────────────────────────────────
+            try:
+                model_path = folder_paths.get_full_path_or_raise("diffusion_models", model_name)
+            except Exception:
+                model_path = folder_paths.get_full_path_or_raise("unet", model_name)
+            model = comfy.sd.load_diffusion_model(model_path, model_options={})
+            logging.info(f"{_LOG} diffusion model '{model_name}' loaded.")
 
-        # ── quant validation (detection itself already happened inside the load) ─
-        detected = None
-        try:
-            detected = (model.model_options or {}).get("quantization_metadata")
-        except Exception:
-            pass
-        import json as _json
-        flat = _json.dumps(detected, default=str) if detected else ""
-        algos = []
-        try:
-            import comfy.quant_ops as _q
-            algos = [a for a in getattr(_q, "QUANT_ALGOS", {}) if a in flat]
-        except Exception:
-            pass
-        det_names = algos or (["metadata present"] if flat else [])
-        if quant_format == "bf16":
-            if flat:
-                logging.warning(f"{_LOG} quant_format is 'bf16' but the checkpoint carries quant metadata "
-                                f"({', '.join(det_names)}) — it loaded as a quantized model.")
+            # ── quant validation (detection itself already happened inside the load) ─
+            detected = None
+            try:
+                detected = (model.model_options or {}).get("quantization_metadata")
+            except Exception:
+                pass
+            import json as _json
+            flat = _json.dumps(detected, default=str) if detected else ""
+            algos = []
+            try:
+                import comfy.quant_ops as _q
+                algos = [a for a in getattr(_q, "QUANT_ALGOS", {}) if a in flat]
+            except Exception:
+                pass
+            det_names = algos or (["metadata present"] if flat else [])
+            if quant_format == "bf16":
+                if flat:
+                    logging.warning(f"{_LOG} quant_format is 'bf16' but the checkpoint carries quant metadata "
+                                    f"({', '.join(det_names)}) — it loaded as a quantized model.")
+                else:
+                    logging.info(f"{_LOG} quant check: bf16 ✓ (no quant metadata).")
+            elif quant_format != "auto":
+                if not flat:
+                    logging.warning(f"{_LOG} quant_format '{quant_format}' selected but the checkpoint has NO quant "
+                                    f"metadata — it loaded as a plain (bf16/fp16) model.")
+                elif quant_format not in flat:
+                    logging.warning(f"{_LOG} quant_format '{quant_format}' selected, checkpoint reports "
+                                    f"{det_names or 'unknown metadata'} — ComfyUI used the checkpoint's own metadata.")
+                else:
+                    logging.info(f"{_LOG} quant check: '{quant_format}' ✓")
             else:
-                logging.info(f"{_LOG} quant check: bf16 ✓ (no quant metadata).")
-        elif quant_format != "auto":
-            if not flat:
-                logging.warning(f"{_LOG} quant_format '{quant_format}' selected but the checkpoint has NO quant "
-                                f"metadata — it loaded as a plain (bf16/fp16) model.")
-            elif quant_format not in flat:
-                logging.warning(f"{_LOG} quant_format '{quant_format}' selected, checkpoint reports "
-                                f"{det_names or 'unknown metadata'} — ComfyUI used the checkpoint's own metadata.")
+                logging.info(f"{_LOG} quant auto-detect: {', '.join(det_names) if det_names else 'none (bf16/fp16 weights)'}")
+
+            # ── dense attention backend ─────────────────────────────────────────────
+            switches = {"kitchen": kitchen, "sage2": sage2, "sage3": sage3,
+                        "flash2": flash2, "pytorch": pytorch}
+            chosen = _resolve_dense_backend(switches)
+            if chosen is not None:
+                switch_name, reg_name, fn = chosen
+                model = model.clone()
+                model.set_model_optimized_attention(fn)
+                logging.info(f"{_LOG} dense attention backend: '{reg_name}' (via {switch_name})")
             else:
-                logging.info(f"{_LOG} quant check: '{quant_format}' ✓")
-        else:
-            logging.info(f"{_LOG} quant auto-detect: {', '.join(det_names) if det_names else 'none (bf16/fp16 weights)'}")
+                logging.info(f"{_LOG} no dense backend switch resolved — model keeps ComfyUI's default attention.")
 
-        # ── dense attention backend ─────────────────────────────────────────────
-        switches = {"kitchen": kitchen, "sage2": sage2, "sage3": sage3,
-                    "flash2": flash2, "pytorch": pytorch}
-        chosen = _resolve_dense_backend(switches)
-        if chosen is not None:
-            switch_name, reg_name, fn = chosen
-            model = model.clone()
-            model.set_model_optimized_attention(fn)
-            logging.info(f"{_LOG} dense attention backend: '{reg_name}' (via {switch_name})")
+            # ── sparse attention / VSA (wraps whatever dense backend is in place) ───
+            if sparse or vsa:
+                model = _apply_sparse(model, vsa=vsa, model_type=model_type)
         else:
-            logging.info(f"{_LOG} no dense backend switch resolved — model keeps ComfyUI's default attention.")
-
-        # ── sparse attention / VSA (wraps whatever dense backend is in place) ───
-        if sparse or vsa:
-            model = _apply_sparse(model, vsa=vsa, model_type=model_type)
+            logging.info(f"{_LOG} model off — MODEL output is None.")
 
         # ── CLIPs ───────────────────────────────────────────────────────────────
-        clip1 = _load_one_clip(clip1_name, clip1_type if clip1_type != "auto" else _auto_type_for(model_type),
-                               clip1_device, "CLIP (main)")
+        clip1 = None
+        if clip1_enabled:
+            clip1 = _load_one_clip(clip1_name, clip1_type if clip1_type != "auto" else _auto_type_for(model_type),
+                                   clip1_device, "CLIP (main)")
+        else:
+            logging.info(f"{_LOG} main CLIP off — CLIP (main) output is None.")
         clip2 = None
         if clip2_enabled:
             clip2 = _load_one_clip(clip2_name, clip2_type if clip2_type != "auto" else _auto_type_for(model_type),
@@ -328,7 +341,11 @@ class NouganUltimateModelLoader:
             logging.info(f"{_LOG} prompt-enhancer CLIP off — second CLIP output is None.")
 
         # ── VAEs ────────────────────────────────────────────────────────────────
-        vae = _load_vae(vae_name, "VAE (video/default)")
+        vae = None
+        if vae_enabled:
+            vae = _load_vae(vae_name, "VAE (video/default)")
+        else:
+            logging.info(f"{_LOG} video/default VAE off — output is None.")
         audio_vae = None
         if audio_vae_enabled:
             audio_vae = _load_vae(audio_vae_name, "VAE (audio)")
@@ -340,7 +357,7 @@ class NouganUltimateModelLoader:
             from server import PromptServer
             PromptServer.instance.send_sync("nougan_uml_status", {
                 "node": unique_id,
-                "model": model_name,
+                "model": model_name if model_enabled else "(model off)",
                 "quant_detected": det_names,
                 "backend": chosen[1] if chosen else None,
                 "sparse": bool(sparse), "vsa": bool(vsa),
@@ -349,8 +366,8 @@ class NouganUltimateModelLoader:
         except Exception:
             pass
 
-        logging.info(f"{_LOG} done: MODEL + main CLIP{' + enhancer CLIP' if clip2 else ''} "
-                     f"+ VAE{' + audio VAE' if audio_vae else ''}.")
+        logging.info(f"{_LOG} done: {'MODEL' if model is not None else 'no model'}{' + main CLIP' if clip1 else ''}{' + enhancer CLIP' if clip2 else ''} "
+                     f"{'+ VAE' if vae else ''}{' + audio VAE' if audio_vae else ''}.")
         return (model, clip1, clip2, vae, audio_vae)
 
 

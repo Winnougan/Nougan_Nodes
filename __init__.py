@@ -211,6 +211,12 @@ _FEATURES = [
     ("Duration -> Frames", "nougan_duration_frames", [
         ("NouganDurationFrames", "NouganDurationFrames", "Nougan Duration → Frames ⏱️"),
     ]),
+    # MiniMax H3 only: seconds -> frames, hardwired to the 17n+5 grid at 24 FPS.
+    # The expression is a hidden DOM textarea, unlocked by the edit_expression toggle
+    # (web/nougan_h3_duration.js); toggle off = always the built-in default.
+    ("MiniMax H3 Duration", "nougan_h3_duration", [
+        ("NouganH3Duration", "NouganH3Duration", "Nougan MiniMax H3 · Duration ⏱️"),
+    ]),
     # UI-only button node that reloads the browser tab (web/nougan_refresh_page.js). No inputs or outputs.
     ("Refresh Page", "nougan_refresh_page", [
         ("NouganRefreshPage", "NouganRefreshPage", "Nougan Refresh Page 🔄"),
