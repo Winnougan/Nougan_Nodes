@@ -1,4 +1,4 @@
-# __init__.py  —  Nougan suite by Winnougan
+"""__init__.py — Nougan suite by Winnougan"""
 import os
 import sys
 import traceback
@@ -11,7 +11,7 @@ NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Pretty console output (ANSI). Set NO_COLOR=1 in your environment to disable.
+# Pretty console output (ANSI). Set NO_COLOR=1 in your environment to disable.
 # ═════════════════════════════════════════════════════════════════════════════
 _COLOR = "NO_COLOR" not in os.environ
 if _COLOR and os.name == "nt":
@@ -38,12 +38,12 @@ WARN = _yellow("⚠")
 TAG = _magenta("[Nougan]")
 
 SOCIALS = [
-    ("Patreon",     "https://www.patreon.com/c/Winnougan",        _orange),
-    ("Ko-fi",       "https://ko-fi.com/winnougan",                _cyan),
-    ("YouTube",     "https://www.youtube.com/@Winnougan",         _red),
-    ("Discord",     "https://discord.gg/CJv5wceJaN",              _magenta),
-    ("HuggingFace", "https://huggingface.co/Winnougan",           _yellow),
-    ("GitHub",      "https://github.com/Winnougan/Nougan_Nodes",     _green),
+    ("Patreon",     "https://www.patreon.com/c/Winnougan",       _orange),
+    ("Ko-fi",       "https://ko-fi.com/winnougan",               _cyan),
+    ("YouTube",     "https://www.youtube.com/@Winnougan",        _red),
+    ("Discord",     "https://discord.gg/CJv5wceJaN",             _magenta),
+    ("HuggingFace", "https://huggingface.co/Winnougan",          _yellow),
+    ("GitHub",      "https://github.com/Winnougan/Nougan_Nodes", _green),
 ]
 
 
@@ -82,13 +82,12 @@ def get_krea2_lora_status():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Feature table — each entry loads in its own try/except so ONE bad file
-#  can't take down the rest of the suite.
-#
-#  (label, module, [(node_id, class_name_in_module, display_name), ...])
-#  Use "*" as the class name to pull the module's own NODE_CLASS_MAPPINGS /
-#  NODE_DISPLAY_NAME_MAPPINGS instead (used by the RefMod toolkit).
-#  The same class may be registered under several node IDs (legacy aliases).
+# Feature table — each entry loads in its own try/except so ONE bad file
+# can't take down the rest of the suite.
+#   (label, module, [(node_id, class_name_in_module, display_name), ...])
+# Use "*" as the class name to pull the module's own NODE_CLASS_MAPPINGS /
+# NODE_DISPLAY_NAME_MAPPINGS instead (used by the RefMod toolkit).
+# The same class may be registered under several node IDs (legacy aliases).
 # ═════════════════════════════════════════════════════════════════════════════
 _FEATURES = [
     # All-in-one loader: quantized diffusion model (bf16 / int8 / w4a8 / w6a8 convrot, auto-detected),
@@ -133,7 +132,7 @@ _FEATURES = [
     ("Regional Character LoRA", "nougan_regional_lora", [
         ("NouganRegionalCharacterLoRA", "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
         ("Krea2RegionalCharacterLoRA",  "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
-        ("RegionalCharacterLora",        "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
+        ("RegionalCharacterLora",       "NouganRegionalCharacterLoRA", "Nougan Regional Character LoRA 👥"),
     ]),
     ("Prompt Relay", "prompt_relay", [
         ("PromptRelayEncode",          "PromptRelayEncode",          "Nougan Prompt Relay Encode 🎬"),
@@ -265,21 +264,29 @@ _FEATURES = [
     ("H3 Upscale Picker", "nougan_h3_upscale_picker", [
         ("NouganH3UpscalePicker", "NouganH3UpscalePicker", "Nougan H3 Upscale Picker 📈"),
     ]),
+    # Pre-flight check + auto-fix for MiniMax H3 clips: frame count on the 17n+5 grid, dims on the 16 px grid,
+    # fps, audio half, IMAGE <-> latent cross-check. Keeps a wired IMAGE / AUDIO in sync with the latent.
+    # Live DOM checklist in web/nougan_h3_clip_doctor.js. No extra dependencies.
+    ("H3 Clip Doctor", "nougan_h3_clip_doctor", [
+        ("NouganH3ClipDoctor", "NouganH3ClipDoctor", "Nougan H3 Clip Doctor 🩺"),
+    ]),
     # Mirrors KJNodes' Model Preview Override live preview on its own node (web/nougan_preview_mirror.js).
     # Needs KJNodes installed. No model input = follow any preview; connect a model to follow just that one.
     ("Model Preview Mirror", "nougan_preview_mirror", [
         ("NouganModelPreviewMirror", "NouganModelPreviewMirror", "Nougan Model Preview Mirror 🪞"),
     ]),
-    # ClownsharK + built-in samplers, bongmath toggle, CFG on/off, VAE decode, optional SIGMAS input,
-    # image/video + audio out, live preview + WebGPU progress bar (web/nougan_ultimate_ksampler.js).
+    # ONE sampler for everything, MiniMax H3 included. CFG is a plain number (0 = CFG-free
+    # positive-only BasicGuider; no negative wired = positive-only at any cfg). Optional
+    # guider / noise / sampler / sigmas inputs win over the widgets they replace; without a
+    # guider, model + positive builds BasicGuider/CFGGuider. Built-in + ClownsharK samplers,
+    # bongmath toggle, chainsampling, VAE + audio-VAE decode, image/video + audio out,
+    # live preview + WebGPU progress bar (web/nougan_ultimate_ksampler.js).
     # RES4LYF is the only soft dependency; the live preview is vendored in nougan_preview_override.py.
     ("Ultimate KSampler", "nougan_ultimate_ksampler", [
         ("NouganUltimateKSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler"),
-    ]),
-    # MiniMax H3 exclusive: SamplerCustomAdvanced-shaped (noise/guider/sigmas in), always CFG-free,
-    # VAE + audio-VAE decode and the same live preview panel (web/nougan_ultimate_ksampler.js).
-    ("MiniMax H3 KSampler", "nougan_h3_ksampler", [
-        ("NouganH3KSampler", "NouganH3KSampler", "Nougan MiniMax H3 KSampler 🎬"),
+        # Legacy alias: old MiniMax H3 workflows load into the unified node instead of
+        # erroring. Same class, same panel. Delete this line once your graphs are migrated.
+        ("NouganH3KSampler", "NouganUltimateKSampler", "Nougan Ultimate KSampler (H3 legacy) 🎬"),
     ]),
     # Batch stopwatch: elapsed / progress / avg per item / ETA / finish time, WebGPU shader backdrop
     # (web/nougan_timer.js). Registers /nougan_timer/state and /nougan_timer/reset routes.
@@ -298,7 +305,7 @@ _FEATURES = [
 
 # Frontend-only features: no Python module, no nodes, just a script in WEB_DIRECTORY that ComfyUI
 # serves and loads on its own. Listed here so the banner confirms the file is actually present.
-#  (label, filename inside ./web, [extra files that must sit beside it, e.g. a stylesheet])
+#   (label, filename inside ./web, [extra files that must sit beside it, e.g. a stylesheet])
 _WEB_ONLY = [
     # Hold Z and drag across wires to bundle them into zip-tie ribbons. Based on safzan's ZipTies;
     # stands down if the original safzan.ZipTies extension is also installed.
@@ -324,7 +331,6 @@ _WEB_ONLY = [
     # back. Square panel that minimizes to a small chip; WebGPU backdrop (CSS fallback). Stack lives in IndexedDB.
     ("Automagic 2222: Paste Stack", "nougan_paste_stack.js", "css/nougan_paste_stack.css"),
 ]
-
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -374,10 +380,9 @@ def _load_feature(label, module_name, spec):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Load everything
+# Load everything
 # ═════════════════════════════════════════════════════════════════════════════
 _banner()
-
 _loaded = 0
 _failed = []
 _skipped = []
@@ -410,8 +415,9 @@ for _label, _file, *_extra in _WEB_ONLY:
         _failed.append(_label)
         print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow('missing web/' + ', web/'.join(_missing))}")
 
+
 # ═════════════════════════════════════════════════════════════════════════════
-#  Routes — always attempted, fully guarded
+# Routes — always attempted, fully guarded
 # ═════════════════════════════════════════════════════════════════════════════
 _NOUGAN_ROUTES_REGISTERED = False
 
@@ -457,7 +463,6 @@ def _register_routes():
 
 
 _register_routes()
-
 _footer(_loaded, _failed, len(NODE_CLASS_MAPPINGS), _skipped)
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

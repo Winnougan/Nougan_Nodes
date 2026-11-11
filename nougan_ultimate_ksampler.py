@@ -1,40 +1,44 @@
 """
-Nougan Ultimate KSampler
-------------------------
-The regular-workflow sampler: model + conditioning + latent in, latent / image(video) / audio out.
+Nougan Ultimate KSampler — one sampler node for everything, MiniMax H3 included.
 
-  * Sampler dropdown merges ComfyUI's built-in samplers with RES4LYF's (ClownsharK) samplers.
-    Entries prefixed "clown: " run through ClownsharKSampler_Beta (eta, bongmath, sampler_mode and the
-    optional OPTIONS input apply); everything else runs through the stock ComfyUI sampling path.
-  * `bongmath` is the on/off toggle for RES4LYF's bongmath.
-  * `steps_to_run`           -> chainsampling, RES4LYF-style: run only the FIRST N steps of the schedule and
-                               stop partially denoised (-1 = all). Passed straight through to clown samplers;
-                               with built-in samplers the run moves to the guider path and slices the schedule.
-  * `cfg_enabled` OFF runs positive-only guidance (BasicGuider) for CFG-free models, ignoring negative
-    and cfg at half the per-step cost. Clown samplers get cfg=1.0 instead.
-  * `vae` / `audio_vae`      -> decode the result into the image/video and AUDIO outputs.
-  * `sigmas`                 -> optional custom sigma schedule (replaces scheduler/steps/denoise).
-  * Live preview: the Model Preview Override wrapper (vendored from KJNodes into
-    nougan_preview_override.py) is attached to the model for this run, so the node's own DOM panel
-    (web/nougan_ultimate_ksampler.js) gets the same stream the Preview Mirror uses.
-  * `preview_tiny_vae`       -> tiny VAE decoder from models/vae_approx for true-RGB previews, like the
-                               tiny_vae input on KJ's Model Preview Override. Needs the decoder code:
-                               a vendored tiny_vae.py or a live KJNodes install (borrowed at runtime).
+model + conditioning + latent in; latent / image(video) / audio out.
 
-MiniMax H3 has its own node — Nougan MiniMax H3 KSampler (nougan_h3_ksampler.py) — built for the
-SamplerCustomAdvanced-shaped reference workflow (noise / guider / sigmas in, no CFG anywhere).
+CFG is a plain number:
+  cfg > 0   -> classifier-free guidance (CFGGuider, needs negative).
+  cfg == 0  -> CFG-free: positive-only BasicGuider at half the per-step cost.
+               The right setting for CFG-distilled models (MiniMax H3 etc.).
+No negative wired? The node quietly runs positive-only at any cfg.
 
-Soft dependencies, resolved at call time and never imported at module load:
-  RES4LYF (ClownsharK samplers). Without it the node still works as a plain KSampler + VAE decode and
-  says so in the console. The live preview is baked in (nougan_preview_override.py, vendored from
-  KJNodes) and needs nothing external.
+SamplerCustomAdvanced-shaped inputs, all optional, each wins over what it replaces:
+  guider  -> carries the model + conditioning; cfg / positive / negative are ignored.
+  noise   -> replaces seed.
+  sampler -> replaces sampler_name (built-in path only).
+  sigmas  -> replaces scheduler / steps / denoise.
+Without a guider, connect model + positive and the node builds the guider itself.
+
+Sampler dropdown merges ComfyUI built-ins with RES4LYF (ClownsharK) samplers. Entries
+prefixed "clown: " run through ClownsharKSampler_Beta (eta / sampler_mode / bongmath /
+options apply; cfg == 0 becomes cfg = 1.0 there). Clown samplers need model + positive
+and ignore wired guider / noise / sampler.
+
+steps_to_run -> chainsampling: run only the FIRST N steps of the schedule and stop
+partially denoised (-1 = all). Passed through to clown samplers; slices the schedule
+on the built-in path.
+
+vae / audio_vae -> decode into the IMAGE / AUDIO outputs (H3's nested AV latent is
+split automatically; the audio half goes through LTXVAudioVAEDecode).
+
+Live preview: the vendored Model Preview Override wrapper (nougan_preview_override.py)
+rides the sampling model — including a model borrowed from a wired guider — so the DOM
+panel + WebGPU progress bar (web/nougan_ultimate_ksampler.js) show every step.
+
+Soft dependencies, resolved at call time: RES4LYF (clown samplers). Without it the node
+still works as a plain KSampler + VAE decode. The preview is vendored in.
 """
-
+import copy
 import logging
 import sys
-
 import torch
-
 import comfy.patcher_extension
 import comfy.samplers
 import folder_paths
@@ -49,20 +53,17 @@ _WRAPPER_KEY = "kj_preview_override"
 _CLOWN_PREFIX = "clown: "
 _LOG = "[Nougan UltimateKSampler]"
 
-
 # ───────────────────────── soft-dependency discovery ─────────────────────────
 
 def _is_torch_ops(module_name, obj):
-    """torch.ops / torch.classes and friends have a __getattr__ that fabricates a dummy namespace
-    object for ANY attribute name, so a sys.modules scan can 'find' anything there. Those shells
-    are never callable; real targets here (classes, functions) always are."""
+    """torch.ops fabricates dummy namespaces for any attribute; real targets are callable."""
     if module_name == "torch.ops" or module_name.startswith(("torch.ops.", "torch._ops", "torch._classes")):
         return True
     return obj is not None and not callable(obj)
 
 
 def _find_in_modules(attr, name_hint=None):
-    """Search already-imported custom-node modules for `attr` (so we never depend on the install folder name)."""
+    """Search already-imported custom-node modules for `attr` (no dependency on install folder names)."""
     for mod_name, mod in list(sys.modules.items()):
         if mod is None:
             continue
@@ -102,8 +103,7 @@ def _clown_scheduler_names():
 
 
 def _kj_wrapper_class():
-    """Preview wrapper: the baked-in copy (nougan_preview_override.py) wins; a live KJNodes
-    install is only a fallback. Returns None if neither is available."""
+    """Baked-in preview wrapper wins; a live KJNodes install is only a fallback."""
     try:
         from .nougan_preview_override import _PreviewOverrideWrapper
         return _PreviewOverrideWrapper
@@ -113,7 +113,6 @@ def _kj_wrapper_class():
 
 
 def _tiny_vae_choices():
-    """Tiny VAE decoders from models/vae_approx for true-RGB previews ('none' = core previewer / Latent2RGB)."""
     try:
         return ["none"] + list(folder_paths.get_filename_list("vae_approx"))
     except Exception:
@@ -125,13 +124,21 @@ def _sampler_choices():
 
 
 def _scheduler_choices():
-    # "none" = the schedule comes from the wired sigmas input (scheduler/steps/denoise unused).
     out = ["none"] + list(comfy.samplers.SCHEDULER_NAMES)
     for n in _clown_scheduler_names():
         if n not in out:
             out.append(n)
     return out
 
+
+def _guider_model_slot(guider):
+    """(attribute_name, model_patcher) of the model inside a wired guider, whatever the
+    guider class calls it. Core guiders use .model_patcher; custom packs may differ."""
+    for attr in ("model_patcher", "model", "patcher", "_model_patcher"):
+        mp = getattr(guider, attr, None)
+        if mp is not None and hasattr(mp, "clone") and hasattr(mp, "add_wrapper_with_key"):
+            return attr, mp
+    return None, None
 
 # ───────────────────────────────── helpers ───────────────────────────────────
 
@@ -166,20 +173,18 @@ def _silent_audio():
 
 
 def _first(result):
-    """First value of a V3 NodeOutput (or a plain tuple)."""
     args = result.args if hasattr(result, "args") else result
     return args[0]
 
 
 def _decode_audio(audio_vae, latent):
-    """Audio half of an AV latent -> AUDIO dict, using ComfyUI's own LTXVAudioVAEDecode (also used for MiniMax H3)."""
     from comfy_extras.nodes_lt_audio import LTXVAudioVAEDecode
     return _first(LTXVAudioVAEDecode.execute(latent, audio_vae))
 
 
 def _apply_steps_to_run(sigmas, steps_to_run):
-    """RES4LYF chainsampler semantics: keep only the FIRST N steps of the schedule (N >= 1);
-    -1 (or N >= total) means run everything. The result is a partially denoised latent."""
+    """RES4LYF chainsampler semantics: keep only the FIRST N steps (N >= 1);
+    -1 (or N >= total) runs everything. Result is a partially denoised latent."""
     if steps_to_run is None or steps_to_run < 1:
         return sigmas
     total = len(sigmas) - 1
@@ -195,8 +200,6 @@ class NouganUltimateKSampler:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "model": ("MODEL",),
-                "positive": ("CONDITIONING",),
                 "latent_image": ("LATENT",),
                 "sampler_name": (_sampler_choices(), {
                     "default": "euler",
@@ -207,38 +210,54 @@ class NouganUltimateKSampler:
                     "tooltip": "'none' = the schedule comes from the wired sigmas input. "
                                "RES4LYF-only schedulers (e.g. beta57) fall back to 'beta' on a built-in sampler.",
                 }),
-                "steps": ("INT", {"default": 30, "min": 1, "max": 10000}),
+                "steps": ("INT", {"default": 30, "min": 1, "max": 10000,
+                                  "tooltip": "MiniMax H3 is distilled: its reference workflow uses ~8 steps."}),
                 "steps_to_run": ("INT", {"default": -1, "min": -1, "max": 10000,
                                          "tooltip": "Chainsampling: run only the FIRST N steps of the schedule, then stop "
                                                     "partially denoised (a second sampler continues from there). -1 = all steps."}),
                 "cfg": ("FLOAT", {"default": 5.5, "min": -100.0, "max": 100.0, "step": 0.01, "round": False,
-                                  "tooltip": "Classifier-free guidance scale. Ignored when cfg_enabled is OFF."}),
-                "cfg_enabled": ("BOOLEAN", {
-                    "default": True, "label_on": "CFG ON", "label_off": "CFG OFF",
-                    "tooltip": "OFF for CFG-free models: samples with positive conditioning only "
-                               "(BasicGuider) at half the per-step cost. negative and cfg are ignored while OFF. "
-                               "(MiniMax H3 has its own node: Nougan MiniMax H3 KSampler.)"}),
+                                  "tooltip": "Classifier-free guidance scale. 0 = CFG-free: positive-only sampling "
+                                             "(BasicGuider) at half the per-step cost — use for CFG-distilled models "
+                                             "like MiniMax H3. Ignored when a guider is wired, or when negative "
+                                             "is unconnected (the node then runs positive-only at any cfg)."}),
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
+                                 "tooltip": "Ignored when a NOISE input is connected."}),
                 "eta": ("FLOAT", {"default": 0.5, "min": -100.0, "max": 100.0, "step": 0.01, "round": False,
                                   "tooltip": "Clown samplers only: noise added then removed after each step."}),
                 "sampler_mode": (["standard", "unsample", "resample"], {
-                    "default": "standard", "tooltip": "Clown samplers only."}),
+                    "default": "standard", "tooltip": "Clown samplers only.",
+                }),
                 "bongmath": ("BOOLEAN", {
                     "default": True, "label_on": "bongmath ON", "label_off": "bongmath OFF",
-                    "tooltip": "Clown samplers only: RES4LYF's bongmath on/off."}),
+                    "tooltip": "Clown samplers only: RES4LYF's bongmath on/off.",
+                }),
                 "decode": ("BOOLEAN", {
                     "default": True, "label_on": "decode ON", "label_off": "decode OFF",
-                    "tooltip": "Decode the result with the connected VAE(s). Off = latent only."}),
+                    "tooltip": "Decode the result with the connected VAE(s). Off = latent only.",
+                }),
                 "tiled_decode": ("BOOLEAN", {"default": False}),
                 "preview_fps": ("INT", {"default": 12, "min": 1, "max": 60, "step": 1,
                                         "tooltip": "Playback FPS of the live preview (ignored for clips with audio)."}),
             },
             "optional": {
-                "negative": ("CONDITIONING", {"tooltip": "Optional: leave unplugged for positive-only (CFG-free) sampling — cfg is ignored then."}),
+                "model": ("MODEL", {"tooltip": "Used to build a guider when none is wired (and for sigmas + the live "
+                                               "preview). Optional when a guider is connected — a guider carries its own model."}),
+                "positive": ("CONDITIONING", {"tooltip": "Used to build the guider when none is wired. "
+                                                         "Optional when a guider is connected."}),
+                "negative": ("CONDITIONING", {"tooltip": "Leave unplugged for positive-only (CFG-free) sampling — "
+                                                         "the node runs silently without it and cfg is ignored then."}),
+                "guider": ("GUIDER", {"tooltip": "Custom guider (e.g. BasicGuider). Carries the model and conditioning, "
+                                                 "so model/positive/negative/cfg are ignored while it's wired. "
+                                                 "Built-in samplers only (clown samplers ignore it)."}),
+                "noise": ("NOISE", {"tooltip": "Custom noise source (e.g. RandomNoise). Replaces the seed widget "
+                                                "when connected (the widget hides itself)."}),
+                "sampler": ("SAMPLER", {"tooltip": "Custom sampler (e.g. KSamplerSelect). Replaces sampler_name "
+                                                  "when connected (the widget hides itself). Built-in path only."}),
+                "sigmas": ("SIGMAS", {"tooltip": "Custom sigma schedule. Replaces scheduler / steps / denoise when connected."}),
                 "vae": ("VAE", {"tooltip": "Video/image VAE: decodes the result into the IMAGE output and can drive the preview."}),
-                "audio_vae": ("VAE", {"tooltip": "Audio VAE: decodes the audio half of the result into the AUDIO output and drives the spectrogram preview."}),
-                "sigmas": ("SIGMAS", {"tooltip": "Advanced: custom sigma schedule. Replaces scheduler / steps / denoise when connected."}),
+                "audio_vae": ("VAE", {"tooltip": "Audio VAE: decodes the audio half of an AV latent (e.g. MiniMax H3) "
+                                                "into the AUDIO output and drives the spectrogram preview."}),
                 "options": ("OPTIONS", {"tooltip": "RES4LYF options chain (clown samplers only)."}),
                 "preview": ("BOOLEAN", {"default": True, "label_on": "preview ON", "label_off": "preview OFF"}),
                 "preview_max_res": ("INT", {"default": 1024, "min": 0, "max": 8192, "step": 8}),
@@ -247,7 +266,9 @@ class NouganUltimateKSampler:
                 "preview_jpeg_quality": ("INT", {"default": 80, "min": 30, "max": 100}),
                 "preview_tiny_vae": (_tiny_vae_choices(), {
                     "default": "none",
-                    "tooltip": "Tiny VAE decoder (models/vae_approx) for true-RGB previews, like KJ's Model Preview Override. Needs the decoder code: vendored tiny_vae.py or a KJNodes install."}),
+                    "tooltip": "Tiny VAE decoder (models/vae_approx) for true-RGB previews. Needs the decoder code: "
+                               "vendored tiny_vae.py or a KJNodes install.",
+                }),
             },
             "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPROMPT"},
         }
@@ -257,16 +278,19 @@ class NouganUltimateKSampler:
     FUNCTION = "run"
     OUTPUT_NODE = True
     CATEGORY = "Nougan/sampling"
-    DESCRIPTION = ("KSampler + ClownsharK sampler + VAE encode/decode + live preview in one node. "
-                   "Image/video and audio outputs. For MiniMax H3 (SamplerCustomAdvanced-style: "
-                   "noise / guider / sigmas in, no CFG) use the Nougan MiniMax H3 KSampler instead.")
+    DESCRIPTION = ("One sampler for everything, MiniMax H3 included. CFG is a number: 0 = CFG-free "
+                   "(positive-only, half the per-step cost). No negative wired = positive-only at any cfg. "
+                   "Optional guider / noise / sampler / sigmas inputs win over the widgets they replace; "
+                   "without a guider, model + positive builds BasicGuider/CFGGuider automatically. "
+                   "Built-in + clown (RES4LYF) samplers, chainsampling, VAE + audio-VAE decode, live preview.")
 
     # ───────────────────────────── preview wiring ─────────────────────────────
     @staticmethod
     def _attach_preview(model, node_id, vae, audio_vae, max_res, quality, frames, fps, tiny_vae="none"):
         cls = _kj_wrapper_class()
         if cls is None:
-            logging.warning(f"{_LOG} preview wrapper unavailable (nougan_preview_override.py missing/broken and no KJNodes); using ComfyUI's default preview only.")
+            logging.warning(f"{_LOG} preview wrapper unavailable (nougan_preview_override.py missing/broken and no KJNodes); "
+                            f"using ComfyUI's default preview only.")
             return model
         try:
             m = model.clone()
@@ -295,26 +319,22 @@ class NouganUltimateKSampler:
         args = out.args if hasattr(out, "args") else out
         return args[0], (args[1] if len(args) > 1 and args[1] is not None else args[0])
 
-    def _sample_standard(self, model, positive, negative, latent, sampler_name, scheduler, steps, cfg, denoise, seed):
-        if scheduler not in comfy.samplers.SCHEDULER_NAMES:
-            logging.warning(f"{_LOG} scheduler '{scheduler}' is RES4LYF-only; using 'beta' with '{sampler_name}'.")
-            scheduler = "beta"
-        out = nodes.common_ksampler(model, seed, steps, cfg, sampler_name, scheduler,
-                                    positive, negative, latent, denoise=denoise)[0]
-        return out, out
-
-    # ─────────────── CFG-off / custom-sigmas path ───────────────
-    def _sample_custom(self, model, positive, negative, latent, sampler_name, scheduler, steps, cfg,
-                       denoise, seed, sigmas, cfg_enabled=True, steps_to_run=-1):
-        """Guider-based run for cfg_enabled OFF, a wired custom sigma schedule, or a partial
-        (steps_to_run) run — delegating to ComfyUI's own node classes."""
+    def _sample_builtin(self, model, positive, negative, latent, sampler_name, scheduler, steps, cfg,
+                        denoise, seed, sigmas, noise, guider, sampler, steps_to_run, cfg_free=False):
+        """Guider-based run (SamplerCustomAdvanced-shaped), delegating to ComfyUI's own node
+        classes. A wired NOISE / GUIDER / SAMPLER / SIGMAS input wins over the widgets."""
         from comfy_extras import nodes_custom_sampler as ncs
-        noise = _first(ncs.RandomNoise.execute(int(seed)))
-        if cfg_enabled:
-            guider = _first(ncs.CFGGuider.execute(model, positive, negative, cfg))
-        else:
-            guider = _first(ncs.BasicGuider.execute(model, positive))
-        sampler_obj = _first(ncs.KSamplerSelect.execute(sampler_name))
+        if denoise <= 0 and sigmas is None:
+            logging.info(f"{_LOG} denoise=0 — passing the latent through unchanged.")
+            return latent, latent
+        if noise is None:
+            noise = _first(ncs.RandomNoise.execute(int(seed)))
+        if guider is None:
+            if not cfg_free and negative is not None:
+                guider = _first(ncs.CFGGuider.execute(model, positive, negative, cfg))
+            else:
+                guider = _first(ncs.BasicGuider.execute(model, positive))
+        sampler_obj = sampler if sampler is not None else _first(ncs.KSamplerSelect.execute(sampler_name))
         if sigmas is None:
             if scheduler not in comfy.samplers.SCHEDULER_NAMES:
                 logging.warning(f"{_LOG} scheduler '{scheduler}' is RES4LYF-only; using 'beta' with '{sampler_name}'.")
@@ -330,9 +350,10 @@ class NouganUltimateKSampler:
         return args[0], (args[1] if len(args) > 1 and args[1] is not None else args[0])
 
     # ──────────────────────────────── entry ──────────────────────────────────
-    def run(self, model, positive, latent_image, sampler_name, scheduler, steps, steps_to_run, cfg, cfg_enabled,
-            denoise, seed, eta, sampler_mode, bongmath, decode, tiled_decode, preview_fps,
-            negative=None, vae=None, audio_vae=None, sigmas=None, options=None,
+    def run(self, latent_image, sampler_name, scheduler, steps, steps_to_run, cfg, denoise, seed,
+            eta, sampler_mode, bongmath, decode, tiled_decode, preview_fps,
+            model=None, positive=None, negative=None, guider=None, noise=None, sampler=None,
+            sigmas=None, vae=None, audio_vae=None, options=None,
             preview=True, preview_max_res=1024, preview_frames=1, preview_jpeg_quality=80,
             preview_tiny_vae="none",
             unique_id=None, dynprompt=None):
@@ -343,43 +364,90 @@ class NouganUltimateKSampler:
         _emit("nougan_uk_phase", {"node": node_id, "node_raw": node_raw, "phase": "sampling"})
 
         latent = latent_image
+        is_clown = sampler_name.startswith(_CLOWN_PREFIX)
 
-        # No negative wired: run positive-only. positive as its own negative cancels CFG at
-        # any cfg (cond − uncond = 0); forcing cfg off also skips the wasted second eval.
-        if negative is None:
+        # ---- guidance mode: cfg is a number, 0 means CFG-free ----
+        cfg_free = (cfg == 0)
+        if guider is not None and not is_clown:
+            logging.info(f"{_LOG} guider connected — it carries the model and conditioning; cfg/positive/negative are ignored.")
+        elif cfg_free:
+            logging.info(f"{_LOG} cfg=0 — CFG-free positive-only sampling (negative ignored).")
+        elif negative is None:
             logging.info(f"{_LOG} no negative connected — positive-only sampling this run (cfg ignored).")
-            negative = positive
-            cfg_enabled = False
-
-        work_model = model
-        if preview:
-            work_model = self._attach_preview(model, node_id, vae, audio_vae, preview_max_res,
-                                              preview_jpeg_quality, preview_frames, preview_fps,
-                                              tiny_vae=preview_tiny_vae)
+            cfg_free = True
 
         if scheduler == "none":
             if sigmas is None:
                 raise ValueError(f"{_LOG} scheduler is 'none' but no sigmas input is connected — "
                                  f"pick a scheduler, or wire a custom sigmas schedule.")
             scheduler = "beta"  # inert placeholder; the wired sigmas replace the schedule downstream
-        if not cfg_enabled:
-            logging.info(f"{_LOG} CFG OFF — positive-only guidance; negative and cfg are ignored.")
         if sigmas is not None:
             logging.info(f"{_LOG} sigmas input connected — it wins over the scheduler/steps/denoise widgets.")
-        if sampler_name.startswith(_CLOWN_PREFIX):
-            # Clown samplers have no guider concept; cfg=1.0 is the CFG-free equivalent there.
-            out_latent, denoised = self._sample_clown(work_model, positive, negative, latent, sampler_name,
-                                                      scheduler, steps, cfg if cfg_enabled else 1.0, denoise, seed, eta,
-                                                      sampler_mode, bongmath, sigmas, options, steps_to_run=steps_to_run)
-        elif sigmas is not None or not cfg_enabled or steps_to_run >= 1:
-            # common_ksampler can't do partial runs, so steps_to_run routes here where we can slice the schedule.
-            out_latent, denoised = self._sample_custom(work_model, positive, negative, latent, sampler_name,
-                                                       scheduler, steps, cfg, denoise, seed,
-                                                       sigmas, cfg_enabled=cfg_enabled, steps_to_run=steps_to_run)
-        else:
-            out_latent, denoised = self._sample_standard(work_model, positive, negative, latent, sampler_name,
-                                                         scheduler, steps, cfg, denoise, seed)
 
+        # ---- resolve which model the preview rides on, and validate ----
+        guider_slot, guider_model = (None, None)
+        sample_guider = None
+        if is_clown:
+            if guider is not None:
+                logging.warning(f"{_LOG} clown samplers can't use a wired guider — ignoring it (model + positive are used).")
+            if noise is not None or sampler is not None:
+                logging.warning(f"{_LOG} clown samplers can't use wired noise/sampler — ignoring them (seed / sampler_name are used).")
+            if model is None or positive is None:
+                raise ValueError(f"{_LOG} clown samplers need model + positive connected "
+                                 f"(a wired guider can't drive RES4LYF).")
+            base_model = model
+        else:
+            if guider is not None:
+                guider_slot, guider_model = _guider_model_slot(guider)
+                sample_guider = guider
+            base_model = guider_model if guider_model is not None else model
+            if guider is None:
+                if model is None:
+                    raise ValueError(f"{_LOG} nothing to sample with: connect model, or wire a guider "
+                                     f"(a guider carries its own model).")
+                if positive is None:
+                    raise ValueError(f"{_LOG} positive is required to build a guider: connect positive, "
+                                     f"or wire a ready-made guider.")
+            elif guider_model is None:
+                # Opaque custom guider: we can't inject the preview wrapper into it.
+                if base_model is None and sigmas is None:
+                    raise ValueError(f"{_LOG} could not read the model out of the wired guider (custom guider class?) "
+                                     f"and no model is connected — needed to build the sigma schedule. "
+                                     f"Connect the model input, or wire sigmas (e.g. BasicScheduler).")
+                if preview:
+                    logging.warning(f"{_LOG} could not read the model out of the wired guider; live preview is OFF this run.")
+                preview = False
+
+        work_model = base_model
+        if preview and base_model is not None:
+            work_model = self._attach_preview(base_model, node_id, vae, audio_vae, preview_max_res,
+                                              preview_jpeg_quality, preview_frames, preview_fps,
+                                              tiny_vae=preview_tiny_vae)
+
+        # The preview wrapper lives on a model clone; a wired guider still points at the
+        # original patcher, so hand the sampler a shallow guider copy using the wrapped clone.
+        if sample_guider is not None and guider_slot is not None and work_model is not base_model:
+            try:
+                g = copy.copy(sample_guider)
+                setattr(g, guider_slot, work_model)
+                sample_guider = g
+            except Exception as e:
+                logging.warning(f"{_LOG} could not rebind the guider to the preview-wrapped model "
+                                f"({type(e).__name__}: {e}); live preview may not appear this run.")
+
+        # ---- sample ----
+        if is_clown:
+            # Clown samplers have no guider concept; cfg=1.0 is the CFG-free equivalent there.
+            out_latent, denoised = self._sample_clown(
+                work_model, positive, negative if negative is not None else positive, latent,
+                sampler_name, scheduler, steps, 1.0 if cfg_free else cfg, denoise, seed,
+                eta, sampler_mode, bongmath, sigmas, options, steps_to_run=steps_to_run)
+        else:
+            out_latent, denoised = self._sample_builtin(
+                work_model, positive, negative, latent, sampler_name, scheduler, steps, cfg,
+                denoise, seed, sigmas, noise, sample_guider, sampler, steps_to_run, cfg_free=cfg_free)
+
+        # ---- decode ----
         image_out, audio_out = None, _silent_audio()
         if decode and vae is not None:
             _emit("nougan_uk_phase", {"node": node_id, "node_raw": node_raw, "phase": "decoding"})
@@ -396,7 +464,6 @@ class NouganUltimateKSampler:
                     logging.warning(f"{_LOG} audio decode failed ({type(e).__name__}: {e}); returning silent audio.")
         elif decode and vae is None:
             logging.warning(f"{_LOG} decode is ON but no vae is connected; returning latent only.")
-
         if image_out is None:
             image_out = torch.zeros((1, 64, 64, 3))  # placeholder so downstream IMAGE links never receive None
 
@@ -407,3 +474,7 @@ class NouganUltimateKSampler:
 
 NODE_CLASS_MAPPINGS = {"NouganUltimateKSampler": NouganUltimateKSampler}
 NODE_DISPLAY_NAME_MAPPINGS = {"NouganUltimateKSampler": "Nougan Ultimate KSampler"}
+
+# Optional: let old MiniMax H3 workflows load into the unified node instead of showing
+# a missing-node error. Uncomment, then re-check widget values on those nodes.
+# NODE_CLASS_MAPPINGS["NouganH3KSampler"] = NouganUltimateKSampler
