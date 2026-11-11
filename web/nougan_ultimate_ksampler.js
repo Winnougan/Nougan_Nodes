@@ -1,9 +1,7 @@
-// Nougan Ultimate KSampler — frontend. Preview panel derived from the Preview Mirror
-// (same kj_preview_override stream) plus a WebGPU progress bar along the bottom.
-// Listens to the "kj_preview_override" websocket event that KJNodes' Model Preview Override already
-// broadcasts, and renders it in its own panel (video/image, σ/Δ graph, step time, audio spectrogram).
-// No imports from KJNodes; CSS is injected from this file.
-
+// Nougan Ultimate KSampler — frontend (unified node; also serves the legacy H3 name).
+// Preview panel derived from the Preview Mirror (same kj_preview_override stream) plus a
+// WebGPU progress bar along the bottom. Renders video/image, σ/Δ graph, step time and the
+// audio spectrogram in its own DOM panel. No imports from KJNodes; CSS is injected here.
 const { app } = window.comfyAPI.app;
 const { api } = window.comfyAPI.api;
 
@@ -11,51 +9,9 @@ const NODE_NAMES = new Set(["NouganUltimateKSampler", "NouganH3KSampler"]);
 const STYLE_ID = "ng-uk-stylesheet";
 const GRAPH_PAD_X = 4;
 
-console.log("[Nougan.UKS] extension loaded — build 2026-11-05b (scheduler/steps/denoise always visible)");
+console.log("[Nougan.UKS] extension loaded — build 2026-11-11a (unified node: cfg number, 0 = CFG-free)");
 
-const CSS = `
-.ng-uk-root{width:100%;height:100%;position:relative;background:#151517;color:#b0b0b0;font:12px monospace;display:flex;flex-direction:column;overflow:hidden;user-select:none;border-radius:8px;box-sizing:border-box}
-.ng-uk-preview-box{flex:1 1 auto;min-height:80px;margin:6px 6px 0;display:flex;flex-direction:column;background:#0a0a0c;border:1px solid #2a2a2e;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.45)}
-.ng-uk-preview-titlebar{flex:0 0 26px;display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 10px;background:linear-gradient(#232328,#1b1b1f);border-bottom:1px solid #2a2a2e}
-.ng-uk-preview-label{color:#8a8a92;font:10px monospace;letter-spacing:.12em;text-transform:uppercase;pointer-events:none}
-.ng-uk-collapse-btn{flex:0 0 auto;width:20px;height:18px;line-height:1;padding:0;background:transparent;color:#707078;border:1px solid transparent;border-radius:4px;font:11px monospace;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.ng-uk-collapse-btn:hover{background:#3a3a40;color:#e0e0e0;border-color:#4a4a52}
-.ng-uk-root.ng-uk-collapsed .ng-uk-image-area,
-.ng-uk-root.ng-uk-collapsed .ng-uk-panel-grip,
-.ng-uk-root.ng-uk-collapsed .ng-uk-panel,
-.ng-uk-root.ng-uk-collapsed .ng-uk-bar{display:none}
-.ng-uk-root.ng-uk-collapsed .ng-uk-preview-box{flex:0 0 26px;min-height:26px;margin-bottom:6px}
-.ng-uk-help{position:fixed;z-index:10000;max-width:320px;background:#1b1b1f;border:1px solid #e8c91a;border-radius:6px;color:#c8c8d0;font:11px/1.5 monospace;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.6);white-space:pre-wrap}
-.ng-uk-help-title{color:#e8c91a;font-weight:bold;letter-spacing:.06em;margin-bottom:5px}
-.ng-uk-image-area{flex:1 1 auto;min-height:80px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.ng-uk-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:block}
-.ng-uk-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#55555e;font:11px monospace;letter-spacing:.08em;pointer-events:none}
-.ng-uk-scrub{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.5);cursor:pointer;z-index:5;transition:height 80ms ease}
-.ng-uk-scrub:hover{height:10px}
-.ng-uk-scrub-fill{height:100%;width:0%;background:#e67e22;pointer-events:none}
-.ng-uk-scrub.ng-uk-paused .ng-uk-scrub-fill{background:#707070}
-.ng-uk-panel-grip{flex:0 0 5px;background:transparent;cursor:ns-resize;position:relative;z-index:4}
-.ng-uk-panel-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:26px;height:2px;background:#3a3a40;border-radius:1px}
-.ng-uk-panel-grip:hover::after{background:#6a6a72}
-.ng-uk-panel{flex:0 0 auto;height:140px;min-height:60px;margin:0 6px;background:#17171a;border:1px solid #26262b;border-radius:8px;font:11px monospace;color:#b0b0b0;display:flex;flex-direction:column;overflow:hidden}
-.ng-uk-panel-header{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;gap:8px;background:#1e1e22;border-bottom:1px solid #2a2a2e}
-.ng-uk-header-left{display:flex;align-items:center;gap:8px}
-.ng-uk-panel-title{color:#a0a0a8;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
-.ng-uk-panel-summary{color:#707078;font-size:10px}
-.ng-uk-graphs-grid{display:flex;align-items:stretch;padding:6px 6px 7px;gap:6px;flex:1 1 auto;min-height:0;box-sizing:border-box}
-.ng-uk-graph-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:#101013;border:1px solid #1e1e22;border-radius:4px;overflow:hidden}
-.ng-uk-graph-head{flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;padding:3px 6px 2px;background:#151518;border-bottom:1px solid #1e1e22;font-size:10px;line-height:1.1;gap:4px}
-.ng-uk-graph-label{color:#707078;letter-spacing:.05em;flex:0 0 auto}
-.ng-uk-graph-value{color:#b0b0b0;font-size:10px;text-align:right;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ng-uk-spec{flex:0 0 auto;display:flex;flex-direction:column;border-top:1px solid #2a2a2e;background:#131316}
-.ng-uk-spec-canvas{display:block;width:100%;height:44px}
-.ng-uk-audio-btn{background:#26262b;color:#707070;border:1px solid #333338;border-radius:4px;font-size:11px;line-height:1;padding:1px 4px;cursor:pointer}
-.ng-uk-audio-btn:hover{background:#333338;color:#b0b0b0}
-.ng-uk-audio-btn.ng-uk-audio-on{color:#e67e22;border-color:#e67e22}
-.ng-uk-bar{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;padding:5px 10px 7px;margin:6px 6px 6px;background:#17171a;border:1px solid #26262b;border-radius:8px}
-.ng-uk-bar-row{display:flex;justify-content:space-between;font:10px monospace;color:#707078}
-.ng-uk-bar-canvas{display:block;width:100%;height:14px;border-radius:7px}
-`;
+const CSS = `.ng-uk-root{width:100%;height:100%;position:relative;background:#151517;color:#b0b0b0;font:12px monospace;display:flex;flex-direction:column;overflow:hidden;user-select:none;border-radius:8px;box-sizing:border-box} .ng-uk-preview-box{flex:1 1 auto;min-height:80px;margin:6px 6px 0;display:flex;flex-direction:column;background:#0a0a0c;border:1px solid #2a2a2e;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.45)} .ng-uk-preview-titlebar{flex:0 0 26px;display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 10px;background:linear-gradient(#232328,#1b1b1f);border-bottom:1px solid #2a2a2e} .ng-uk-preview-label{color:#8a8a92;font:10px monospace;letter-spacing:.12em;text-transform:uppercase;pointer-events:none} .ng-uk-collapse-btn{flex:0 0 auto;width:20px;height:18px;line-height:1;padding:0;background:transparent;color:#707078;border:1px solid transparent;border-radius:4px;font:11px monospace;cursor:pointer;display:flex;align-items:center;justify-content:center} .ng-uk-collapse-btn:hover{background:#3a3a40;color:#e0e0e0;border-color:#4a4a52} .ng-uk-root.ng-uk-collapsed .ng-uk-image-area, .ng-uk-root.ng-uk-collapsed .ng-uk-panel-grip, .ng-uk-root.ng-uk-collapsed .ng-uk-panel, .ng-uk-root.ng-uk-collapsed .ng-uk-bar{display:none} .ng-uk-root.ng-uk-collapsed .ng-uk-preview-box{flex:0 0 26px;min-height:26px;margin-bottom:6px} .ng-uk-help{position:fixed;z-index:10000;max-width:320px;background:#1b1b1f;border:1px solid #e8c91a;border-radius:6px;color:#c8c8d0;font:11px/1.5 monospace;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.6);white-space:pre-wrap} .ng-uk-help-title{color:#e8c91a;font-weight:bold;letter-spacing:.06em;margin-bottom:5px} .ng-uk-image-area{flex:1 1 auto;min-height:80px;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden} .ng-uk-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;display:block} .ng-uk-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#55555e;font:11px monospace;letter-spacing:.08em;pointer-events:none} .ng-uk-scrub{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.5);cursor:pointer;z-index:5;transition:height 80ms ease} .ng-uk-scrub:hover{height:10px} .ng-uk-scrub-fill{height:100%;width:0%;background:#e67e22;pointer-events:none} .ng-uk-scrub.ng-uk-paused .ng-uk-scrub-fill{background:#707070} .ng-uk-panel-grip{flex:0 0 5px;background:transparent;cursor:ns-resize;position:relative;z-index:4} .ng-uk-panel-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:26px;height:2px;background:#3a3a40;border-radius:1px} .ng-uk-panel-grip:hover::after{background:#6a6a72} .ng-uk-panel{flex:0 0 auto;height:140px;min-height:60px;margin:0 6px;background:#17171a;border:1px solid #26262b;border-radius:8px;font:11px monospace;color:#b0b0b0;display:flex;flex-direction:column;overflow:hidden} .ng-uk-panel-header{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;gap:8px;background:#1e1e22;border-bottom:1px solid #2a2a2e} .ng-uk-header-left{display:flex;align-items:center;gap:8px} .ng-uk-panel-title{color:#a0a0a8;font-size:10px;letter-spacing:.1em;text-transform:uppercase} .ng-uk-panel-summary{color:#707078;font-size:10px} .ng-uk-graphs-grid{display:flex;align-items:stretch;padding:6px 6px 7px;gap:6px;flex:1 1 auto;min-height:0;box-sizing:border-box} .ng-uk-graph-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:#101013;border:1px solid #1e1e22;border-radius:4px;overflow:hidden} .ng-uk-graph-canvas{flex:1 1 auto;min-height:0;width:100%;display:block} .ng-uk-graph-head{flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;padding:3px 6px 2px;background:#151518;border-bottom:1px solid #1e1e22;font-size:10px;line-height:1.1;gap:4px} .ng-uk-graph-label{color:#707078;letter-spacing:.05em;flex:0 0 auto} .ng-uk-graph-value{color:#b0b0b0;font-size:10px;text-align:right;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .ng-uk-spec{flex:0 0 auto;display:flex;flex-direction:column;border-top:1px solid #2a2a2e;background:#131316} .ng-uk-spec-canvas{display:block;width:100%;height:44px} .ng-uk-audio-btn{background:#26262b;color:#707070;border:1px solid #333338;border-radius:4px;font-size:11px;line-height:1;padding:1px 4px;cursor:pointer} .ng-uk-audio-btn:hover{background:#333338;color:#b0b0b0} .ng-uk-audio-btn.ng-uk-audio-on{color:#e67e22;border-color:#e67e22} .ng-uk-bar{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;padding:5px 10px 7px;margin:6px 6px 6px;background:#17171a;border:1px solid #26262b;border-radius:8px} .ng-uk-bar-row{display:flex;justify-content:space-between;font:10px monospace;color:#707078} .ng-uk-bar-canvas{display:block;width:100%;height:14px;border-radius:7px}`;
 
 function ensureStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -154,11 +110,9 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
     const iW = W - 2 * padX, iH = H - 2 * padY;
     ctx.clearRect(0, 0, W, H);
     drawGridlines(ctx, W, H, padX, padY);
-
     const n = sigmas?.length || 0;
     const xSteps = Math.max(totalSteps || n, n, deltas?.length || 0);
     const xAt = i => padX + (i / Math.max(1, xSteps - 1)) * iW;
-
     let sYAt = null;
     if (n > 1) {
         let sMax = -Infinity, sMin = Infinity;
@@ -166,7 +120,6 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
         if (sMin > 0) sMin = 0;
         const sRange = Math.max(sMax - sMin, 1e-6);
         sYAt = v => padY + (1 - (v - sMin) / sRange) * iH;
-
         ctx.strokeStyle = "rgba(208,208,208,0.55)";
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
@@ -178,21 +131,18 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
         }
         ctx.stroke();
         ctx.setLineDash([]);
-
         const i = Math.max(0, Math.min(n - 1, step));
         ctx.fillStyle = "#d0d0d0";
         ctx.beginPath();
         ctx.arc(padX + (i / Math.max(1, n - 1)) * iW, sYAt(sigmas[i]), 2.5, 0, Math.PI * 2);
         ctx.fill();
     }
-
     let dYAt = null;
     if (deltas && deltas.length >= 1) {
         let dMax = -Infinity;
         for (const v of deltas) if (Number.isFinite(v) && v > dMax) dMax = v;
         const dRange = Math.max(dMax, 1e-6);
         dYAt = v => padY + (1 - v / dRange) * iH;
-
         ctx.beginPath();
         ctx.moveTo(xAt(0), H - padY);
         ctx.lineTo(xAt(0), dYAt(deltas[0]));
@@ -201,7 +151,6 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
         ctx.closePath();
         ctx.fillStyle = "rgba(230,126,34,0.15)";
         ctx.fill();
-
         ctx.strokeStyle = "#e67e22";
         ctx.lineWidth = 1.3;
         if (deltas.length === 1) {
@@ -218,14 +167,12 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
             ctx.stroke();
         }
     }
-
     if (Array.isArray(dbCurve) && dbCurve.length > 1) {
         let dbMaxAbs = 0;
         for (const v of dbCurve) if (Number.isFinite(v) && Math.abs(v) > dbMaxAbs) dbMaxAbs = Math.abs(v);
         const dbXAt = i => padX + (i / Math.max(1, dbCurve.length - 1)) * iW;
         const baselineY = H - padY - 0.5;
         const isActive = v => Number.isFinite(v);
-
         ctx.strokeStyle = "rgba(120,200,220,0.25)";
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -237,7 +184,6 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
             } else inactiveOpen = false;
         }
         ctx.stroke();
-
         if (dbMaxAbs > 1e-9) {
             const dbYAt = v => padY + (1 - Math.abs(v) / dbMaxAbs) * iH;
             ctx.strokeStyle = "rgba(120,200,220,0.85)";
@@ -258,7 +204,6 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
             ctx.stroke();
         }
     }
-
     if (lockedStep != null && lockedStep >= 0 && lockedStep < xSteps) {
         const lx = xAt(lockedStep) + 0.5;
         ctx.strokeStyle = "rgba(245,200,60,0.9)";
@@ -270,7 +215,6 @@ function drawSigmaDeltaGraph(canvas, sigmas, deltas, step, totalSteps, hoverStep
         ctx.stroke();
         ctx.setLineDash([]);
     }
-
     if (hoverStep != null && hoverStep >= 0 && hoverStep < xSteps) {
         const hx = xAt(hoverStep) + 0.5;
         ctx.strokeStyle = "rgba(208,208,208,0.5)";
@@ -301,7 +245,6 @@ function drawLineGraph(canvas, values, totalSteps) {
     ctx.clearRect(0, 0, W, H);
     drawGridlines(ctx, W, H, padX, padY);
     if (!values || values.length < 1) return;
-
     let vMax = -Infinity, vMin = Infinity;
     for (const v of values) { if (v > vMax) vMax = v; if (v < vMin) vMin = v; }
     if (vMin > 0) vMin = 0;
@@ -309,7 +252,6 @@ function drawLineGraph(canvas, values, totalSteps) {
     const xSteps = Math.max(totalSteps || values.length, values.length);
     const px = i => padX + (i / Math.max(1, xSteps - 1)) * iW;
     const py = v => padY + (1 - (v - vMin) / vRange) * iH;
-
     ctx.beginPath();
     ctx.moveTo(padX, H - padY);
     for (let i = 0; i < values.length; i++) ctx.lineTo(px(i), py(values[i]));
@@ -317,7 +259,6 @@ function drawLineGraph(canvas, values, totalSteps) {
     ctx.closePath();
     ctx.fillStyle = "rgba(230,126,34,0.15)";
     ctx.fill();
-
     ctx.strokeStyle = "#e67e22";
     ctx.lineWidth = 1.3;
     ctx.beginPath();
@@ -328,33 +269,7 @@ function drawLineGraph(canvas, values, totalSteps) {
 }
 
 // ---------- WebGPU progress bar ----------
-const WGSL = `
-struct U { res: vec2<f32>, t: f32, p: f32, col: vec4<f32> };
-@group(0) @binding(0) var<uniform> u: U;
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
-  var pos = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
-  return vec4<f32>(pos[i], 0.0, 1.0);
-}
-fn sdBox(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
-  let q = abs(p) - b + vec2<f32>(r, r);
-  return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
-}
-@fragment fn fs(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
-  let hs = u.res * 0.5;
-  let r = hs.y;
-  let d = sdBox(fc.xy - hs, hs - vec2<f32>(1.0, 1.0), r - 1.0);
-  let aa = 1.0 - smoothstep(-1.0, 1.0, d);
-  if (aa <= 0.0) { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
-  let x = fc.x / u.res.x;
-  let vy = fc.y / u.res.y;
-  let fillMask = 1.0 - smoothstep(u.p - 0.003, u.p + 0.003, x);
-  let flow = 0.5 + 0.5 * sin((x * 10.0 - u.t * 1.6) * 3.14159);
-  let sheen = 1.0 - abs(vy * 2.0 - 1.0);
-  let fillCol = u.col.rgb * (0.62 + 0.38 * flow) * (0.78 + 0.32 * sheen);
-  let edge = exp(-abs(x - u.p) * 45.0) * step(0.002, u.p) * (1.0 - step(0.999, u.p));
-  let rgb = mix(vec3<f32>(0.07, 0.07, 0.08), fillCol, fillMask) + u.col.rgb * edge * 0.55;
-  return vec4<f32>(rgb * aa, aa);
-}`;
+const WGSL = `struct U { res: vec2<f32>, t: f32, p: f32, col: vec4<f32> }; @group(0) @binding(0) var<uniform> u: U; @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { var pos = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0)); return vec4<f32>(pos[i], 0.0, 1.0); } fn sdBox(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 { let q = abs(p) - b + vec2<f32>(r, r); return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r; } @fragment fn fs(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> { let hs = u.res * 0.5; let r = hs.y; let d = sdBox(fc.xy - hs, hs - vec2<f32>(1.0, 1.0), r - 1.0); let aa = 1.0 - smoothstep(-1.0, 1.0, d); if (aa <= 0.0) { return vec4<f32>(0.0, 0.0, 0.0, 0.0); } let x = fc.x / u.res.x; let vy = fc.y / u.res.y; let fillMask = 1.0 - smoothstep(u.p - 0.003, u.p + 0.003, x); let flow = 0.5 + 0.5 * sin((x * 10.0 - u.t * 1.6) * 3.14159); let sheen = 1.0 - abs(vy * 2.0 - 1.0); let fillCol = u.col.rgb * (0.62 + 0.38 * flow) * (0.78 + 0.32 * sheen); let edge = exp(-abs(x - u.p) * 45.0) * step(0.002, u.p) * (1.0 - step(0.999, u.p)); let rgb = mix(vec3<f32>(0.07, 0.07, 0.08), fillCol, fillMask) + u.col.rgb * edge * 0.55; return vec4<f32>(rgb * aa, aa); }`;
 
 let _gpuPromise = null;
 function getGPU() {
@@ -397,17 +312,14 @@ function createProgressBar(parent) {
     const canvas = el("canvas", "ng-uk-bar-canvas", wrap);
     left.textContent = "idle";
     right.textContent = "";
-
     const st = { p: 0, target: 0, phase: "idle", gpu: null, ctx: null, buf: null, bind: null, raf: null, alive: true };
     const uni = new Float32Array(8);
-
     function fit() {
         const dpr = window.devicePixelRatio || 1;
         const w = Math.max(1, Math.round((canvas.clientWidth || 200) * dpr));
         const h = Math.max(1, Math.round((canvas.clientHeight || 14) * dpr));
         if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     }
-
     function draw2d(t) {
         const c = st.ctx2d || (st.ctx2d = canvas.getContext("2d"));
         const { width: W, height: H } = canvas;
@@ -421,7 +333,6 @@ function createProgressBar(parent) {
         c.fillRect(0, 0, W * st.p, H);
         c.restore();
     }
-
     function drawGpu(t) {
         const { device, pipeline } = st.gpu;
         const col = PHASE_COLORS[st.phase];
@@ -441,7 +352,6 @@ function createProgressBar(parent) {
         pass.end();
         device.queue.submit([enc.finish()]);
     }
-
     function frame(ms) {
         if (!st.alive) return;
         st.raf = requestAnimationFrame(frame);
@@ -452,7 +362,6 @@ function createProgressBar(parent) {
         const t = ms / 1000;
         try { st.gpu ? drawGpu(t) : draw2d(t); } catch (err) { st.gpu = null; }
     }
-
     getGPU().then((gpu) => {
         if (!gpu || !st.alive) return;
         try {
@@ -466,7 +375,6 @@ function createProgressBar(parent) {
         } catch (err) { st.gpu = null; }
     });
     st.raf = requestAnimationFrame(frame);
-
     return {
         set(value, max) { if (max > 0) st.target = Math.max(0, Math.min(1, value / max)); },
         phase(name) {
@@ -489,6 +397,7 @@ function ngIdMatches(eventId, nodeId) {
     const a = String(eventId), b = String(nodeId);
     return a === b || a.endsWith(":" + b) || b.endsWith(":" + a);
 }
+
 // Events may carry several id spellings (display id, raw colon path, local id) — any match wins.
 function ngMatchesAny(eventIds, node) {
     for (const eid of eventIds) {
@@ -508,10 +417,12 @@ function forBars(detailNodes, fn) {
         if (open || ngMatchesAny(ids, n)) fn(n);
     }
 }
+
 api.addEventListener("execution_start", () => {
     console.log("[Nougan.UKS] execution_start — bars:", bars.size, "mirrors:", mirrors.size);
     for (const n of bars) { n._ngBar?.phase("idle"); n._ngBar?.text("queued", ""); }
 });
+
 api.addEventListener("progress", (e) => {
     const d = e.detail || {};
     forBars([d.node, d.display_node_id, d.real_node_id], (n) => {
@@ -523,6 +434,7 @@ api.addEventListener("progress", (e) => {
         bar.text(`sampling ${d.value}/${d.max}`, `${pct}%`);
     });
 });
+
 api.addEventListener("nougan_uk_phase", (e) => {
     const d = e.detail || {};
     console.log("[Nougan.UKS] nougan_uk_phase:", d.node, d.node_raw ?? "", d.phase);
@@ -548,8 +460,7 @@ api.addEventListener("kj_preview_override", (e) => {
     if (!ids.length) return;
     const id = ids[0];
     console.log("[Nougan.UKS] kj_preview_override: node_id=", data.node_id,
-        "step=", data.step, "mirrors=", [...mirrors].map((m) => `${m.id}→${m._ngSource}`).join(",") || "(none)");
-
+        "step=", data.step, "mirrors=", [...mirrors].map((m) => `${m.id}→${m._ngSource}`).join(", ") || "(none)");
     if (data.step === 0 && Array.isArray(data.sigmas)) {
         const { image, ...init } = data;
         for (const k of ids) lastInit.set(k, init);
@@ -576,7 +487,6 @@ app.registerExtension({
         chainCallback(nodeType.prototype, "onNodeCreated", function () {
             ensureStyles();
             const node = this;
-
             const root = el("div", "ng-uk-root");
 
             // Boxed preview region with its own titlebar + minimize button
@@ -692,6 +602,7 @@ app.registerExtension({
                 document.addEventListener("mousemove", move);
                 document.addEventListener("mouseup", up);
             });
+
             chainCallback(node, "onConfigure", function () {
                 if (typeof node.properties?.ngUkPanelH === "number") panel.style.height = node.properties.ngUkPanelH + "px";
                 if (node.properties?.ngUkPreviewCollapsed) {
@@ -702,13 +613,15 @@ app.registerExtension({
             });
 
             // ---------- wired inputs replace fallback widgets ----------
-            // sampler input -> hides sampler_name; noise -> hides seed. Values are kept
-            // (serialization untouched), only hidden. scheduler/steps/denoise are NEVER
-            // hidden: when a sigmas input is wired it wins over them (the backend logs a
-            // line saying so), but the fallback schedule stays visible and editable.
+            // sampler -> hides sampler_name; noise -> hides seed; guider -> hides cfg
+            // (a wired guider owns guidance). Values are kept (serialization untouched),
+            // only hidden. scheduler/steps/denoise are NEVER hidden: a wired sigmas input
+            // wins over them (the backend logs a line saying so), but the fallback
+            // schedule stays visible and editable.
             const WIDGET_INPUT_MAP = [
                 ["sampler", ["sampler_name"]],
                 ["noise", ["seed"]],
+                ["guider", ["cfg"]],
             ];
             const inputConnected = (name) => {
                 const slot = node.inputs?.find((i) => i?.name === name);
@@ -801,7 +714,6 @@ app.registerExtension({
                 const v = +fpsWidget?.value;
                 return Number.isFinite(v) && v > 0 ? v : 12;
             }
-
             function activeStepIdx() {
                 if (lockedStep != null) return lockedStep;
                 if (hoverStep != null) return hoverStep;
@@ -932,7 +844,6 @@ app.registerExtension({
             }
             timeRow.canvas.title = "Click to toggle ms ↔ s";
             sdRow.canvas.style.cursor = "crosshair";
-
             const SD_LEG_BASE =
                 '<span title="sigma — noise level at this boundary" style="color:#d0d0d0">σ</span> / '
                 + '<span title="delta — magnitude of x0 change per step" style="color:#e67e22">Δ</span>';
@@ -1115,7 +1026,6 @@ app.registerExtension({
                 lockedStep = null;
                 lastStepMs = null;
             }
-
             function updateSdHeader() {
                 let idx = null, prefix = "";
                 if (hoverStep != null && cachedSigmas && hoverStep < cachedSigmas.length) {
@@ -1178,7 +1088,6 @@ app.registerExtension({
                 if (specShown) drawSpec(false);
             }
             scrubRafId = requestAnimationFrame(tickScrub);
-
             scrubBar.addEventListener("mousedown", (ev) => {
                 if (ev.button !== 0) return;
                 ev.stopPropagation();
@@ -1250,7 +1159,6 @@ app.registerExtension({
             bars.add(node);
             addMiddleClickPan(root);
             addWheelPassthrough(root);
-
             node.addDOMWidget("preview", "ng_uk_preview", root, { serialize: false, getMinHeight: () => previewCollapsed ? 40 : 380 });
             node.setSize([Math.max(node.size?.[0] ?? 440, 440), Math.max(node.size?.[1] ?? 940, 940)]);
 
@@ -1277,7 +1185,6 @@ app.registerExtension({
                         setStepBlob(data.step, b64ToBlob(data.image, mime));
                     }
                     if (typeof data.audio_spec === "string") setStepSpec(data.step, data.audio_spec);
-
                     totalSteps = data.total || totalSteps;
                     if (data.step_ms != null) history.stepMs.push(data.step_ms);
                     if (data.delta != null) history.delta.push(data.delta);
@@ -1294,7 +1201,6 @@ app.registerExtension({
                         const eta = Math.max(0, lastTotal - lastStep) * lastAvgStepMs / 1000;
                         node._ngBar.text(`sampling ${lastStep}/${lastTotal} · ${(lastAvgStepMs / 1000).toFixed(2)}s/step`, `ETA ${eta.toFixed(1)}s`);
                     }
-
                     drawSigmaDeltaGraph(sdRow.canvas, cachedSigmas, history.delta, lastCurrentStep, totalSteps, hoverStep, cachedDbCurve, lockedStep);
                     updateSdHeader();
                     drawLineGraph(timeRow.canvas, history.stepMs, totalSteps);
@@ -1319,7 +1225,6 @@ app.registerExtension({
                     node._ngSeen = null;
                 }
             });
-
             chainCallback(node, "onRemoved", function () {
                 mirrors.delete(node);
                 bars.delete(node);
@@ -1335,7 +1240,9 @@ app.registerExtension({
         // ---- yellow ? badge on the node title bar (Kijai-style node help) ----
         const HELP_TEXT = (nodeData?.description || "Nougan Ultimate KSampler")
             + "\n\nLive Model-Preview-Override panel (vendored from KJNodes) with animated previews, sigma/delta graphs, step timing and audio spectrogram, plus a WebGPU progress bar along the bottom. The \u2715 on the preview box minimizes the whole panel."
-            + "\n\nUltimate KSampler: the regular workflow — model + positive + negative in, CFG on/off switch, built-in + clown samplers. MiniMax H3 KSampler: the SamplerCustomAdvanced-shaped H3 workflow — noise / guider / sigmas in, always CFG-free; wire model + positive and it builds the BasicGuider for you.";
+            + "\n\nOne node for everything, MiniMax H3 included. CFG is a number: 0 = CFG-free (positive-only, half the per-step cost) — use 0 for distilled models like H3. No negative wired? It silently runs positive-only at any cfg."
+            + "\n\nOptional advanced inputs win over the widgets they replace: guider (carries model + conditioning; cfg/positive/negative ignored), noise (replaces seed), sampler (replaces sampler_name), sigmas (replaces scheduler/steps/denoise). Without a guider, connect model + positive and it builds BasicGuider/CFGGuider for you."
+            + "\n\nsteps_to_run = chainsampling (first N steps, stop partially denoised). 'clown: ' samplers need RES4LYF and model + positive; eta/sampler_mode/bongmath/options apply there, and cfg 0 becomes 1.0.";
         const BADGE_R = 8;
         const badgeCenter = (n) => [(n.size?.[0] ?? 200) - BADGE_R - 7, -14];  // node-local, in the title bar
         let helpEl = null;
@@ -1343,7 +1250,6 @@ app.registerExtension({
         document.addEventListener("pointerdown", (ev) => {
             if (helpEl && !helpEl.contains(ev.target)) hideHelp();
         }, true);
-
         chainCallback(nodeType.prototype, "onDrawForeground", function (ctx) {
             const [bx, by] = badgeCenter(this);
             ctx.save();
@@ -1358,7 +1264,6 @@ app.registerExtension({
             ctx.fillText("?", bx, by + 0.5);
             ctx.restore();
         });
-
         chainCallback(nodeType.prototype, "onMouseDown", function (e, pos) {
             const [bx, by] = badgeCenter(this);
             if (Math.abs(pos[0] - bx) <= BADGE_R + 2 && Math.abs(pos[1] - by) <= BADGE_R + 2) {
