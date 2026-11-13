@@ -6,6 +6,7 @@ import { app } from "../../scripts/app.js";
 const NODE_NAME = "NouganResolutionPicker";
 const MODE_RATIO = "Ratio + Megapixels";
 const PIXELS_PER_MP = 1024 * 1024;
+const MAX_MP = 40; // hard ceiling, must match MAX_MEGAPIXELS in resolution_picker.py
 const REF_SIDE = 1024; // the dashed "1 MP" reference square
 const RATIO_RE = /^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/;
 const PRESET_RE = /^\s*(\d+)\s*x\s*(\d+)/i;
@@ -42,7 +43,7 @@ export function computeResolution(v, ratioLabels) {
       }
     }
     // Same math as resolve() in resolution_picker.py: scale, then plain per-side snap.
-    const pixels = clamp(Number(v.megapixels) || 1, 0.05, 16) * PIXELS_PER_MP;
+    const pixels = clamp(Number(v.megapixels) || 1, 0.05, MAX_MP) * PIXELS_PER_MP;
     const scale = Math.sqrt(pixels / (rw * rh));
     w = snap(rw * scale, multiple);
     h = snap(rh * scale, multiple);
@@ -102,8 +103,8 @@ function roundRect(ctx, x, y, w, h, r) {
 
 function drawPreview(ctx, cw, ch, s) {
   const mp = (s.w * s.h) / PIXELS_PER_MP;
-  // Colour follows megapixels on a log scale: blue (small) to pink (large).
-  const hue = 200 + clamp(Math.log2(Math.max(mp, 0.0625) * 4) / 6, 0, 1) * 130;
+  // Colour follows megapixels on a log scale: blue (small) to pink (large, up to MAX_MP).
+  const hue = 200 + clamp(Math.log2(Math.max(mp, 0.0625) * 4) / Math.log2(MAX_MP * 4), 0, 1) * 130;
   const tone = (light, alpha) => `hsla(${hue}, 90%, ${light}%, ${alpha})`;
 
   ctx.clearRect(0, 0, cw, ch);
