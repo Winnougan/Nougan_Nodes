@@ -23,6 +23,10 @@ MODES = [MODE_RATIO, MODE_PRESET]
 # 1.0 MP means 1024 x 1024 pixels, the same convention as ComfyUI's ResolutionSelector.
 PIXELS_PER_MP = 1024 * 1024
 
+# Hard ceiling for the megapixels input. The browser preview (web/nougan_resolution_picker.js)
+# has its own MAX_MP constant: keep the two in sync.
+MAX_MEGAPIXELS = 40.0
+
 # Base empty latent layout, same as EmptyLatentImage. ComfyUI adapts it to the model when sampling.
 LATENT_CHANNELS = 4
 LATENT_DOWNSCALE = 8
@@ -150,7 +154,7 @@ def resolve(mode, aspect_ratio, megapixels, multiple, preset_resolution,
             rh = min(100.0, max(0.1, float(custom_ratio_h)))
         else:
             rw, rh = _parse_ratio(aspect_ratio)
-        pixels = min(16.0, max(0.05, float(megapixels))) * PIXELS_PER_MP
+        pixels = min(MAX_MEGAPIXELS, max(0.05, float(megapixels))) * PIXELS_PER_MP
         scale = math.sqrt(pixels / (rw * rh))
         width, height = _snap(rw * scale, multiple), _snap(rh * scale, multiple)
     else:
@@ -180,7 +184,7 @@ class NouganResolutionPicker:
                 "aspect_ratio": (RATIOS, {"default": "16:9 (Widescreen)"}),
                 "custom_ratio_w": ("FLOAT", {"default": 16.0, "min": 0.1, "max": 100.0, "step": 0.01}),
                 "custom_ratio_h": ("FLOAT", {"default": 9.0, "min": 0.1, "max": 100.0, "step": 0.01}),
-                "megapixels": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 16.0, "step": 0.05}),
+                "megapixels": ("FLOAT", {"default": 1.0, "min": 0.05, "max": MAX_MEGAPIXELS, "step": 0.05}),
                 "preset_resolution": (PRESETS, {"default": "1280x720 (HD 720p)"}),
                 "snap_presets": ("BOOLEAN", {"default": True, "label_on": "snap to multiple", "label_off": "exact preset"}),
                 "multiple": ("INT", {"default": 32, "min": 1, "max": 256, "step": 1}),
