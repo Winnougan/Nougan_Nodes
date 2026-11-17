@@ -1,8 +1,16 @@
-# nougan_ultimate_loader.py — Nougan Ultimate Model Loader
-# One node: diffusion model (bf16 / int8 / convrot w4a8-w6a8 / future w5a8 w3a8 via ComfyUI's
-# native quant registry) + attention/efficiency backends + main & prompt-enhancer CLIPs
-# + video/default VAE + optional audio VAE. DOM frontend: nougan_ultimate_loader.js
+"""nougan_ultimate_loader.py — Nougan Ultimate Model Loader
+
+One node: diffusion model (bf16 / int8 / convrot w4a8-w6a8 / future w5a8 w3a8 via ComfyUI's
+native quant registry) + attention/efficiency backends + main & prompt-enhancer CLIPs
++ video/default VAE + optional audio VAE. DOM frontend: nougan_ultimate_loader.js
+
+Optional object inputs (model_in / clip1_in / clip2_in / vae_in / audio_vae_in) override
+the matching section: wired input > on/off toggle > filename widget. Backends are applied
+to whichever MODEL arrives — loaded here or wired in from upstream.
+"""
+
 import logging
+
 import torch
 
 import folder_paths
@@ -79,11 +87,16 @@ def _resolve_clip_type(widget_value, model_type):
 def _resolve_dense_backend(switches):
     """Return (switch_name, registry_name, function) or None."""
     import comfy.ldm.modules.attention as attn
+    get_fn = getattr(attn, "get_attention_function", None)
+    if get_fn is None:
+        logging.warning(f"{_LOG} this ComfyUI build has no attention registry lookup — "
+                        f"keeping default attention.")
+        return None
     for switch_name, candidates in _BACKEND_CANDIDATES:
         if not switches.get(switch_name):
             continue
         for reg_name in candidates:
-            fn = attn.get_attention_function(reg_name, None)
+            fn = get_fn(reg_name, None)
             if fn is not None:
                 return switch_name, reg_name, fn
         logging.warning(f"{_LOG} '{switch_name}' is switched on but no matching attention "
@@ -166,7 +179,8 @@ class NouganUltimateModelLoader:
     )
     DESCRIPTION = ("Loads any diffusers/UNET checkpoint (bf16, int8 convrot, w6a8/w4a8 convrot, "
                    "and new w*a8 formats as ComfyUI adds them), applies attention/efficiency "
-                   "backends, and loads up to two CLIPs plus video/default and audio VAEs.")
+                   "backends, and loads up to two CLIPs plus video/default and audio VAEs. "
+                   "Optional object inputs override any section (input > toggle > widget).")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -237,6 +251,15 @@ class NouganUltimateModelLoader:
                 "clip1_enabled": ("BOOLEAN", {"default": True, "tooltip": "Off = don't load the main CLIP (output is None)."}),
                 "vae_enabled": ("BOOLEAN", {"default": True, "tooltip": "Off = don't load the video/default VAE (output is None)."}),
             },
+            # ── optional object inputs (override the matching section) ─────────
+            "optional": {
+                "model_in": ("MODEL", {"tooltip": "External diffusion model. Wired = skip the model load; "
+                                                  "the efficiency backends are still applied to it."}),
+                "clip1_in": ("CLIP", {"tooltip": "External main text encoder — overrides clip 1."}),
+                "clip2_in": ("CLIP", {"tooltip": "External enhancer text encoder — overrides clip 2."}),
+                "vae_in": ("VAE", {"tooltip": "External video/default VAE — overrides the VAE load."}),
+                "audio_vae_in": ("VAE", {"tooltip": "External audio VAE — overrides the audio VAE load."}),
+            },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
@@ -252,28 +275,38 @@ class NouganUltimateModelLoader:
              heading_model="Model", heading_engine="Efficiencies",
              heading_clips="Text Encoders", heading_vaes="VAEs",
              section_order="model,engine,clips,vaes",
-             model_enabled=True, clip1_enabled=True, vae_enabled=True, unique_id=None):
-
+             model_enabled=True, clip1_enabled=True, vae_enabled=True,
+             model_in=None, clip1_in=None, clip2_in=None, vae_in=None, audio_vae_in=None,
+             unique_id=None):
         logging.info(f"{_LOG} load: model='{model_name}' quant={quant_format} type={model_type} "
                      f"node={unique_id!r}")
-
         if sparse and vsa:
             raise ValueError(f"{_LOG} sparseattention and vsa are both on — they conflict. "
                              f"Pick one (VSA is for MiniMax-H3/FastH3 weights).")
 
         model, det_names, chosen = None, [], None
-        if model_enabled:
-            # ── triton opt-in (affects how the quant layers below are built) ────────
-            if triton:
-                _enable_triton_backend()
+        external = {"model": model_in is not None, "clip1": clip1_in is not None,
+                    "clip2": clip2_in is not None, "vae": vae_in is not None,
+                    "audio_vae": audio_vae_in is not None}
 
-            # ── diffusion model ─────────────────────────────────────────────────────
+        if model_in is not None:
+            model = model_in
+            logging.info(f"{_LOG} MODEL ← input socket — skipping the '{model_name}' load.")
+        elif model_enabled:
             try:
                 model_path = folder_paths.get_full_path_or_raise("diffusion_models", model_name)
             except Exception:
                 model_path = folder_paths.get_full_path_or_raise("unet", model_name)
             model = comfy.sd.load_diffusion_model(model_path, model_options={})
             logging.info(f"{_LOG} diffusion model '{model_name}' loaded.")
+        else:
+            logging.info(f"{_LOG} model off — MODEL output is None.")
+
+        # Backends apply to whichever model we ended up with — loaded here or wired in.
+        if model is not None:
+            # ── triton opt-in (affects how the quant layers below are built) ────────
+            if triton:
+                _enable_triton_backend()
 
             # ── quant validation (detection itself already happened inside the load) ─
             detected = None
@@ -323,33 +356,45 @@ class NouganUltimateModelLoader:
             # ── sparse attention / VSA (wraps whatever dense backend is in place) ───
             if sparse or vsa:
                 model = _apply_sparse(model, vsa=vsa, model_type=model_type)
-        else:
-            logging.info(f"{_LOG} model off — MODEL output is None.")
 
         # ── CLIPs ───────────────────────────────────────────────────────────────
-        clip1 = None
-        if clip1_enabled:
+        if clip1_in is not None:
+            clip1 = clip1_in
+            logging.info(f"{_LOG} CLIP (main) ← input socket.")
+        elif clip1_enabled:
             clip1 = _load_one_clip(clip1_name, clip1_type if clip1_type != "auto" else _auto_type_for(model_type),
                                    clip1_device, "CLIP (main)")
         else:
+            clip1 = None
             logging.info(f"{_LOG} main CLIP off — CLIP (main) output is None.")
-        clip2 = None
-        if clip2_enabled:
+
+        if clip2_in is not None:
+            clip2 = clip2_in
+            logging.info(f"{_LOG} CLIP (enhancer) ← input socket.")
+        elif clip2_enabled:
             clip2 = _load_one_clip(clip2_name, clip2_type if clip2_type != "auto" else _auto_type_for(model_type),
                                    clip2_device, "CLIP (enhancer)")
         else:
+            clip2 = None
             logging.info(f"{_LOG} prompt-enhancer CLIP off — second CLIP output is None.")
 
         # ── VAEs ────────────────────────────────────────────────────────────────
-        vae = None
-        if vae_enabled:
+        if vae_in is not None:
+            vae = vae_in
+            logging.info(f"{_LOG} VAE (video/default) ← input socket.")
+        elif vae_enabled:
             vae = _load_vae(vae_name, "VAE (video/default)")
         else:
+            vae = None
             logging.info(f"{_LOG} video/default VAE off — output is None.")
-        audio_vae = None
-        if audio_vae_enabled:
+
+        if audio_vae_in is not None:
+            audio_vae = audio_vae_in
+            logging.info(f"{_LOG} VAE (audio) ← input socket.")
+        elif audio_vae_enabled:
             audio_vae = _load_vae(audio_vae_name, "VAE (audio)")
         else:
+            audio_vae = None
             logging.info(f"{_LOG} audio VAE off — audio VAE output is None.")
 
         # ── status ping for the DOM panel ───────────────────────────────────────
@@ -357,11 +402,13 @@ class NouganUltimateModelLoader:
             from server import PromptServer
             PromptServer.instance.send_sync("nougan_uml_status", {
                 "node": unique_id,
-                "model": model_name if model_enabled else "(model off)",
+                "model": "(external)" if external["model"] else (model_name if model_enabled else "(model off)"),
                 "quant_detected": det_names,
                 "backend": chosen[1] if chosen else None,
                 "sparse": bool(sparse), "vsa": bool(vsa),
-                "clip2": bool(clip2_enabled), "audio_vae": bool(audio_vae_enabled),
+                "clip2": bool(clip2_enabled) or external["clip2"],
+                "audio_vae": bool(audio_vae_enabled) or external["audio_vae"],
+                "external": external,
             })
         except Exception:
             pass
