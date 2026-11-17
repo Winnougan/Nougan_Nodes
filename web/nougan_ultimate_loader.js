@@ -2,15 +2,14 @@
 // The whole control surface is ONE litegraph DOM widget: the frontend positions, zooms
 // and sizes the node around it (no overlay drift, no dead space). Sections are boxed,
 // renamable and drag-reorderable; dropdowns are type-to-search; status strip is WebGPU
-// with a 2D fallback. No left sockets by default — right-click -> "Promote to input".
-import { app } from "../../../scripts/app.js";
+// with a 2D fallback. No left sockets by default — right-click -> "Promote to input"
+// (widget -> socket) or "Attach object input 🔌" (MODEL / CLIP / VAE overrides).
+import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
-const BUILD = "2026-11-06i";
+const BUILD = "2026-11-18a";
 const NODE_ID = "NouganUltimateModelLoader";
 const CONVERTED = "converted-widget"; // core widgetInputs marker — conversions serialize/restore like core's own
-
-// core's DomWidgets.vue already hides widgets whose graph isn't the one on screen
-// (per-frame in updateWidgets + v-show), so no visibility plumbing is needed here.
 
 // section key -> heading widget + member widgets, in default order
 const SECTIONS = [
@@ -19,6 +18,7 @@ const SECTIONS = [
     { key: "clips",  heading: "heading_clips",  widgets: ["clip1_enabled", "clip1_name", "clip1_type", "clip1_device", "clip2_enabled", "clip2_name", "clip2_type", "clip2_device"] },
     { key: "vaes",   heading: "heading_vaes",   widgets: ["vae_enabled", "vae_name", "audio_vae_enabled", "audio_vae_name"] },
 ];
+
 // on/off knob -> the rows it switches. Off = dimmed here, skipped by the backend.
 const KNOBS = {
     model_enabled:     ["model_name", "quant_format"],
@@ -27,16 +27,29 @@ const KNOBS = {
     vae_enabled:       ["vae_name"],
     audio_vae_enabled: ["audio_vae_name"],
 };
+
+// object-level override sockets: name -> type + the rows they drive (input > toggle > widget)
+const OBJECT_INPUTS = [
+    { name: "model_in",     type: "MODEL", label: "MODEL ← external",     rows: ["model_enabled", "model_name", "quant_format"] },
+    { name: "clip1_in",     type: "CLIP",  label: "CLIP 1 ← external",    rows: ["clip1_enabled", "clip1_name", "clip1_type", "clip1_device"] },
+    { name: "clip2_in",     type: "CLIP",  label: "CLIP 2 ← external",    rows: ["clip2_enabled", "clip2_name", "clip2_type", "clip2_device"] },
+    { name: "vae_in",       type: "VAE",   label: "VAE ← external",       rows: ["vae_enabled", "vae_name"] },
+    { name: "audio_vae_in", type: "VAE",   label: "Audio VAE ← external", rows: ["audio_vae_enabled", "audio_vae_name"] },
+];
+
 const HIDDEN_ALWAYS = ["section_order"];
 const ORDER_WIDGET = "section_order";
 const PANEL_WIDGET = "nguml_panel";
+// true  = the five object sockets (model_in, clip1_in, ...) are ALWAYS present on the node, so a
+//         subgraph input can be dragged straight onto them. false = old "hidden until attached" look.
+const ALWAYS_SHOW_OBJECT_INPUTS = true;
 
 const CSS = `
 .nguml-inner{display:flex;flex-direction:column;gap:6px;width:100%;box-sizing:border-box;
   padding:4px 2px 6px;font:12px/1.4 "Inter","Segoe UI",sans-serif;color:#dfe3ea;overflow:visible;
   pointer-events:auto;}
-/* core's dom-widget wrapper assigns a fixed pixel height; never let flexbox squash
-   the sections to fit it — height is always derived from content (scrollHeight) */
+/* core's dom-widget wrapper assigns a fixed pixel height; never let flexbox squash the
+   sections to fit it — height is always derived from content (scrollHeight) */
 .nguml-inner>*{flex-shrink:0;}
 .nguml-strip{display:flex;align-items:center;gap:8px;height:22px;}
 .nguml-strip canvas{flex:0 0 64px;height:14px;border-radius:4px;background:#222;}
@@ -69,6 +82,9 @@ const CSS = `
 .nguml-row.nguml-wired{opacity:.45;}
 .nguml-row.nguml-wired input,.nguml-row.nguml-wired .nguml-switch{pointer-events:none;}
 .nguml-row.nguml-wired .nguml-label::after{content:" ⚡";color:#7c3aed;}
+.nguml-row.nguml-ext{opacity:.55;}
+.nguml-row.nguml-ext input,.nguml-row.nguml-ext .nguml-switch{pointer-events:none;}
+.nguml-row.nguml-ext .nguml-label::after{content:" 🔌";color:#22d3ee;}
 /* custom dropdown — body-appended so no widget wrapper can clip it */
 .nguml-droplist{position:fixed;z-index:100000;background:#1b1b23;border:1px solid #444;
   border-radius:6px;max-height:240px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.55);
@@ -93,7 +109,7 @@ async function startStrip(canvas) {
     const w = canvas.width = 128, h = canvas.height = 28;
     if (navigator.gpu) {
         try {
-            const adapter = await navigator.gpu.requestAdapter();
+            const adapter = await navigator.gpu.requestAdapter({ powerPreference: "low-power" });
             if (adapter) {
                 const device = await adapter.requestDevice();
                 const ctx = canvas.getContext("webgpu");
@@ -102,6 +118,8 @@ async function startStrip(canvas) {
                     ctx.configure({ device, format, alphaMode: "opaque" });
                     let raf, t0 = performance.now();
                     const frame = () => {
+                        if (!canvas.isConnected) return;   // panel gone -> stop the loop
+                        if (document.hidden) { raf = requestAnimationFrame(frame); return; }
                         const t = (performance.now() - t0) / 1000;
                         const enc = device.createCommandEncoder();
                         const pass = enc.beginRenderPass({
@@ -126,11 +144,14 @@ async function startStrip(canvas) {
     if (!c2) return () => {};
     let raf;
     const frame = () => {
-        const t = performance.now() / 1000;
-        const g = c2.createLinearGradient(0, 0, w, 0);
-        g.addColorStop(0, `hsl(${(t * 40) % 360},70%,45%)`);
-        g.addColorStop(1, `hsl(${(t * 40 + 80) % 360},70%,40%)`);
-        c2.fillStyle = g; c2.fillRect(0, 0, w, h);
+        if (!canvas.isConnected) return;
+        if (!document.hidden) {
+            const t = performance.now() / 1000;
+            const g = c2.createLinearGradient(0, 0, w, 0);
+            g.addColorStop(0, `hsl(${(t * 40) % 360},70%,45%)`);
+            g.addColorStop(1, `hsl(${(t * 40 + 80) % 360},70%,40%)`);
+            c2.fillStyle = g; c2.fillRect(0, 0, w, h);
+        }
         raf = requestAnimationFrame(frame);
     };
     frame();
@@ -164,6 +185,46 @@ function niceLabel(name) {
     return map[name] || name.replace(/_/g, " ");
 }
 
+// ── object-input sockets ──────────────────────────────────────────────────────
+const slotIndex = (node, name) => node.inputs?.findIndex(i => i.name === name) ?? -1;
+const isExtLinked = (node, name) => { const i = slotIndex(node, name); return i >= 0 && node.inputs[i].link != null; };
+
+function attachObjectInput(node, spec) {
+    if (slotIndex(node, spec.name) >= 0) return;
+    node.addInput(spec.name, spec.type);
+    syncHeight(node);
+    node.setDirtyCanvas(true, true);
+}
+function detachObjectInput(node, name) {
+    const i = slotIndex(node, name);
+    if (i < 0 || node.inputs[i].link != null) return;   // never yank a live wire
+    node.removeInput(i);
+    syncHeight(node);
+    node.setDirtyCanvas(true, true);
+}
+// keep the "no left sockets by default" look: only linked object sockets survive
+function pruneObjectInputs(node) {
+    if (ALWAYS_SHOW_OBJECT_INPUTS) return;
+    for (let i = (node.inputs?.length ?? 0) - 1; i >= 0; i--) {
+        const inp = node.inputs[i];
+        if (inp.widget) continue;                        // promoted widget inputs stay
+        if (OBJECT_INPUTS.some(s => s.name === inp.name) && inp.link == null) node.removeInput(i);
+    }
+}
+
+// make sure every object socket exists (also repairs old workflows saved while they were pruned)
+function ensureObjectInputs(node) {
+    if (!ALWAYS_SHOW_OBJECT_INPUTS) return;
+    for (const spec of OBJECT_INPUTS) {
+        if (slotIndex(node, spec.name) < 0) node.addInput(spec.name, spec.type);
+    }
+}
+// a parameter is "wired" if it was converted the legacy way OR a link is on its widget socket
+function isWidgetWired(node, w) {
+    if (w.type === CONVERTED) return true;
+    return !!node.inputs?.some(i => i.widget?.name === w.name && i.link != null);
+}
+
 // ── event guards ──────────────────────────────────────────────────────────────
 // Pointer/mouse events that bubble out of the panel into the canvas layers kill
 // focus (drag/selection handlers preventDefault the mousedown that would focus an
@@ -175,7 +236,6 @@ function guardPanel(el) {
         el.addEventListener(t, stop);
     }
 }
-
 function guardTextInput(input) {
     const stop = (e) => e.stopPropagation();
     for (const t of ["keydown", "keyup", "keypress"]) input.addEventListener(t, stop);
@@ -213,10 +273,9 @@ function makeCombo(node, widget, onChanged) {
     input.className = "nguml-combo";
     input.spellcheck = false;
     input.autocomplete = "off";
-    input.title = widget.tooltip || "";
+    input.title = widget.tooltip || widget.options?.tooltip || "";
     input.value = widget.value ?? "";
     guardTextInput(input);
-
     let hi = -1;
 
     const commitValue = (v) => {
@@ -224,7 +283,6 @@ function makeCombo(node, widget, onChanged) {
         if (widget.value !== v) { widget.value = v; widget.callback?.(v); onChanged(); }
         closeDroplist();
     };
-
     const revertOrCommit = () => {
         if (comboValues(widget).includes(input.value)) {
             if (widget.value !== input.value) { widget.value = input.value; widget.callback?.(widget.value); onChanged(); }
@@ -232,7 +290,6 @@ function makeCombo(node, widget, onChanged) {
             input.value = widget.value ?? ""; // revert junk
         }
     };
-
     const openList = () => {
         closeDroplist();
         const filter = input.value === widget.value ? "" : input.value;
@@ -310,7 +367,6 @@ function makeCombo(node, widget, onChanged) {
             closeDroplist();
         }
     });
-
     wrap.appendChild(input);
     wrap.sync = () => { input.value = widget.value ?? ""; };
     // external editors (Live Panel, undo, workflow load) write widget.value directly —
@@ -330,7 +386,6 @@ function makeControl(node, widget, onChanged) {
     label.className = "nguml-label";
     label.textContent = niceLabel(widget.name);
     row.appendChild(label);
-
     let ctl;
     if (widget.type === "toggle" || typeof widget.value === "boolean") {
         ctl = document.createElement("span");
@@ -340,7 +395,7 @@ function makeControl(node, widget, onChanged) {
         sub.textContent = widget.options?.label_on || "";
         const sw = document.createElement("div");
         sw.className = "nguml-switch" + (widget.value ? " on" : "");
-        sw.title = widget.tooltip || "";
+        sw.title = widget.tooltip || widget.options?.tooltip || "";
         sw.onclick = () => {
             widget.value = !widget.value;
             widget.callback?.(widget.value);
@@ -355,11 +410,10 @@ function makeControl(node, widget, onChanged) {
         ctl = makeCombo(node, widget, onChanged);
     }
     row.appendChild(ctl);
-
     row._ngWidget = widget;
     row._ngWired = null;
     row.sync = () => {
-        const wired = widget.type === CONVERTED;
+        const wired = isWidgetWired(node, widget);
         if (wired !== row._ngWired) {
             row._ngWired = wired;
             row.classList.toggle("nguml-wired", wired);
@@ -402,7 +456,6 @@ function syncHeight(node) {
 function buildDom(node) {
     teardownDom(node);
     injectCss();
-
     const inner = document.createElement("div");
     inner.className = "nguml-inner";
     guardPanel(inner);
@@ -419,14 +472,14 @@ function buildDom(node) {
     strip.appendChild(gpuCanvas);
     strip.appendChild(status);
     inner.appendChild(strip);
-    const stopStrip = startStrip(gpuCanvas);
+    let stripStop = null, stripDead = false;
+    startStrip(gpuCanvas).then((fn) => { if (stripDead) fn?.(); else stripStop = fn; });
 
     // sections in saved order
     const orderW = wByName(node, ORDER_WIDGET);
     let order = (orderW?.value || "").split(",").map(s => s.trim()).filter(Boolean);
     const known = new Set(SECTIONS.map(s => s.key));
     order = [...order.filter(k => known.has(k)), ...SECTIONS.map(s => s.key).filter(k => !order.includes(k))];
-
     const onChanged = () => { node.setDirtyCanvas(true, true); };
 
     for (const key of order) {
@@ -435,7 +488,6 @@ function buildDom(node) {
         const sec = document.createElement("div");
         sec.className = "nguml-section";
         sec.dataset.key = key;
-
         const head = document.createElement("div");
         head.className = "nguml-sec-head";
         const grip = document.createElement("span");
@@ -456,7 +508,6 @@ function buildDom(node) {
         head.appendChild(grip);
         head.appendChild(title);
         head.appendChild(chev);
-
         const body = document.createElement("div");
         body.className = "nguml-sec-body";
         for (const wn of spec.widgets) {
@@ -469,7 +520,6 @@ function buildDom(node) {
             chev.textContent = collapsed ? "▸" : "▾";
             syncHeight(node);
         };
-
         // drag to reorder
         grip.addEventListener("pointerdown", (e) => {
             e.preventDefault(); e.stopPropagation();
@@ -503,7 +553,6 @@ function buildDom(node) {
             grip.addEventListener("pointermove", onMove);
             grip.addEventListener("pointerup", onUp);
         });
-
         sec.appendChild(head);
         sec.appendChild(body);
         inner.appendChild(sec);
@@ -521,24 +570,25 @@ function buildDom(node) {
         if (sh > 4) lastH = sh;
         return [Math.max(280, node.size[0]), Math.max(60, (lastH || sh) + 10)];
     };
-
     const ro = new ResizeObserver(() => { if (inner.scrollHeight > 4) syncHeight(node); });
     ro.observe(inner);
-
-    node._nguml = { inner, status, stopStrip, dw, ro };
+    node._nguml = {
+        inner, status, dw, ro,
+        stopStrip: () => { stripDead = true; stripStop?.(); },
+    };
     syncHeight(node);
 }
 
 function teardownDom(node) {
     const st = node._nguml;
     if (!st) return;
-    try { st.ro?.disconnect(); } catch (_) {}
-    try { st.stopStrip?.(); } catch (_) {}
+    try { st.ro?.disconnect(); } catch { }
+    try { st.stopStrip?.(); } catch { }
     closeDroplist();
     if (st.dw && node.widgets) {
         // onRemove unregisters the widget from the frontend's dom-widget store —
         // without it the stale wrapper keeps re-mounting a ghost of the old panel.
-        try { st.dw.onRemove?.(); } catch (_) {}
+        try { st.dw.onRemove?.(); } catch { }
         const i = node.widgets.indexOf(st.dw);
         if (i >= 0) node.widgets.splice(i, 1);
     }
@@ -548,12 +598,10 @@ function teardownDom(node) {
 
 app.registerExtension({
     name: "Nougan.UltimateLoader",
-
     async setup() {
         console.log(`[Nougan.UML] extension loaded — build ${BUILD}`);
         api_addStatusListener();
     },
-
     beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== NODE_ID) return;
 
@@ -561,6 +609,8 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function () {
             onNodeCreated?.apply(this, arguments);
             hideDataWidgets(this);
+            pruneObjectInputs(this);
+            ensureObjectInputs(this);
             this.size[0] = Math.max(this.size[0], 320);
             requestAnimationFrame(() => buildDom(this));
         };
@@ -569,6 +619,8 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function () {
             onConfigure?.apply(this, arguments);
             hideDataWidgets(this);
+            pruneObjectInputs(this);   // after links are restored — wired sockets survive
+            ensureObjectInputs(this);
             requestAnimationFrame(() => {
                 buildDom(this);
                 for (const row of this._nguml?.inner.querySelectorAll(".nguml-row") || []) row.sync?.();
@@ -590,8 +642,9 @@ app.registerExtension({
             onResize?.apply(this, [size]);
         };
 
-        // cheap per-frame sync: wire/un-wire state, plus values changed from outside
-        // (Live Panel edits, undo, workflow restore) flow back into the controls
+        // cheap per-frame sync: wire/un-wire + external-override state, plus values
+        // changed from outside (Live Panel edits, undo, workflow restore) flow back
+        // into the controls
         const onDrawBackground = nodeType.prototype.onDrawBackground;
         nodeType.prototype.onDrawBackground = function (ctx) {
             onDrawBackground?.apply(this, arguments);
@@ -601,16 +654,22 @@ app.registerExtension({
             for (const [knob, deps] of Object.entries(KNOBS)) {
                 if (wByName(this, knob)?.value === false) deps.forEach(d => off.add(d));
             }
+            const ext = new Set();
+            for (const spec of OBJECT_INPUTS) {
+                if (isExtLinked(this, spec.name)) spec.rows.forEach(r => ext.add(r));
+            }
             for (const row of st.inner.querySelectorAll(".nguml-row")) {
                 const w = row._ngWidget;
                 if (!w) continue;
                 row.classList.toggle("nguml-off", off.has(w.name));
-                if ((w.type === CONVERTED) !== row._ngWired) row.sync();
+                row.classList.toggle("nguml-ext", ext.has(w.name));
+                if (isWidgetWired(this, w) !== row._ngWired) row.sync();
                 else row.pull?.();
             }
         };
 
-        // right-click -> promote any parameter to a real input socket (subgraph-ready)
+        // right-click -> promote any parameter to a real input socket (subgraph-ready),
+        // or attach/detach the object-level override sockets
         const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
         nodeType.prototype.getExtraMenuOptions = function (canvas, options) {
             getExtraMenuOptions?.apply(this, arguments);
@@ -626,6 +685,14 @@ app.registerExtension({
                     submenu: { options: items },
                 });
             }
+            const attach = [], detach = [];
+            for (const spec of OBJECT_INPUTS) {
+                const i = slotIndex(this, spec.name);
+                if (i < 0) attach.push({ content: spec.label, callback: () => attachObjectInput(this, spec) });
+                else if (this.inputs[i].link == null) detach.push({ content: spec.label, callback: () => detachObjectInput(this, spec.name) });
+            }
+            if (attach.length) options.push(null, { content: "Attach object input 🔌", submenu: { options: attach } });
+            if (detach.length) options.push({ content: "Detach object input ✂", submenu: { options: detach } });
         };
     },
 });
@@ -633,7 +700,7 @@ app.registerExtension({
 // backend load-summary events ("nougan_uml_status") — registered so the ws layer
 // dispatches this custom type to us.
 function api_addStatusListener() {
-    app.api.addEventListener("nougan_uml_status", (ev) => {
+    api.addEventListener("nougan_uml_status", (ev) => {
         const d = ev.detail || {};
         const nid = d.node == null ? null : String(d.node);
         if (nid == null) return;
@@ -649,6 +716,7 @@ function api_addStatusListener() {
         if (d.vsa) bits.push("vsa");
         if (d.clip2) bits.push("2×clip");
         if (d.audio_vae) bits.push("audio-vae");
+        for (const [k, v] of Object.entries(d.external || {})) if (v) bits.push("🔌" + k);
         node._ngumlStatus = `loaded ✓ ${d.model} — ${bits.join(" · ")}`;
         if (node._nguml) {
             node._nguml.status.textContent = node._ngumlStatus;
