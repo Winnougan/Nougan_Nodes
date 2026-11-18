@@ -230,11 +230,12 @@ _FEATURES = [
     ("Gallery Load", "nougan_gallery_load", [
         ("NouganGalleryLoad", "NouganGalleryLoad", "Nougan Gallery Load 🗂️"),
     ]),
-    # Load an audio file (AUDIO upload widget), crop it with a visual waveform editor:
-    # drag the region edges to crop, drag anywhere to scrub with audible preview,
-    # WebGPU waveform + Canvas2D fallback (web/nougan_audio_loader.js).
-    ("Audio Loader", "nougan_audio_loader", [
-        ("NouganAudioLoader", "NouganAudioLoader", "Nougan Audio Loader 🎵"),
+    # Load an audio file and trim it with a waveform editor: drag the purple handles to crop,
+    # drag inside the selection to scrub with audible preview, drop a file on the waveform to load it
+    # (web/nougan_audio_trim.js). Registers /nougan/audio_trim/peaks.
+    # Renamed from NouganAudioLoader -> NouganAudioTrimLoader (old files removed).
+    ("Audio Loader", "nougan_audio_trim", [
+        ("NouganAudioTrimLoader", "NouganAudioTrimLoader", "Nougan Audio Loader 🎵"),
     ]),
     # HandBrake-style transcode: IMAGE batch + AUDIO in -> visual trim/cut/crop editor
     # (cut list + magnetic timeline + draw-a-box crop, web/nougan_convert_video.js) ->
