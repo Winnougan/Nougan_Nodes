@@ -7,7 +7,16 @@ ONE Bake node and ONE Apply node for every model that uses baked reference files
   Nougan RefMod Apply  baked RefMod(s) -> positive / negative / latent, ready for the sampler
 
 Supported models: Qwen 2.1, Flux 3, Fibo 2.
-(MOSS-Image, LTX-2.5 and Krea 2 were removed. MiniMax H3 still lives in nougan_refmod.py.)
+MOSS-Image, LTX-2.5 and Krea 2 were removed ON PURPOSE — RefMods do not work with them, so their
+files are intentionally not listed. MiniMax H3 still lives in nougan_refmod.py.
+
+Legacy nodes
+------------
+`NouganQwen21RefModBake` / `NouganQwen21RefModEncode` are kept as thin compatibility shells around
+the unified engine (bottom of this file). They reproduce the OLD INPUT_TYPES exactly — same widget
+order, same socket order, same defaults — because ComfyUI restores `widgets_values` BY POSITION on
+older frontends. Aliasing the old IDs straight onto the unified classes would shift every widget by
+one and silently feed the prompt into the model dropdown. Don't do that.
 
 Adding a model later
 --------------------
@@ -19,8 +28,8 @@ dropdowns, file listing, baking, loading, validation and auto-detection all come
         key = "mymodel"; label = "My Model"
         format = "nougan_mymodel_refmod"; meta_key = "nougan_mymodel"; subfolder = "mymodel"
         def encode_frame(self, frame, vae, resolution): ...   # -> dict(lat=, img=, size=)
-        def check(self, i, lat, img, meta): ...                            # -> bool, is the stored ref sane
-        def apply(self, c): ...                                            # -> (positive, negative, latent)
+        def check(self, i, lat, img, meta): ...               # -> bool, is the stored ref sane
+        def apply(self, c): ...                               # -> (positive, negative, latent)
 
 File compatibility
 ------------------
@@ -50,8 +59,10 @@ import node_helpers
 NONE = "None"
 AUTO = "auto (from refmod)"
 _RESERVED = {"..", ".", "graph_presets", ".git", "__pycache__"}
-# Dropdown of the legacy `extra_image_scale` widget (it used to be MOSS-Image only). The widget is kept, hidden and
-# ignored, purely so saved workflows keep the same widget order (values are stored by position).
+
+# Dropdown of the legacy `extra_image_scale` widget (it used to be MOSS-Image only). The widget is
+# kept, hidden and ignored, purely so saved workflows keep the same widget order (values are stored
+# by position).
 _LEGACY_SCALE = ["kontext (matches Ostris example)", "megapixels"]
 
 REF_STRENGTH_TIP = (
@@ -61,9 +72,8 @@ REF_STRENGTH_TIP = (
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Shared helpers
+# Shared helpers
 # ═════════════════════════════════════════════════════════════════════════════
-
 def _schedule(with_refs, without_refs, strength):
     """Conditioning list: `with_refs` for the first `strength` of the sampling, `without_refs` after."""
     if strength >= 1.0:
@@ -136,7 +146,6 @@ def _empty_latent(lats, channels, device):
 
 
 # ── folders ──────────────────────────────────────────────────────────────────
-
 def _roots():
     try:
         roots = list(folder_paths.get_folder_paths("refmods"))
@@ -146,10 +155,10 @@ def _roots():
 
 
 def _save_path(name, subfolder):
-    name = re.sub(r"[^\w\- .]", "_", (name or "").strip()).strip(". ")
+    name = re.sub(r"[^\w\-. ]", "", (name or "").strip()).strip(". ")
     if not name:
         raise ValueError("Give the RefMod a name.")
-    relative = "/".join(p for p in (subfolder.replace("\\", "/").strip("/"), name) if p)
+    relative = "/".join(p for p in ((subfolder or "").replace("\\", "/").strip("/"), name) if p)
     if (ntpath.splitdrive(relative)[0] or relative.startswith("/")
             or any(p in _RESERVED for p in relative.split("/"))):
         raise ValueError("Use a relative subfolder without '..' or reserved directories.")
@@ -161,9 +170,8 @@ def _save_path(name, subfolder):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Handler registry
+# Handler registry
 # ═════════════════════════════════════════════════════════════════════════════
-
 HANDLERS = {}
 
 
@@ -174,6 +182,7 @@ def register(cls):
 
 class Ctx:
     """Everything an Apply handler can use."""
+
     def __init__(self, **kw):
         self.__dict__.update(kw)
 
@@ -202,7 +211,7 @@ class Handler:
     accent = "#a78bfa"                      # colour of the model chip and the WebGPU strip
     token_downscale = 16                    # reference tokens/step = sum((w/ds) * (h/ds))
     apply_needs = ()                        # Apply sockets that must be connected for this model
-    apply_uses = frozenset()                # Apply widgets that matter for this model (others are hidden)
+    apply_uses = frozenset()                # Apply widgets that matter for this model (others hidden)
     bake_needs = ("vae",)                   # Bake sockets that must be connected
     bake_uses = frozenset({"vae"})          # Bake widgets that matter (others are hidden)
 
@@ -230,8 +239,7 @@ class Handler:
         if c.extra_image is None:
             return []
         vae = self._vae_for_extra(c)
-        return [self.encode_frame(f, vae, c.extra_image_resolution)
-                for f in _frames(c.extra_image)]
+        return [self.encode_frame(f, vae, c.extra_image_resolution) for f in _frames(c.extra_image)]
 
 
 def _tokens_check(count, limit, label):
@@ -240,7 +248,6 @@ def _tokens_check(count, limit, label):
 
 
 # ── Qwen Image 2.1 ───────────────────────────────────────────────────────────
-
 @register
 class Qwen21(Handler):
     key = "qwen21"
@@ -298,7 +305,6 @@ class Qwen21(Handler):
 
 
 # ── Fibo 2 ───────────────────────────────────────────────────────────────────
-
 @register
 class Fibo2(Handler):
     key = "fibo2"
@@ -352,7 +358,6 @@ class Fibo2(Handler):
 
 
 # ── Flux 3 ───────────────────────────────────────────────────────────────────
-
 @register
 class Flux3(Handler):
     key = "flux3"
@@ -403,9 +408,8 @@ class Flux3(Handler):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  File IO (generic)
+# File IO (generic)
 # ═════════════════════════════════════════════════════════════════════════════
-
 _INDEX_CACHE = {}  # path -> (mtime, handler key or None, meta or None)
 
 
@@ -463,6 +467,11 @@ def list_refmods():
     return sorted(_index(), key=str.lower)
 
 
+def list_refmods_for(key):
+    """Only the RefMods belonging to one model (used by the legacy per-model nodes)."""
+    return sorted((rel for rel, k in _index().items() if k == key), key=str.lower)
+
+
 def _resolve(rel):
     for root in _roots():
         path = os.path.join(root, rel) + ".safetensors"
@@ -479,15 +488,22 @@ def load_refmod(rel, expect=None):
         raise ValueError(f"'{rel}' is not a Nougan RefMod for any supported model.")
     if expect is not None and h.key != expect.key:
         raise ValueError(f"'{rel}' is a {h.label} RefMod but the model is set to {expect.label}.")
+    count = int(meta.get("count", 0))
+    if count <= 0:
+        raise ValueError(f"'{rel}' has no references stored.")
     refs = []
     with safe_open(path, framework="pt", device="cpu") as f:
         keys = set(f.keys())
-        for i in range(int(meta["count"])):
+        for i in range(count):
             lat = f.get_tensor(f"lat_{i}").float() if f"lat_{i}" in keys else None
             img = f.get_tensor(f"img_{i}").float() / 255.0 if f"img_{i}" in keys else None
             if not h.check(i, lat, img, meta):
                 raise ValueError(f"'{rel}' reference {i} has an invalid layout.")
-            refs.append({"lat": lat, "img": img, "size": None})
+            if img is not None:
+                size = (int(img.shape[2]), int(img.shape[1]))
+            else:
+                size = (int(lat.shape[3]) * h.token_downscale, int(lat.shape[2]) * h.token_downscale)
+            refs.append({"lat": lat, "img": img, "size": size})
     return h, refs
 
 
@@ -503,9 +519,8 @@ def _stamp(*rels):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Bake
+# Bake
 # ═════════════════════════════════════════════════════════════════════════════
-
 class NouganUnifiedRefModBake:
     CATEGORY = "Nougan/RefMod"
     FUNCTION = "bake"
@@ -543,13 +558,12 @@ class NouganUnifiedRefModBake:
             raise ValueError(f"{len(frames)} references; {h.label} supports at most {h.max_refs} per RefMod.")
         if vae is None:
             raise ValueError(f"Connect the {h.label} VAE to bake.")
-        path = _save_path(name, subfolder.strip() or h.subfolder)
+        path = _save_path(name, (subfolder or "").strip() or h.subfolder)
         if os.path.exists(path) and not overwrite:
             # Re-queuing a workflow shouldn't fail: keep the existing file and say so.
             note = (f"{os.path.basename(path)} already exists, skipped. "
                     "Enable overwrite to re-bake, or pick another name.")
             return {"ui": {"text": [note]}, "result": (path,)}
-
         refs = [h.encode_frame(f, vae, resolution) for f in frames]
         tensors = {}
         for i, r in enumerate(refs):
@@ -557,7 +571,6 @@ class NouganUnifiedRefModBake:
             if h.stores_images:
                 img = (r["img"].clamp(0, 1) * 255.0).round().to(torch.uint8)
                 tensors[f"img_{i}"] = img.detach().cpu().contiguous().clone()
-
         meta = {"format": h.format, "version": 1, "name": os.path.basename(path)[:-len(".safetensors")],
                 "count": len(refs), **h.meta_extra(refs, resolution)}
         try:
@@ -579,9 +592,8 @@ class NouganUnifiedRefModBake:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  Apply
+# Apply
 # ═════════════════════════════════════════════════════════════════════════════
-
 class NouganUnifiedRefModApply:
     CATEGORY = "Nougan/RefMod"
     FUNCTION = "apply"
@@ -641,7 +653,6 @@ class NouganUnifiedRefModApply:
                 refs.extend(got)
         if handler is None:
             raise ValueError("Pick a model, or choose a RefMod so the model can be read from it.")
-
         c = Ctx(handler=handler, refs=refs, clip=clip, prompt=prompt, negative_prompt=negative_prompt,
                 positive=positive, negative=negative, extra_image=extra_image, vae=vae,
                 extra_image_resolution=extra_image_resolution,
@@ -651,9 +662,101 @@ class NouganUnifiedRefModApply:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  UI routes (web/nougan_refmods.js)
+# Legacy Qwen 2.1 nodes — old IDs, old widget order, unified engine underneath
 # ═════════════════════════════════════════════════════════════════════════════
+# These exist so workflows saved before the merge keep loading AND keep their values.
+# ComfyUI restores `widgets_values` by position on frontends older than ~1.5x, so the widget
+# order below must stay byte-for-byte identical to the old nougan_qwen_refmod.py. If you ever
+# add a widget to the unified nodes, add it HERE only at the very end (or not at all).
+#
+# Behaviour is identical to the old nodes: ref_on_negative is pinned True (the old encoder always
+# attached references to both conditionings) and the file list shows Qwen 2.1 RefMods only.
 
+class NouganQwen21RefModBake(NouganUnifiedRefModBake):
+    CATEGORY = "Nougan/RefMod"
+    FUNCTION = "bake"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("path",)
+    SEARCH_ALIASES = ["qwen refmod bake", "qwen 2.1 reference bake"]
+    DESCRIPTION = ("Legacy Qwen 2.1 RefMod baker. Same file format and same output as the unified "
+                   "Nougan RefMod Bake with model = qwen21. Kept so older workflows load unchanged.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE", {"tooltip": "Every frame in the batch becomes one reference (max 16)."}),
+                "vae": ("VAE", {"tooltip": "The Qwen Image 2.1 VAE."}),
+                "name": ("STRING", {"default": "my_character"}),
+                "resolution": ("INT", {"default": 1024, "min": 0, "max": 4096, "step": 32,
+                                       "tooltip": "References are resized to about resolution x resolution pixels "
+                                                  "(multiples of 32). 0 keeps each image's own size."}),
+                "subfolder": ("STRING", {"default": "qwen21"}),
+                "overwrite": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "image_2": ("IMAGE",), "image_3": ("IMAGE",), "image_4": ("IMAGE",),
+            },
+        }
+
+    def bake(self, images, vae, name, resolution, subfolder, overwrite,
+             image_2=None, image_3=None, image_4=None, **_legacy):
+        return super().bake(Qwen21.key, images, name, resolution,
+                            (subfolder or "").strip() or Qwen21.subfolder, overwrite,
+                            vae=vae, image_2=image_2, image_3=image_3, image_4=image_4)
+
+
+class NouganQwen21RefModEncode(NouganUnifiedRefModApply):
+    CATEGORY = "Nougan/RefMod"
+    FUNCTION = "encode"
+    RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
+    RETURN_NAMES = ("positive", "negative", "latent")
+    SEARCH_ALIASES = ["qwen refmod encode", "qwen 2.1 reference encode", "text encode qwen image 2.1"]
+    DESCRIPTION = ("Legacy drop-in for Text Encode Qwen Image 2.1 that takes baked RefMods. Runs the "
+                   "unified engine with model = qwen21 and references on both conditionings, exactly "
+                   "like the old node. Kept so older workflows load unchanged.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        names = [NONE] + list_refmods_for(Qwen21.key)
+        return {
+            "required": {
+                "clip": ("CLIP",),
+                "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
+                "negative_prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
+                "refmod_1": (names,),
+            },
+            "optional": {
+                "refmod_2": (names,),
+                "refmod_3": (names,),
+                "extra_image": ("IMAGE", {"tooltip": "Optional plain reference(s), encoded on the fly. Needs the VAE."}),
+                "vae": ("VAE", {"tooltip": "Only needed for extra_image."}),
+                "extra_image_resolution": ("INT", {"default": 1024, "min": 0, "max": 4096, "step": 32}),
+                "ref_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                                           "tooltip": REF_STRENGTH_TIP}),
+            },
+        }
+
+    def encode(self, clip, prompt, negative_prompt, refmod_1, refmod_2=NONE, refmod_3=NONE,
+               extra_image=None, vae=None, extra_image_resolution=1024, ref_strength=1.0, **_legacy):
+        return super().apply(Qwen21.key, refmod_1, clip=clip, prompt=prompt, negative_prompt=negative_prompt,
+                             refmod_2=refmod_2, refmod_3=refmod_3, extra_image=extra_image, vae=vae,
+                             extra_image_resolution=extra_image_resolution,
+                             ref_strength=ref_strength, ref_on_negative=True)
+
+
+# ── Flux 3 / Fibo 2 legacy shells ────────────────────────────────────────────
+# Same treatment, if you still have users on the old per-model nodes. Recover the exact old
+# signature with:  git log --diff-filter=D --name-only -- "nougan_flux*refmod.py"
+#                  git show <commit>^:nougan_flux_refmod.py
+# then copy its INPUT_TYPES verbatim into a shell like the two above and forward to
+# super().bake(Flux3.key, ...) / super().apply(Flux3.key, ...). Do NOT guess the widget order.
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# UI routes (web/nougan_refmods.js)
+# ═════════════════════════════════════════════════════════════════════════════
 def _library():
     models = [{"key": h.key, "label": h.label, "accent": h.accent, "subfolder": h.subfolder,
                "max_refs": h.max_refs, "token_downscale": h.token_downscale,
@@ -738,8 +841,14 @@ _register_routes()
 NODE_CLASS_MAPPINGS = {
     "NouganUnifiedRefModBake": NouganUnifiedRefModBake,
     "NouganUnifiedRefModApply": NouganUnifiedRefModApply,
+    # Legacy IDs — pre-merge Qwen 2.1 workflows load into these instead of erroring.
+    "NouganQwen21RefModBake": NouganQwen21RefModBake,
+    "NouganQwen21RefModEncode": NouganQwen21RefModEncode,
 }
+
 NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganUnifiedRefModBake": "Nougan RefMod Bake 🧬",
     "NouganUnifiedRefModApply": "Nougan RefMod Apply 🎯",
+    "NouganQwen21RefModBake": "Nougan Qwen 2.1 RefMod Bake (legacy) 🧬",
+    "NouganQwen21RefModEncode": "Nougan Qwen 2.1 RefMod Encode (legacy) 🎯",
 }

@@ -5,7 +5,7 @@ import traceback
 import importlib
 
 WEB_DIRECTORY = "./web"
-VERSION = "1.0"  # edit me
+VERSION = "1.0.1"  # edit me
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
@@ -85,9 +85,12 @@ def get_krea2_lora_status():
 # Feature table — each entry loads in its own try/except so ONE bad file
 # can't take down the rest of the suite.
 #   (label, module, [(node_id, class_name_in_module, display_name), ...])
-# Use "*" as the class name to pull the module's own NODE_CLASS_MAPPINGS /
-# NODE_DISPLAY_NAME_MAPPINGS instead (used by the RefMod toolkit).
+# Use "*" as the spec to pull the module's own NODE_CLASS_MAPPINGS /
+# NODE_DISPLAY_NAME_MAPPINGS instead (used by the RefMod modules).
 # The same class may be registered under several node IDs (legacy aliases).
+#
+# A module that is NOT listed here is never imported and never reported — the
+# orphan audit at the bottom exists so that can't happen silently again.
 # ═════════════════════════════════════════════════════════════════════════════
 _FEATURES = [
     # All-in-one loader: quantized diffusion model (bf16 / int8 / w4a8 / w6a8 convrot, auto-detected),
@@ -146,8 +149,9 @@ _FEATURES = [
     ("Match Image Size", "nougan_match_size", [
         ("NouganMatchImageSize", "NouganMatchImageSize", "Nougan Match Image Size 📐"),
     ]),
-    # Interactive compare (slider / box / diff / toggle / mask) for up to 4 images or batches, WebGPU backdrop + diff
-    # heatmap with CSS / 2D fallbacks (web/nougan_compare.js). Replaces the old Before / After node. No KJNodes needed.
+    # Interactive compare (slider / box / diff / toggle / mask) for up to 4 images or batches, WebGPU
+    # backdrop + diff heatmap with CSS / 2D fallbacks (web/nougan_compare.js). Replaces the old
+    # Before / After node. No KJNodes needed.
     ("Compare", "nougan_compare", [
         ("NouganCompare", "NouganCompare", "Nougan Compare"),
     ]),
@@ -181,8 +185,11 @@ _FEATURES = [
     ]),
     # Bake / Loader / Apply — vendored MiniMaxH3Mod engine (MIT, Luisa).
     ("RefMod Toolkit", "nougan_refmod", "*"),
-    # ONE Bake + ONE Apply for Qwen 2.1, MOSS-Image, Flux 3, Fibo 2 and LTX-2.5 (registry of handlers;
-    # add a model by adding a Handler class). Reads the old per-model file formats unchanged.
+    # ONE Bake + ONE Apply for Qwen 2.1, Flux 3 and Fibo 2 (registry of handlers; add a model by
+    # adding a Handler class). Reads the old per-model file formats unchanged. MOSS-Image, LTX-2.5
+    # and Krea 2 are deliberately unsupported — RefMods don't work with them, so their files are
+    # not listed. The module ALSO registers the legacy NouganQwen21RefModBake / ...Encode IDs
+    # (compat shells with the original widget order) so pre-merge Qwen workflows keep loading.
     ("RefMods (unified)", "nougan_refmods", "*"),
     ("Album Cover Maker", "nougan_album_cover", [
         ("NouganAlbumCoverMaker", "NouganAlbumCoverMaker", "Nougan Album Cover Maker 💿"),
@@ -200,13 +207,14 @@ _FEATURES = [
     ("GIF Maker", "nougan_gif_maker", [
         ("NouganGifMaker", "NouganGifMaker", "Nougan GIF Maker 🎞️"),
     ]),
-    # Frames (+ audio) -> H.264 / HEVC / AV1 / VP9 / ProRes / FFV1 with player + scrub bar (web/nougan_save_video.js).
-    # Needs ffmpeg on PATH or `pip install imageio-ffmpeg`. Registers its own /nougan/video_encoders route.
+    # Frames (+ audio) -> H.264 / HEVC / AV1 / VP9 / ProRes / FFV1 with player + scrub bar
+    # (web/nougan_save_video.js). Needs ffmpeg on PATH or `pip install imageio-ffmpeg`.
+    # Registers its own /nougan/video_encoders route.
     ("Save Video", "nougan_save_video", [
         ("NouganSaveVideo", "NouganSaveVideo", "Nougan Save Video 🎬"),
     ]),
-    # Duration (seconds) -> frame count: presets (MiniMax H3 17n+5 / 24 / 30 FPS) + lockable custom expression,
-    # live preview (web/nougan_duration_frames.js). Registers /nougan/duration_frames/* routes.
+    # Duration (seconds) -> frame count: presets (MiniMax H3 17n+5 / 24 / 30 FPS) + lockable custom
+    # expression, live preview (web/nougan_duration_frames.js). Registers /nougan/duration_frames/* routes.
     ("Duration -> Frames", "nougan_duration_frames", [
         ("NouganDurationFrames", "NouganDurationFrames", "Nougan Duration → Frames ⏱️"),
     ]),
@@ -224,14 +232,14 @@ _FEATURES = [
     ("Multi Load Image", "nougan_multi_load_image", [
         ("NouganMultiLoadImage", "NouganMultiLoadImage", "Nougan Multi Load Image 🖼️➕"),
     ]),
-    # Thumbnail-gallery loader: pick/paste a folder, magnify slider, scrub bar, click / shift / marquee select,
-    # one IMAGE output (P1, P2, ...) per selected image (web/nougan_gallery_load.js + web/css/nougan_gallery_load.css).
-    # Registers /nougan/gallery/{list,thumb,dirs} routes (local requests only).
+    # Thumbnail-gallery loader: pick/paste a folder, magnify slider, scrub bar, click / shift / marquee
+    # select, one IMAGE output (P1, P2, ...) per selected image (web/nougan_gallery_load.js +
+    # web/css/nougan_gallery_load.css). Registers /nougan/gallery/{list,thumb,dirs} (local requests only).
     ("Gallery Load", "nougan_gallery_load", [
         ("NouganGalleryLoad", "NouganGalleryLoad", "Nougan Gallery Load 🗂️"),
     ]),
-    # Load an audio file and trim it with a waveform editor: drag the purple handles to crop,
-    # drag inside the selection to scrub with audible preview, drop a file on the waveform to load it
+    # Load an audio file and trim it with a waveform editor: drag the purple handles to crop, drag
+    # inside the selection to scrub with audible preview, drop a file on the waveform to load it
     # (web/nougan_audio_trim.js). Registers /nougan/audio_trim/peaks.
     # Renamed from NouganAudioLoader -> NouganAudioTrimLoader (old files removed).
     ("Audio Loader", "nougan_audio_trim", [
@@ -239,14 +247,13 @@ _FEATURES = [
     ]),
     # HandBrake-style transcode: IMAGE batch + AUDIO in -> visual trim/cut/crop editor
     # (cut list + magnetic timeline + draw-a-box crop, web/nougan_convert_video.js) ->
-    # H.264/H.265/AV1 8/10-bit via ffmpeg, CPU or NVENC (auto-probed). Registers
-    # its own /nougan/convert/* routes.
+    # H.264/H.265/AV1 8/10-bit via ffmpeg, CPU or NVENC (auto-probed). Registers /nougan/convert/* routes.
     ("Convert Video", "nougan_convert_video", [
         ("NouganConvertVideo", "NouganConvertVideo", "Nougan Convert Video 🎞️"),
     ]),
     # Gelbooru-style scraper: list URL in -> raw images to a folder in output/
-    # (web/nougan_r34_scraper.js: live preview + progress bar). Optional
-    # ImageMagick convert/compress + sequential rename. Registers /nougan/r34/state.
+    # (web/nougan_r34_scraper.js: live preview + progress bar). Optional ImageMagick convert/compress
+    # + sequential rename. Registers /nougan/r34/state.
     ("R34 Scraper", "nougan_r34_scraper", [
         ("NouganR34Scraper", "NouganR34Scraper", "Nougan R34 Scraper 🕸️"),
     ]),
@@ -265,9 +272,9 @@ _FEATURES = [
     ("H3 Upscale Picker", "nougan_h3_upscale_picker", [
         ("NouganH3UpscalePicker", "NouganH3UpscalePicker", "Nougan H3 Upscale Picker 📈"),
     ]),
-    # Pre-flight check + auto-fix for MiniMax H3 clips: frame count on the 17n+5 grid, dims on the 16 px grid,
-    # fps, audio half, IMAGE <-> latent cross-check. Keeps a wired IMAGE / AUDIO in sync with the latent.
-    # Live DOM checklist in web/nougan_h3_clip_doctor.js. No extra dependencies.
+    # Pre-flight check + auto-fix for MiniMax H3 clips: frame count on the 17n+5 grid, dims on the
+    # 16 px grid, fps, audio half, IMAGE <-> latent cross-check. Keeps a wired IMAGE / AUDIO in sync
+    # with the latent. Live DOM checklist in web/nougan_h3_clip_doctor.js. No extra dependencies.
     ("H3 Clip Doctor", "nougan_h3_clip_doctor", [
         ("NouganH3ClipDoctor", "NouganH3ClipDoctor", "Nougan H3 Clip Doctor 🩺"),
     ]),
@@ -294,13 +301,15 @@ _FEATURES = [
     ("Timer", "nougan_timer", [
         ("NouganTimer", "NouganTimer", "Nougan Timer ⏱️"),
     ]),
-    # Sketch pad that behaves like Load Image: draw poses/guides with mouse or stylus (pressure), colour wheel,
-    # layers, undo; outputs IMAGE + MASK (web/nougan_draw_image.js). Saves PNGs to input/nougan_draw/.
+    # Sketch pad that behaves like Load Image: draw poses/guides with mouse or stylus (pressure),
+    # colour wheel, layers, undo; outputs IMAGE + MASK (web/nougan_draw_image.js).
+    # Saves PNGs to input/nougan_draw/.
     ("Draw Image", "nougan_draw_image", [
         ("NouganDrawImage", "NouganDrawImage", "Nougan Draw Image ✏️"),
     ]),
-    # Server half of the Paste Stack widget: lets a single click paste FILES you copied in Explorer/Finder
-    # (browsers can't read those). Registers /nougan/paste_stack/clipboard, local requests only. No nodes.
+    # Server half of the Paste Stack widget: lets a single click paste FILES you copied in
+    # Explorer/Finder (browsers can't read those). Registers /nougan/paste_stack/clipboard,
+    # local requests only. No nodes.
     ("Paste Stack clipboard helper", "nougan_paste_stack_server", []),
 ]
 
@@ -313,7 +322,8 @@ _WEB_ONLY = [
     ("Zip Ties", "nougan_zip_ties.js"),
     # Hold B and slash across nodes to bypass them (or mute, see settings); slash again to restore.
     ("Bypass Slash", "nougan_bypass_slash.js"),
-    # Figma-style alignment guides + snapping while dragging nodes; Alt+L / canvas menu tidies nodes into columns by dependency depth.
+    # Figma-style alignment guides + snapping while dragging nodes; Alt+L / canvas menu tidies nodes
+    # into columns by dependency depth.
     ("Smart Guides", "nougan_smart_guides.js"),
     # Hold V and drag a box over nodes to make a subgraph; box a subgraph to unpack it.
     ("Subgraph Box", "nougan_subgraph_box.js"),
@@ -321,15 +331,16 @@ _WEB_ONLY = [
     ("Group Box", "nougan_group_box.js"),
     # Hold S and click a group's title (or slash across several) to bypass everything inside; again to restore.
     ("Group Switch", "nougan_group_switch.js"),
-    # Hold C and drag node -> node to connect the best matching sockets (Shift = all, Alt = hide links); hold C and
-    # drag across wires to cut them. Live preview HUD, auto-reverse, drop on a socket to force it, Esc cancels.
-    # Legacy Alt/Ctrl/Shift + RMB gestures kept. Based on CRZ Node Wrangler.
+    # Hold C and drag node -> node to connect the best matching sockets (Shift = all, Alt = hide links);
+    # hold C and drag across wires to cut them. Live preview HUD, auto-reverse, drop on a socket to
+    # force it, Esc cancels. Legacy Alt/Ctrl/Shift + RMB gestures kept. Based on CRZ Node Wrangler.
     ("Node Wrangler", "nougan_node_wrangler.js"),
-    # Floating, dockable panel: reads the loaded checkpoint / CLIP / VAE / every sampler / LoRAs and edits
-    # the real node values live (no cables). Stylesheet lives in web/css/.
+    # Floating, dockable panel: reads the loaded checkpoint / CLIP / VAE / every sampler / LoRAs and
+    # edits the real node values live (no cables). Stylesheet lives in web/css/.
     ("Automagic 2222: Live Panel", "nougan_live_panel.js", "css/nougan_live_panel.css"),
-    # Floating clipboard-history widget: click to paste text/images into a saved stack, click a saved card to copy it
-    # back. Square panel that minimizes to a small chip; WebGPU backdrop (CSS fallback). Stack lives in IndexedDB.
+    # Floating clipboard-history widget: click to paste text/images into a saved stack, click a saved
+    # card to copy it back. Square panel that minimizes to a small chip; WebGPU backdrop (CSS fallback).
+    # Stack lives in IndexedDB.
     ("Automagic 2222: Paste Stack", "nougan_paste_stack.js", "css/nougan_paste_stack.css"),
 ]
 
@@ -350,33 +361,42 @@ def _read_disabled():
     try:
         with open(os.path.join(_HERE, "nougan_disabled.txt"), encoding="utf-8") as f:
             lines = (ln.split("#", 1)[0].strip().lower() for ln in f)
-            return {ln for ln in lines if ln}
+        return {ln for ln in lines if ln}
     except OSError:
         return set()
+
+
+def _put(nid, cls, display, label):
+    """Register one node ID, warning if another module already claimed it."""
+    old = NODE_CLASS_MAPPINGS.get(nid)
+    if old is not None and old is not cls:
+        print(f"  {WARN} {_yellow('duplicate node id')} {_bold(nid)} "
+              f"{_dim('— ' + label + ' overwrites the earlier registration')}")
+    NODE_CLASS_MAPPINGS[nid] = cls
+    NODE_DISPLAY_NAME_MAPPINGS[nid] = display
 
 
 def _load_feature(label, module_name, spec):
     """Import one module and register its nodes. Returns node count; raises on failure."""
     mod = importlib.import_module(f".{module_name}", package=__name__)
 
-    # Module-provided mappings (RefMod toolkit)
+    # Module-provided mappings (RefMod toolkit / unified RefMods / legacy video saver)
     if spec == "*":
         classes = dict(mod.NODE_CLASS_MAPPINGS)
-        NODE_CLASS_MAPPINGS.update(classes)
-        NODE_DISPLAY_NAME_MAPPINGS.update(mod.NODE_DISPLAY_NAME_MAPPINGS)
+        displays = dict(mod.NODE_DISPLAY_NAME_MAPPINGS)
+        for nid, cls in classes.items():
+            _put(nid, cls, displays.get(nid, nid), label)
         return len(classes)
 
     # Resolve everything first so a missing class registers nothing (all-or-nothing).
     resolved = [(nid, getattr(mod, cls), display) for nid, cls, display in spec]
     for nid, cls, display in resolved:
-        NODE_CLASS_MAPPINGS[nid] = cls
-        NODE_DISPLAY_NAME_MAPPINGS[nid] = display
+        _put(nid, cls, display, label)
 
     # Krea 2 exposes a LoRA status helper that the /nougan/krea2_loras route uses.
     if module_name == "krea2_loader":
         global get_krea2_lora_status
         get_krea2_lora_status = getattr(mod, "get_krea2_lora_status", get_krea2_lora_status)
-
     return len(resolved)
 
 
@@ -403,7 +423,7 @@ for _label, _module, _spec in _FEATURES:
         print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow(type(_e).__name__ + ': ' + str(_e))}")
         traceback.print_exc()
 
-_web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), WEB_DIRECTORY)
+_web_dir = os.path.join(os.path.join(_HERE, WEB_DIRECTORY))
 for _label, _file, *_extra in _WEB_ONLY:
     if not os.path.isfile(os.path.join(_web_dir, _file)):
         _skipped.append(_label)  # main script removed on purpose
@@ -416,6 +436,36 @@ for _label, _file, *_extra in _WEB_ONLY:
         _failed.append(_label)
         print(f"  {FAIL} {_red(_label)} {_dim('NOT loaded —')} {_yellow('missing web/' + ', web/'.join(_missing))}")
 
+# ── orphan audit ─────────────────────────────────────────────────────────────
+# A node file that exists but is NOT in _FEATURES is invisible: not loaded, not "skipped",
+# not "failed". That is exactly how the Qwen 2.1 RefMod nodes disappeared. Any leftover .py
+# that declares NODE_CLASS_MAPPINGS gets shouted about here instead.
+_HELPERS = {"nougan_preview_override"}  # vendored helpers that are imported, never listed
+
+
+def _orphan_modules():
+    listed = {m for _, m, _ in _FEATURES} | _HELPERS
+    out = []
+    try:
+        names = sorted(os.listdir(_HERE))
+    except OSError:
+        return out
+    for fn in names:
+        if not fn.endswith(".py") or fn == "__init__.py" or fn[:-3] in listed:
+            continue
+        try:
+            with open(os.path.join(_HERE, fn), encoding="utf-8", errors="ignore") as f:
+                if "NODE_CLASS_MAPPINGS" in f.read():
+                    out.append(fn[:-3])
+        except OSError:
+            continue
+    return out
+
+
+_orphans = _orphan_modules()
+if _orphans:
+    print(f"  {WARN} {_yellow('Unlisted node module(s) — present but NEVER loaded:')} {_dim(', '.join(_orphans))}")
+    print(f"     {_dim('add them to _FEATURES, delete them, or whitelist them in _HELPERS.')}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Routes — always attempted, fully guarded
