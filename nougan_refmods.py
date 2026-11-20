@@ -6,9 +6,10 @@ ONE Bake node and ONE Apply node for every model that uses baked reference files
   Nougan RefMod Bake   model + images (+ VAE) -> ONE file in models/refmods/<subfolder>/<name>.safetensors
   Nougan RefMod Apply  baked RefMod(s) -> positive / negative / latent, ready for the sampler
 
-Supported models: Qwen 2.1, Flux 3, Fibo 2.
+Supported models: Qwen 2.1, Flux 3, Fibo 2, MiniMax H3 Image.
 MOSS-Image, LTX-2.5 and Krea 2 were removed ON PURPOSE — RefMods do not work with them, so their
-files are intentionally not listed. MiniMax H3 still lives in nougan_refmod.py.
+files are intentionally not listed. MiniMax H3 *video* (ref2va, audio, bundles) still lives in
+nougan_refmod.py; the MiniMax H3 *Image* model (t2i + reference edit) is the handler below.
 
 Legacy nodes
 ------------
@@ -407,6 +408,94 @@ class Flux3(Handler):
         return pos, (negative if negative is not None else pos), _empty_latent(lats, self.latent_channels, c.device)
 
 
+# ── MiniMax H3 Image ─────────────────────────────────────────────────────────
+def _h3_image_node():
+    """ComfyUI's own MiniMaxH3ImageConditioning (needs a ComfyUI build with MiniMax-H3-Image support)."""
+    import importlib
+    try:
+        mod = importlib.import_module("comfy_extras.nodes_minimax_h3")
+        return mod.MiniMaxH3ImageConditioning
+    except (ImportError, AttributeError) as e:
+        raise RuntimeError("MiniMax H3 Image needs a ComfyUI version that ships MiniMaxH3ImageConditioning "
+                           "(MiniMax-H3-Image support). Update ComfyUI.") from e
+
+
+def _zero_out(cond, keep_refs):
+    """Same as ConditioningZeroOut (the official H3 Image workflows use it as the negative)."""
+    out = []
+    for t in cond:
+        d = t[1].copy()
+        pooled = d.get("pooled_output")
+        if pooled is not None:
+            d["pooled_output"] = torch.zeros_like(pooled)
+        if not keep_refs:
+            d.pop("minimax_refs", None)
+        out.append([torch.zeros_like(t[0]), d])
+    return out
+
+
+@register
+class MiniMaxH3Image(Handler):
+    """MiniMax-H3-Image (t2i + reference edit), the native ComfyUI model.
+
+    Bake:  image -> image VAE latent (24ch, 16x) + the resized RGB (Qwen3-VL needs the picture too).
+    Apply: the stock MiniMaxH3ImageConditioning runs WITHOUT a vae (tokenizes "<Picture N>: ", picks the
+           canvas, builds the empty latent), then the baked latents are attached as `minimax_refs`
+           blocks, exactly the shape the stock node produces when it has a vae. So the VAE encode is
+           skipped at run time and the canvas / prompt logic is never reimplemented here.
+    Prompt with <Picture 1>, <Picture 2>... in the order the RefMods are listed (refmod_1 first).
+    """
+    key = "minimaxh3image"
+    label = "MiniMax H3 Image"
+    format = "nougan_minimaxh3image_refmod"
+    meta_key = "nougan_minimaxh3image"
+    subfolder = "minimaxh3image"
+    accent = "#fb923c"
+    apply_needs = ("clip",)
+    apply_uses = frozenset({"clip", "ref_strength", "ref_on_negative"})
+    max_refs = 9
+    latent_channels = 24
+    stores_images = True
+    downscale = 16            # VAE spatial compression
+    token_downscale = 32      # DiT also patchifies the latent 2x2 -> one token per 32x32 px
+
+    def encode_frame(self, frame, vae, resolution):
+        s = _resize32(frame, resolution)
+        rgb = _alpha_over_white(s)
+        lat = vae.encode(rgb)
+        if lat.ndim not in (4, 5) or lat.shape[1] != self.latent_channels:
+            raise ValueError(f"Expected a MiniMax H3 latent with {self.latent_channels} channels, got "
+                             f"{tuple(lat.shape)}. Connect the MiniMax H3 Image VAE.")
+        return {"lat": lat, "img": rgb, "size": (int(rgb.shape[2]), int(rgb.shape[1]))}
+
+    def meta_extra(self, refs, resolution):
+        return {"sizes": [list(r["size"]) for r in refs], "latent_channels": self.latent_channels,
+                "downscale": self.downscale, "resolution": int(resolution)}
+
+    def check(self, i, lat, img, meta):
+        return (lat is not None and img is not None and lat.ndim in (4, 5) and lat.shape[0] == 1
+                and lat.shape[1] == self.latent_channels and img.ndim == 4 and img.shape[-1] == 3
+                and img.shape[1] // self.downscale == lat.shape[-2]
+                and img.shape[2] // self.downscale == lat.shape[-1])
+
+    def apply(self, c):
+        clip = c.need_clip()
+        refs = c.refs + self._extra_refs(c)
+        _tokens_check(len(refs), self.max_refs, "MiniMax H3 Image")
+        images = {f"image_{i + 1}": r["img"] for i, r in enumerate(refs)} or None
+        # width/height 0 = automatic: follows image_1 with refs, 2048 for plain text-to-image
+        out = _h3_image_node().execute(clip=clip, prompt=c.prompt, width=0, height=0, vae=None, images=images)
+        plain, latent = tuple(getattr(out, "args", out))[:2]
+        positive = plain
+        if refs:
+            blocks = [{"kind": "image", "latent_h": int(r["lat"].shape[-2]), "latent_w": int(r["lat"].shape[-1]),
+                       "latent": r["lat"].to(c.device)} for r in refs]
+            positive = _schedule(node_helpers.conditioning_set_values(plain, {"minimax_refs": blocks}),
+                                 plain, c.ref_strength)
+        negative = _zero_out(positive, keep_refs=bool(c.ref_on_negative))
+        return positive, negative, latent
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # File IO (generic)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -539,7 +628,7 @@ class NouganUnifiedRefModBake:
                                        "tooltip": "References are fitted to about resolution x resolution pixels "
                                                   "(1024 = ~1MP). 0 keeps each image's own size. Every reference "
                                                   "adds tokens to every step."}),
-                "subfolder": ("STRING", {"default": "", "tooltip": "Empty = the model's own folder (qwen21, flux3, fibo2)."}),
+                "subfolder": ("STRING", {"default": "", "tooltip": "Empty = the model's own folder (qwen21, flux3, fibo2, minimaxh3image)."}),
                 "overwrite": ("BOOLEAN", {"default": False}),
             },
             "optional": {
