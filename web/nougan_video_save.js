@@ -48,6 +48,17 @@ function getActiveTheme() {
 // ---------------------------------------------------------------------------
 // Shared layout helpers.
 // ---------------------------------------------------------------------------
+// Which codecs each container can hold (mirrors FORMAT_CODECS in nougan_video_save.py).
+const FORMAT_CODECS = {
+    mp4: ["h264", "h265", "av1"],
+    webm: ["vp9", "av1"],
+    mkv: ["h264", "h265", "av1", "vp9", "ffv1"],
+    mov: ["prores_4444", "prores_422", "h264", "h265"],
+    gif: ["none (gif)"],
+    webp: ["none (gif)"],
+};
+const FORMATS = Object.keys(FORMAT_CODECS);
+
 function setDirty(node) {
     node.graph?.setDirtyCanvas?.(true, true);
     _app?.graph?.setDirtyCanvas?.(true, true);
@@ -94,10 +105,11 @@ function makeHeader(title, subtitle) {
 }
 
 function createCustomSelect(values, currentValue, onSelect) {
+    const getValues = () => (typeof values === "function" ? values() : values);
     const trigger = document.createElement("div");
     trigger.className = "nougan-select";
     trigger.tabIndex = 0;
-    trigger.textContent = currentValue || values[0];
+    trigger.textContent = currentValue || getValues()[0];
     let panel = null;
 
     function closePanel() {
@@ -112,7 +124,7 @@ function createCustomSelect(values, currentValue, onSelect) {
         panel.className = "nougan-dropdown";
         const listEl = document.createElement("div");
         listEl.className = "nougan-dropdown-list";
-        values.forEach((v) => {
+        getValues().forEach((v) => {
             const item = document.createElement("div");
             item.className = "nougan-dropdown-item";
             item.textContent = v;
@@ -154,7 +166,7 @@ function buildVideoPanel(node) {
     const panel = document.createElement("div");
     panel.className = "nougan-panel nougan-video-panel";
     applyThemeToPanel(panel);
-    panel.appendChild(makeHeader("🎬 NOUGAN VIDEO SAVER", "format · codec · quality"));
+    panel.appendChild(makeHeader("🎬 NOUGAN VIDEO SAVER", "format · codec · quality · alpha"));
 
     const rows = document.createElement("div");
     rows.className = "nougan-video-rows";
@@ -171,16 +183,29 @@ function buildVideoPanel(node) {
 
     const formatRow = createSettingRow("Format");
     const formatW = node.widgets?.find((w) => w.name === "format");
-    const formatSelect = createCustomSelect(["mp4", "webm", "mkv", "gif"], formatW ? formatW.value : "mp4", (val) => {
-        if (formatW) formatW.value = val; if (node.graph) node.graph.change(); setDirty(node);
+    const codecW = node.widgets?.find((w) => w.name === "codec");
+    let codecSelect = null;
+
+    const formatSelect = createCustomSelect(FORMATS, formatW ? formatW.value : "mp4", (val) => {
+        if (formatW) formatW.value = val;
+        // keep the codec valid for the chosen container
+        const allowed = FORMAT_CODECS[val] || FORMAT_CODECS.mp4;
+        if (codecW && !allowed.includes(codecW.value)) {
+            codecW.value = allowed[0];
+            if (codecSelect) codecSelect.trigger.textContent = allowed[0];
+        }
+        if (node.graph) node.graph.change(); setDirty(node);
     });
     formatRow.appendChild(formatSelect.trigger); rows.appendChild(formatRow);
 
     const codecRow = createSettingRow("Codec");
-    const codecW = node.widgets?.find((w) => w.name === "codec");
-    const codecSelect = createCustomSelect(["h264", "h265", "av1", "vp9", "none (gif)"], codecW ? codecW.value : "h264", (val) => {
-        if (codecW) codecW.value = val; if (node.graph) node.graph.change(); setDirty(node);
-    });
+    codecSelect = createCustomSelect(
+        () => FORMAT_CODECS[formatW ? formatW.value : "mp4"] || FORMAT_CODECS.mp4,
+        codecW ? codecW.value : "h264",
+        (val) => {
+            if (codecW) codecW.value = val; if (node.graph) node.graph.change(); setDirty(node);
+        },
+    );
     codecRow.appendChild(codecSelect.trigger); rows.appendChild(codecRow);
 
     const fpsRow = createSettingRow("FPS");
@@ -197,7 +222,7 @@ function buildVideoPanel(node) {
     const crfRow = createSettingRow("Quality (CRF)");
     const crfW = node.widgets?.find((w) => w.name === "crf");
     const crfInput = document.createElement("input");
-    crfInput.type = "number"; crfInput.className = "nougan-value-input"; crfInput.min = "0"; crfInput.max = "51";
+    crfInput.type = "number"; crfInput.className = "nougan-value-input"; crfInput.min = "0"; crfInput.max = "63";
     crfInput.value = crfW ? crfW.value : 23;
     crfInput.addEventListener("change", () => {
         let v = parseInt(crfInput.value); if (isNaN(v)) v = 23;
