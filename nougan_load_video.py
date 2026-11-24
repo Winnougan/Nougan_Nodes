@@ -3,7 +3,9 @@ import asyncio
 import hashlib
 import math
 import os
+import tempfile
 import threading
+import time
 from fractions import Fraction
 
 import av
@@ -332,16 +334,31 @@ def build_plan(
     return plan
 
 
+try:
+    from av.video.reformatter import Interpolation as _Interp
+except Exception:
+    _Interp = None
+
+
 def _resize_frame_np(frame_rgb: np.ndarray, out_w: int, out_h: int, resize_method: str) -> np.ndarray:
     in_h, in_w = frame_rgb.shape[:2]
     if in_w == out_w and in_h == out_h:
         return frame_rgb
-    flags = getattr(av.video.frame.Flags, _SWS.get(resize_method, "BICUBIC"), None)
-    vf = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
-    if flags is not None:
-        scaled = vf.reformat(width=out_w, height=out_h, interpolation=flags)
-    else:
-        scaled = vf.reformat(width=out_w, height=out_h)
+    name = _SWS.get(resize_method, "BICUBIC")
+    flag = getattr(_Interp, name, None) if _Interp is not None else None
+    vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(frame_rgb), format="rgb24")
+    scaled = None
+    for interp in (flag, name, None):
+        try:
+            if interp is None:
+                scaled = vf.reformat(width=out_w, height=out_h)
+            else:
+                scaled = vf.reformat(width=out_w, height=out_h, interpolation=interp)
+            break
+        except Exception:
+            continue
+    if scaled is None:
+        raise PlanError("Resize failed.")
     return scaled.to_ndarray(format="rgb24")
 
 
@@ -432,56 +449,66 @@ def _extract_trimmed_audio(path: str, start_sec: float, end_sec: float, sample_r
     return {"waveform": wav, "sample_rate": sample_rate}
 
 
-def decode_plan(plan: dict, resize_method: str = "bicubic"):
-    """Decode only [start_frame, end_frame), crop in source pixels, resize, and snap frame count."""
-    if torch is None:
-        raise RuntimeError("PyTorch is required to execute NouganLoadVideo.")
+def _iter_source_frames(plan: dict):
+    """Yield upright, cropped uint8 RGB frames for [start_frame, end_frame).
 
+    Frame indices come from each frame's timestamp, not from a running counter. After a seek the
+    decoder restarts at the previous keyframe, which can be well before the requested start, so
+    counting frames from the seek target gave the wrong trim.
+    """
     path = plan["path"]
     start_f = plan["start_frame"]
     end_f = plan["end_frame"]
     cx, cy, cw, ch = plan["crop_x"], plan["crop_y"], plan["crop_w"], plan["crop_h"]
-    out_w, out_h = plan["output_width"], plan["output_height"]
-    target_count = plan["output_frames"]
     steps_ccw = plan["steps_ccw"]
     src_fps = plan["source_fps"]
-
-    decoded = []
-    frame_idx = 0
 
     with av.open(path) as container:
         vstream = next((s for s in container.streams if s.type == "video"), None)
         if vstream is None:
             raise PlanError("No video stream found.")
 
-        # Seek slightly before start_f when safe so keyframe decode lands cleanly
-        if start_f > 0 and src_fps > 0:
-            approx_sec = max(0.0, (start_f - 2) / src_fps)
-            if approx_sec > 0.25 and vstream.time_base:
+        t0 = 0.0
+        if vstream.start_time is not None and vstream.time_base:
+            t0 = float(vstream.start_time * vstream.time_base)
+
+        if start_f > 0 and src_fps > 0 and vstream.time_base:
+            approx_sec = max(0.0, (start_f - 2) / src_fps) + t0
+            if approx_sec > 0.25:
                 try:
-                    seek_pts = int(approx_sec / float(vstream.time_base))
-                    container.seek(seek_pts, stream=vstream)
-                    frame_idx = max(0, int(round(approx_sec * src_fps)))
+                    container.seek(int(approx_sec / float(vstream.time_base)), stream=vstream)
                 except Exception:
                     container.seek(0)
-                    frame_idx = 0
 
+        counter = 0
         for packet in container.demux(vstream):
             for frame in packet.decode():
-                if frame_idx < start_f:
-                    frame_idx += 1
+                if frame.pts is not None and frame.time is not None:
+                    idx = int(round((float(frame.time) - t0) * src_fps))
+                else:
+                    idx = counter
+                counter = idx + 1
+                if idx < start_f:
                     continue
-                if frame_idx >= end_f:
-                    break
-
+                if idx >= end_f:
+                    return
                 rgb = frame.to_ndarray(format="rgb24")
                 upright = _apply_rotation_np(rgb, steps_ccw)
-                cropped = upright[cy : cy + ch, cx : cx + cw]
-                resized = _resize_frame_np(cropped, out_w, out_h, resize_method)
-                decoded.append(resized.astype(np.float32) / 255.0)
-                frame_idx += 1
-            if frame_idx >= end_f:
-                break
+                yield upright[cy : cy + ch, cx : cx + cw]
+
+
+def decode_plan(plan: dict, resize_method: str = "bicubic"):
+    """Decode only [start_frame, end_frame), crop in source pixels, resize, and snap frame count."""
+    if torch is None:
+        raise RuntimeError("PyTorch is required to execute NouganLoadVideo.")
+
+    out_w, out_h = plan["output_width"], plan["output_height"]
+    target_count = plan["output_frames"]
+
+    decoded = []
+    for cropped in _iter_source_frames(plan):
+        resized = _resize_frame_np(cropped, out_w, out_h, resize_method)
+        decoded.append(resized.astype(np.float32) / 255.0)
 
     if not decoded:
         raise PlanError("Decoded 0 frames for the requested trim range.")
@@ -489,8 +516,119 @@ def decode_plan(plan: dict, resize_method: str = "bicubic"):
     indices = _resample_indices(len(decoded), target_count)
     selected = [decoded[i] for i in indices]
     batch = torch.from_numpy(np.stack(selected, axis=0)).to(torch.float32)
-    audio = _extract_trimmed_audio(path, plan["start_sec"], plan["end_sec"])
+    audio = _extract_trimmed_audio(plan["path"], plan["start_sec"], plan["end_sec"])
     return batch, audio, int(batch.shape[0]), float(plan["output_fps"])
+
+
+# ---------------------------------------------------------------------------------------------
+# Result preview (what the "Update" button renders below the editor)
+# ---------------------------------------------------------------------------------------------
+PREVIEW_SUBFOLDER = "nougan_load_video"
+PREVIEW_MAX_EDGE = 512
+PREVIEW_KEEP = 24
+_PREVIEW_LOCK = threading.Lock()
+
+
+def _preview_dir() -> str:
+    base = None
+    if folder_paths is not None:
+        try:
+            base = folder_paths.get_temp_directory()
+        except Exception:
+            base = None
+    if not base:
+        base = os.path.join(tempfile.gettempdir(), "comfyui")
+    d = os.path.join(base, PREVIEW_SUBFOLDER)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _prune_previews(d: str, keep: int = PREVIEW_KEEP):
+    try:
+        files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith((".mp4", ".webm"))]
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for old in files[keep:]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _encode_preview(frames, fps: float, out_path: str, codec: str, container_opts: dict, codec_opts: dict):
+    h, w = frames[0].shape[:2]
+    rate = Fraction(float(fps)).limit_denominator(1000)
+    with av.open(out_path, mode="w", options=container_opts) as out:
+        stream = out.add_stream(codec, rate=rate)
+        stream.width = w
+        stream.height = h
+        stream.pix_fmt = "yuv420p"
+        stream.options = codec_opts
+        for arr in frames:
+            vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(arr), format="rgb24")
+            for pkt in stream.encode(vf):
+                out.mux(pkt)
+        for pkt in stream.encode(None):
+            out.mux(pkt)
+
+
+def render_preview(plan: dict, resize_method: str = "bicubic") -> dict:
+    """Render the exact trim/crop/resize described by `plan` to a small browser-playable clip."""
+    out_w, out_h = plan["output_width"], plan["output_height"]
+    scale = min(1.0, PREVIEW_MAX_EDGE / float(max(out_w, out_h)))
+    pw = max(2, int(round(out_w * scale / 2.0)) * 2)
+    ph = max(2, int(round(out_h * scale / 2.0)) * 2)
+
+    st = os.stat(plan["path"])
+    key_src = f"{plan['plan_id']}|{resize_method}|{pw}x{ph}|{st.st_size}|{int(st.st_mtime)}"
+    key = hashlib.sha1(key_src.encode("utf-8")).hexdigest()[:16]
+    d = _preview_dir()
+
+    info = {
+        "subfolder": PREVIEW_SUBFOLDER,
+        "type": "temp",
+        "output_width": out_w,
+        "output_height": out_h,
+        "output_frames": plan["output_frames"],
+        "output_fps": plan["output_fps"],
+        "preview_width": pw,
+        "preview_height": ph,
+    }
+
+    with _PREVIEW_LOCK:
+        for ext in (".mp4", ".webm"):
+            if os.path.isfile(os.path.join(d, key + ext)):
+                return {**info, "filename": key + ext, "cached": True}
+
+        frames = [_resize_frame_np(f, pw, ph, resize_method) for f in _iter_source_frames(plan)]
+        if not frames:
+            raise PlanError("Decoded 0 frames for the requested trim range.")
+        frames = [frames[i] for i in _resample_indices(len(frames), plan["output_frames"])]
+
+        attempts = [
+            (".mp4", "libx264", {"movflags": "faststart"}, {"crf": "24", "preset": "veryfast"}),
+            (".mp4", "libopenh264", {"movflags": "faststart"}, {}),
+            (".mp4", "h264", {"movflags": "faststart"}, {}),
+            (".webm", "libvpx-vp9", {}, {"crf": "34", "b": "0", "deadline": "realtime", "cpu-used": "8"}),
+            (".webm", "libvpx", {}, {"crf": "12", "b": "2M"}),
+        ]
+        last_err = None
+        for ext, codec, c_opts, k_opts in attempts:
+            final = os.path.join(d, key + ext)
+            tmp = os.path.join(d, f"{key}.part{ext}")
+            try:
+                _encode_preview(frames, plan["output_fps"], tmp, codec, c_opts, k_opts)
+                os.replace(tmp, final)
+                _prune_previews(d)
+                return {**info, "filename": key + ext, "cached": False}
+            except Exception as exc:  # codec missing in this PyAV build, try the next one
+                last_err = exc
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        raise PlanError(f"No browser-playable encoder available in PyAV ({last_err}).")
 
 
 class NouganLoadVideo:
@@ -562,8 +700,28 @@ class NouganLoadVideo:
         return decode_plan(plan, resize_method=resize_method)
 
 
+def _plan_from_body(body: dict) -> dict:
+    return build_plan(
+        video=body.get("video", ""),
+        start_frame=body.get("start_frame", 0),
+        end_frame=body.get("end_frame", 0),
+        crop_x=body.get("crop_x", 0),
+        crop_y=body.get("crop_y", 0),
+        crop_w=body.get("crop_w", 0),
+        crop_h=body.get("crop_h", 0),
+        resize_mode=body.get("resize_mode", "none"),
+        size=body.get("size", 720),
+        size_h=body.get("size_h", 720),
+        multiple_of=body.get("multiple_of", 16),
+        frame_rule=body.get("frame_rule", "17n+5"),
+        snap_from=body.get("snap_from", "end"),
+        max_frames=body.get("max_frames", 0),
+        target_fps=body.get("target_fps", 0.0),
+    )
+
+
 def register_routes(prompt_server):
-    """Register /nougan/load_video/plan on PromptServer."""
+    """Register /nougan/load_video/plan and /nougan/load_video/preview on PromptServer."""
     from aiohttp import web
 
     routes = prompt_server.routes
@@ -576,31 +734,37 @@ def register_routes(prompt_server):
             return web.json_response({"error": "Invalid JSON body."}, status=400)
 
         try:
-            plan = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: build_plan(
-                    video=body.get("video", ""),
-                    start_frame=body.get("start_frame", 0),
-                    end_frame=body.get("end_frame", 0),
-                    crop_x=body.get("crop_x", 0),
-                    crop_y=body.get("crop_y", 0),
-                    crop_w=body.get("crop_w", 0),
-                    crop_h=body.get("crop_h", 0),
-                    resize_mode=body.get("resize_mode", "none"),
-                    size=body.get("size", 720),
-                    size_h=body.get("size_h", 720),
-                    multiple_of=body.get("multiple_of", 16),
-                    frame_rule=body.get("frame_rule", "17n+5"),
-                    snap_from=body.get("snap_from", "end"),
-                    max_frames=body.get("max_frames", 0),
-                    target_fps=body.get("target_fps", 0.0),
-                ),
-            )
+            plan = await asyncio.get_running_loop().run_in_executor(None, lambda: _plan_from_body(body))
             return web.json_response(plan)
         except PlanError as exc:
             return web.json_response({"error": str(exc)}, status=400)
         except Exception as exc:
             return web.json_response({"error": f"Plan failed: {exc}"}, status=500)
+
+    @routes.post("/nougan/load_video/preview")
+    async def _preview_endpoint(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body."}, status=400)
+
+        method = body.get("resize_method", "bicubic")
+        if method not in RESIZE_METHODS:
+            method = "bicubic"
+
+        def _job():
+            plan = _plan_from_body(body)
+            result = render_preview(plan, resize_method=method)
+            result["plan"] = {k: v for k, v in plan.items() if k != "path"}
+            return result
+
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(None, _job)
+            return web.json_response(result)
+        except PlanError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"Preview failed: {exc}"}, status=500)
 
 
 NODE_CLASS_MAPPINGS = {
@@ -609,4 +773,4 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "NouganLoadVideo": "Nougan Load Video 🎬",
-}
+}
