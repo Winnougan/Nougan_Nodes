@@ -451,6 +451,7 @@ function installEditor(node) {
   });
 
   stage.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
     root.focus();
     const mr = getMediaRect();
     const sRect = stage.getBoundingClientRect();
@@ -459,12 +460,18 @@ function installEditor(node) {
     const srcX = ((px - mr.left) / Math.max(1, mr.width)) * mr.vw;
     const srcY = ((py - mr.top) / Math.max(1, mr.height)) * mr.vh;
 
+    const cur = currentCropPx();
+    const isFull = cur.x === 0 && cur.y === 0 && cur.w === cur.vw && cur.h === cur.vh;
     const handleDir = e.target?.dataset?.dir;
-    const isMove = e.target === cropBox;
+    // A full-frame box covers the whole picture, so clicking it must START a new crop, not "move" it.
+    const isMove = e.target === cropBox && !isFull;
     const mode = handleDir || (isMove ? "move" : "draw");
 
     state.draggingCrop = {
       mode,
+      active: mode !== "draw",
+      cx0: e.clientX,
+      cy0: e.clientY,
       startSrcX: srcX,
       startSrcY: srcY,
       orig: currentCropPx(),
@@ -477,6 +484,10 @@ function installEditor(node) {
   stage.addEventListener("pointermove", (e) => {
     const d = state.draggingCrop;
     if (!d) return;
+    if (!d.active) {                                   // a plain click must not leave a tiny crop behind
+      if (Math.hypot(e.clientX - d.cx0, e.clientY - d.cy0) < 4) return;
+      d.active = true;
+    }
     const mr = getMediaRect();
     const sRect = stage.getBoundingClientRect();
     const curX = ((e.clientX - sRect.left - mr.left) / Math.max(1, mr.width)) * d.vw;
@@ -490,19 +501,25 @@ function installEditor(node) {
       const ny = Math.max(0, Math.min(d.vh - d.orig.h, d.orig.y + dy));
       writeCropPx(nx, ny, d.orig.w, d.orig.h, d.vw, d.vh);
     } else if (d.mode === "draw") {
-      let x0 = Math.max(0, Math.min(d.vw, d.startSrcX));
-      let y0 = Math.max(0, Math.min(d.vh, d.startSrcY));
-      let w = Math.max(MIN_CROP_PX, curX - x0);
-      let h = ratio ? w / ratio : Math.max(MIN_CROP_PX, curY - y0);
-      if (x0 + w > d.vw) {
-        w = d.vw - x0;
-        if (ratio) h = w / ratio;
+      const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+      const x0 = cl(d.startSrcX, 0, d.vw);
+      const y0 = cl(d.startSrcY, 0, d.vh);
+      const x1 = cl(curX, 0, d.vw);
+      const y1 = cl(curY, 0, d.vh);
+      const sx = x1 >= x0 ? 1 : -1;                    // drag direction: any corner works
+      const sy = y1 >= y0 ? 1 : -1;
+      let w = Math.abs(x1 - x0);
+      let h = Math.abs(y1 - y0);
+      if (ratio) {
+        if (w / ratio >= h) h = w / ratio; else w = h * ratio;
+        const maxW = sx > 0 ? d.vw - x0 : x0;           // keep the locked ratio inside the frame
+        const maxH = sy > 0 ? d.vh - y0 : y0;
+        if (w > maxW) { w = maxW; h = w / ratio; }
+        if (h > maxH) { h = maxH; w = h * ratio; }
       }
-      if (y0 + h > d.vh) {
-        h = d.vh - y0;
-        if (ratio) w = h * ratio;
-      }
-      writeCropPx(x0, y0, w, h, d.vw, d.vh);
+      w = Math.max(MIN_CROP_PX, w);
+      h = Math.max(MIN_CROP_PX, h);
+      writeCropPx(sx > 0 ? x0 : x0 - w, sy > 0 ? y0 : y0 - h, w, h, d.vw, d.vh);
     } else {
       let nx = d.orig.x;
       let ny = d.orig.y;
@@ -520,17 +537,26 @@ function installEditor(node) {
         ny = d.orig.y + clampedDy;
         nh = d.orig.h - clampedDy;
       }
-      if (ratio) nh = nw / ratio;
+      if (ratio) {
+        const roomW = d.mode.includes("w") ? d.orig.x + d.orig.w : d.vw - d.orig.x;
+        const roomH = d.mode.includes("n") ? d.orig.y + d.orig.h : d.vh - d.orig.y;
+        nw = Math.max(MIN_CROP_PX, Math.min(nw, roomW, roomH * ratio));
+        nh = nw / ratio;
+        if (d.mode.includes("w")) nx = d.orig.x + d.orig.w - nw;
+        if (d.mode.includes("n")) ny = d.orig.y + d.orig.h - nh;
+      }
       writeCropPx(nx, ny, nw, nh, d.vw, d.vh);
     }
     syncCropOverlay();
   });
 
-  stage.addEventListener("pointerup", () => {
+  const endCropDrag = () => {
     if (!state.draggingCrop) return;
     state.draggingCrop = null;
     schedulePlan();
-  });
+  };
+  stage.addEventListener("pointerup", endCropDrag);
+  stage.addEventListener("pointercancel", endCropDrag);
 
   function updateTrimFromClientX(clientX, mode) {
     const rect = trimBar.getBoundingClientRect();
