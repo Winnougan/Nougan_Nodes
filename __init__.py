@@ -213,6 +213,12 @@ _FEATURES = [
     ("Save Video", "nougan_save_video", [
         ("NouganSaveVideo", "NouganSaveVideo", "Nougan Save Video 🎬"),
     ]),
+    # Visual crop / trim / resize video loader (web/load_nougan_video.js).
+    # Decodes with PyAV (bundled with ComfyUI).
+    # Registers /nougan/load_video/plan route for frame/crop/resize planning (see _register_routes).
+    ("Load Video", "nougan_load_video", [
+        ("NouganLoadVideo", "NouganLoadVideo", "Nougan Load Video 🎬"),
+    ]),
     # Duration (seconds) -> frame count: presets (MiniMax H3 17n+5 / 24 / 30 FPS) + lockable custom
     # expression, live preview (web/nougan_duration_frames.js). Registers /nougan/duration_frames/* routes.
     ("Duration -> Frames", "nougan_duration_frames", [
@@ -308,8 +314,8 @@ _FEATURES = [
         ("NouganDrawImage", "NouganDrawImage", "Nougan Draw Image ✏️"),
     ]),
     # Server half of the Paste Stack widget: lets a single click paste FILES you copied in
-    # Explorer/Finder (browsers can't read those). Registers /nougan/paste_stack/clipboard,
-    # local requests only. No nodes.
+    # Explorer/Finder (browsers can't read those) and resolves pasted image paths / URLs. Registers
+    # /nougan/paste_stack/clipboard and /nougan/paste_stack/resolve, local requests only. No nodes.
     ("Paste Stack clipboard helper", "nougan_paste_stack_server", []),
 ]
 
@@ -506,6 +512,15 @@ def _register_routes():
         @routes.get("/nougan/socials")
         async def _nougan_socials(_request):
             return web.json_response({n: u for n, u, _ in SOCIALS})
+
+        # Load Video: /nougan/load_video/plan (only if the module is present and not disabled)
+        if _module_present("nougan_load_video") and "nougan_load_video" not in _disabled \
+                and "load video" not in _disabled:
+            try:
+                from .nougan_load_video import register_routes as _register_load_video_routes
+                _register_load_video_routes(PromptServer.instance)
+            except Exception as _e:
+                print(f"  {WARN} {_yellow('Load Video routes failed:')} {_e}")
 
         _NOUGAN_ROUTES_REGISTERED = True
         print(f"  {OK} {_bold('Routes registered')}")

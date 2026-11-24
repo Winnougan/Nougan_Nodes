@@ -9,6 +9,10 @@
 # trigger it), and only image and text files up to 25 MB are returned — the files you just copied.
 # If ComfyUI runs on a different machine than your browser this returns nothing and the widget falls back
 # to Ctrl+V.
+#
+# Also hosts /nougan/paste_stack/resolve: when the pasted TEXT is an image file path or an http(s) URL the
+# browser couldn't load itself, the widget asks this route to read / fetch it. Images only (extension AND
+# file signature are checked), same loopback + header rules as above.
 
 import asyncio
 import base64
@@ -18,6 +22,8 @@ import os
 import socket
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
@@ -30,6 +36,7 @@ ALLOWED_EXT = {
     ".txt", ".md", ".json", ".csv", ".tsv", ".yaml", ".yml", ".log", ".ini", ".toml", ".xml",
 }
 _MIME_FIX = {".webp": "image/webp", ".avif": "image/avif", ".md": "text/markdown", ".json": "application/json"}
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".tif", ".tiff"}
 
 
 def _local_addrs():
@@ -107,6 +114,68 @@ def _collect():
     return files
 
 
+# ---- resolve a pasted image path / URL -------------------------------------------------------------
+def _sniff_image(d):
+    """MIME type from the file signature, or '' if it isn't a recognised image."""
+    if len(d) < 12:
+        return ""
+    if d[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if d[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if d[:4] == b"GIF8":
+        return "image/gif"
+    if d[:4] == b"RIFF" and d[8:12] == b"WEBP":
+        return "image/webp"
+    if d[4:12] in (b"ftypavif", b"ftypavis"):
+        return "image/avif"
+    if d[:2] == b"BM" and d[6:10] == b"\x00\x00\x00\x00":
+        return "image/bmp"
+    if d[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image/tiff"
+    return ""
+
+
+def _read_image_path(src):
+    if src.lower().startswith("file:"):
+        src = urllib.request.url2pathname(urllib.parse.urlparse(src).path)
+    path = os.path.realpath(os.path.expanduser(src))
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXT:
+        raise ValueError("not an image file")
+    if not os.path.isfile(path):
+        raise ValueError("file not found on the ComfyUI machine")
+    if os.path.getsize(path) > MAX_FILE_BYTES:
+        raise ValueError("file is over 25 MB")
+    with open(path, "rb") as fh:
+        return os.path.basename(path), fh.read()
+
+
+def _read_image_url(src):
+    parsed = urllib.parse.urlparse(src)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("only http(s) URLs")
+    req = urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0 (Nougan Paste Stack)"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = resp.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        raise ValueError("image is over 25 MB")
+    return os.path.basename(urllib.parse.unquote(parsed.path)) or "image", data
+
+
+def _resolve_image(src):
+    src = (src or "").strip().strip('"')
+    if src.lower().startswith(("http://", "https://")):
+        name, data = _read_image_url(src)
+    else:
+        name, data = _read_image_path(src)
+    mime = _sniff_image(data)
+    if not mime:
+        raise ValueError("not a recognised image")
+    if os.path.splitext(name)[1].lower() not in IMAGE_EXT:
+        name = (name or "image") + "." + mime.split("/")[1].replace("jpeg", "jpg")
+    return {"name": name, "mime": mime, "data": base64.b64encode(data).decode("ascii")}
+
+
 def _register():
     try:
         from aiohttp import web
@@ -126,6 +195,22 @@ def _register():
         except Exception:
             files = []
         return web.json_response({"files": files})
+
+    @routes.post("/nougan/paste_stack/resolve")
+    async def _paste_stack_resolve(request):
+        if request.headers.get("X-Nougan-Paste") != "1":
+            return web.json_response({"files": [], "error": "forbidden"}, status=403)
+        if not _is_local(request.remote):
+            return web.json_response({"files": [], "error": "not-local"}, status=403)
+        try:
+            src = str((await request.json()).get("source", ""))
+        except Exception:
+            return web.json_response({"files": [], "error": "bad-request"}, status=400)
+        try:
+            f = await asyncio.get_running_loop().run_in_executor(None, _resolve_image, src)
+            return web.json_response({"files": [f]})
+        except Exception as e:
+            return web.json_response({"files": [], "error": str(e)})
 
 
 _register()
