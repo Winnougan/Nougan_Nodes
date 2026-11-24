@@ -5,6 +5,9 @@ import { api } from "../../scripts/api.js";
 const NODE = "NouganLoadVideo";
 const ACCENT = "#a855f7";
 const MIN_CROP_PX = 16;
+const PREVIEW_ENDPOINT = "/nougan/load_video/preview";
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const ASPECTS = [
   ["Free", null],
@@ -21,7 +24,7 @@ const WATCH_WIDGETS = [
   "video", "start_frame", "end_frame",
   "crop_x", "crop_y", "crop_w", "crop_h",
   "resize_mode", "size", "size_h", "multiple_of",
-  "frame_rule", "snap_from", "max_frames", "target_fps",
+  "resize_method", "frame_rule", "snap_from", "max_frames", "target_fps",
 ];
 
 const CSS = `
@@ -59,6 +62,12 @@ const CSS = `
 .nlv-trim-range{position:absolute;top:2px;bottom:2px;background:rgba(168,85,247,.28);
   border-top:2px solid ${ACCENT};border-bottom:2px solid ${ACCENT}}
 .nlv-trim-play{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none}
+.nlv-btn.primary{background:${ACCENT};border-color:${ACCENT};color:#fff;font-weight:600}
+.nlv-btn.stale{animation:nlvpulse 1.4s ease-in-out infinite}
+.nlv-btn:disabled{opacity:.55;cursor:default;animation:none}
+@keyframes nlvpulse{0%,100%{box-shadow:0 0 0 0 rgba(168,85,247,0)}50%{box-shadow:0 0 0 3px rgba(168,85,247,.5)}}
+.nlv-prev{position:relative;flex:0 0 auto;height:190px;background:#08080b;border-radius:6px;overflow:hidden}
+.nlv-prev video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 .nlv-t-handle{position:absolute;top:0;bottom:0;width:10px;margin-left:-5px;background:${ACCENT};
   border-radius:3px;cursor:ew-resize;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px}
 `;
@@ -75,15 +84,27 @@ function getWidget(node, name) {
   return (node.widgets || []).find((w) => w.name === name) || null;
 }
 
-function setWidgetValue(node, name, val) {
+function setWidgetValue(node, name, val, silent = false) {
   const w = getWidget(node, name);
   if (!w) return;
   if (w.value === val) return;
   w.value = val;
-  if (typeof w.callback === "function") {
+  if (!silent && typeof w.callback === "function") {
     w.callback(val);
   }
 }
+
+// Fire the (hooked) callbacks once after a drag that wrote values silently.
+function commitWidgets(node, names) {
+  for (const n of names) {
+    const w = getWidget(node, n);
+    if (w && typeof w.callback === "function") w.callback(w.value);
+  }
+  node.setDirtyCanvas?.(true, true);
+}
+
+const CROP_WIDGETS = ["crop_x", "crop_y", "crop_w", "crop_h"];
+const TRIM_WIDGETS = ["start_frame", "end_frame"];
 
 function buildViewUrl(filename) {
   if (!filename) return "";
@@ -114,6 +135,10 @@ function installEditor(node) {
     draggingCrop: null, // { mode: 'move' | 'draw' | 'nw' | 'ne' | 'sw' | 'se', startX, startY, orig }
     draggingTrim: null, // 'start' | 'end' | 'scrub'
     planTimer: null,
+    planSeq: 0,
+    loadedName: null,
+    previewBusy: false,
+    renderedKey: null,
   };
 
   const root = document.createElement("div");
@@ -172,10 +197,7 @@ function installEditor(node) {
   btnResetCrop.className = "nlv-btn";
   btnResetCrop.textContent = "Reset Crop";
   btnResetCrop.addEventListener("click", () => {
-    setWidgetValue(node, "crop_x", 0);
-    setWidgetValue(node, "crop_y", 0);
-    setWidgetValue(node, "crop_w", 0);
-    setWidgetValue(node, "crop_h", 0);
+    for (const n of CROP_WIDGETS) setWidgetValue(node, n, 0);
     syncCropOverlay();
     schedulePlan();
   });
@@ -243,19 +265,66 @@ function installEditor(node) {
   lblFrames.className = "nlv-dim nlv-grow";
   lblFrames.textContent = "Frames: 0..0";
 
-  rowTransport.append(btnPlay, lblFrames);
-  root.append(rowFile, rowAspect, stage, trimBar, rowTransport);
+  const btnUpdate = document.createElement("button");
+  btnUpdate.type = "button";
+  btnUpdate.className = "nlv-btn primary";
+  btnUpdate.textContent = "⟳ Update";
+  btnUpdate.title = "Render the cropped / trimmed / resized result into the preview below";
+  btnUpdate.addEventListener("click", () => renderPreview());
+
+  rowTransport.append(btnPlay, lblFrames, btnUpdate);
+
+  // Result preview (rendered by the backend so it matches what the node outputs)
+  const rowPrev = document.createElement("div");
+  rowPrev.className = "nlv-row";
+  const lblPrev = document.createElement("span");
+  lblPrev.className = "nlv-dim nlv-grow";
+  lblPrev.textContent = "Result preview";
+  rowPrev.appendChild(lblPrev);
+
+  const prevBox = document.createElement("div");
+  prevBox.className = "nlv-prev";
+  const prevVideo = document.createElement("video");
+  prevVideo.muted = true;
+  prevVideo.loop = true;
+  prevVideo.controls = true;
+  prevVideo.playsInline = true;
+  const prevMsg = document.createElement("div");
+  prevMsg.className = "nlv-msg";
+  prevMsg.textContent = "Press “Update” to render the cropped / trimmed result";
+  prevBox.append(prevVideo, prevMsg);
+
+  root.append(rowFile, rowAspect, stage, trimBar, rowTransport, rowPrev, prevBox);
+
+  // The node lives inside a CSS-scaled canvas layer, so getBoundingClientRect() is in screen px while
+  // style.left/top/width/height are in unscaled layout px. Everything below works in layout px and
+  // converts pointer events through the scale factor, otherwise the overlay drifts as soon as you zoom.
+  function eventToStage(e) {
+    const r = stage.getBoundingClientRect();
+    const lw = stage.clientWidth || 1;
+    const lh = stage.clientHeight || 1;
+    return {
+      x: (e.clientX - r.left) / (r.width / lw || 1),
+      y: (e.clientY - r.top) / (r.height / lh || 1),
+    };
+  }
 
   function getMediaRect() {
-    const sRect = stage.getBoundingClientRect();
+    const sw = stage.clientWidth || 1;
+    const sh = stage.clientHeight || 1;
     const vw = state.srcW || video.videoWidth || 16;
     const vh = state.srcH || video.videoHeight || 9;
-    const scale = Math.min(sRect.width / vw, sRect.height / vh);
+    const scale = Math.min(sw / vw, sh / vh);
     const dw = vw * scale;
     const dh = vh * scale;
-    const dx = (sRect.width - dw) * 0.5;
-    const dy = (sRect.height - dh) * 0.5;
-    return { left: dx, top: dy, width: dw, height: dh, vw, vh };
+    return { left: (sw - dw) * 0.5, top: (sh - dh) * 0.5, width: dw, height: dh, vw, vh };
+  }
+
+  function stageToSrc(p, mr) {
+    return {
+      x: ((p.x - mr.left) / Math.max(1, mr.width)) * mr.vw,
+      y: ((p.y - mr.top) / Math.max(1, mr.height)) * mr.vh,
+    };
   }
 
   function currentCropPx() {
@@ -272,16 +341,17 @@ function installEditor(node) {
     return { x, y, w, h, vw, vh };
   }
 
-  function writeCropPx(x, y, w, h, vw, vh) {
+  function writeCropPx(x, y, w, h, vw, vh, silent = false) {
     const cx = Math.max(0, Math.min(vw - MIN_CROP_PX, Math.round(x)));
     const cy = Math.max(0, Math.min(vh - MIN_CROP_PX, Math.round(y)));
     const cw = Math.max(MIN_CROP_PX, Math.min(vw - cx, Math.round(w)));
     const ch = Math.max(MIN_CROP_PX, Math.min(vh - cy, Math.round(h)));
     const isFull = cx === 0 && cy === 0 && cw === vw && ch === vh;
-    setWidgetValue(node, "crop_x", cx);
-    setWidgetValue(node, "crop_y", cy);
-    setWidgetValue(node, "crop_w", isFull ? 0 : cw);
-    setWidgetValue(node, "crop_h", isFull ? 0 : ch);
+    setWidgetValue(node, "crop_x", cx, silent);
+    setWidgetValue(node, "crop_y", cy, silent);
+    setWidgetValue(node, "crop_w", isFull ? 0 : cw, silent);
+    setWidgetValue(node, "crop_h", isFull ? 0 : ch, silent);
+    if (silent) markStale();
   }
 
   function resolvedAspectRatio() {
@@ -302,9 +372,9 @@ function installEditor(node) {
       nh = h;
       nw = Math.round(nh * ratio);
     }
-    nw = Math.max(MIN_CROP_PX, Math.min(vw - x, nw));
-    nh = Math.max(MIN_CROP_PX, Math.min(vh - y, nh));
-    writeCropPx(x, y, nw, nh, vw, vh);
+    nw = Math.max(MIN_CROP_PX, Math.min(vw, nw));
+    nh = Math.max(MIN_CROP_PX, Math.min(vh, nh));
+    writeCropPx(x + (w - nw) / 2, y + (h - nh) / 2, nw, nh, vw, vh);
   }
 
   function syncCropOverlay() {
@@ -344,6 +414,22 @@ function installEditor(node) {
     lblFrames.textContent = `Trim ${s}..${e} → ${outF}f (${outW}×${outH})`;
   }
 
+  function payloadFromWidgets() {
+    const payload = {};
+    for (const k of WATCH_WIDGETS) {
+      const w = getWidget(node, k);
+      if (w) payload[k] = w.value;
+    }
+    return payload;
+  }
+
+  function markStale() {
+    const name = getWidget(node, "video")?.value;
+    const stale = !!name && state.renderedKey !== JSON.stringify(payloadFromWidgets());
+    btnUpdate.classList.toggle("stale", stale && !state.previewBusy);
+    if (state.renderedKey && stale && !state.previewBusy) lblPrev.textContent = "Result preview — out of date, press Update";
+  }
+
   async function refreshPlan() {
     const videoName = getWidget(node, "video")?.value || "";
     if (!videoName) {
@@ -352,19 +438,15 @@ function installEditor(node) {
     }
     lblName.textContent = videoName;
 
-    const payload = {};
-    for (const k of WATCH_WIDGETS) {
-      const w = getWidget(node, k);
-      if (w) payload[k] = w.value;
-    }
-
+    const seq = ++state.planSeq;
     try {
       const resp = await api.fetchApi("/nougan/load_video/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payloadFromWidgets()),
       });
       const data = await resp.json();
+      if (seq !== state.planSeq) return;               // a newer request is already in flight
       if (!resp.ok || data.error) {
         lblPlan.textContent = data.error || "Plan error";
         return;
@@ -378,13 +460,69 @@ function installEditor(node) {
       syncCropOverlay();
       syncTrimBar();
     } catch (err) {
-      lblPlan.textContent = "Plan offline";
+      if (seq === state.planSeq) lblPlan.textContent = "Plan offline";
     }
   }
 
   function schedulePlan() {
+    markStale();
     if (state.planTimer) clearTimeout(state.planTimer);
     state.planTimer = setTimeout(refreshPlan, 80);
+  }
+
+  function clearPreview() {
+    prevVideo.pause();
+    prevVideo.removeAttribute("src");
+    prevVideo.load();
+    state.renderedKey = null;
+    prevMsg.textContent = "Press “Update” to render the cropped / trimmed result";
+    prevMsg.style.display = "";
+    lblPrev.textContent = "Result preview";
+    btnUpdate.classList.remove("stale");
+  }
+
+  async function renderPreview() {
+    const name = getWidget(node, "video")?.value;
+    if (!name || state.previewBusy) return;
+    const payload = payloadFromWidgets();
+    const key = JSON.stringify(payload);
+
+    state.previewBusy = true;
+    btnUpdate.disabled = true;
+    btnUpdate.classList.remove("stale");
+    btnUpdate.textContent = "Rendering…";
+    prevMsg.textContent = "Rendering…";
+    prevMsg.style.display = "";
+    try {
+      const resp = await api.fetchApi(PREVIEW_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) throw new Error(data.error || "Preview failed");
+
+      const qs = new URLSearchParams({ filename: data.filename, type: data.type, subfolder: data.subfolder || "" });
+      prevVideo.src = api.apiURL(`/view?${qs.toString()}`);
+      prevVideo.load();
+      prevVideo.play().catch(() => {});
+      state.renderedKey = key;
+      prevMsg.style.display = "none";
+      lblPrev.textContent = `Output ${data.output_width}×${data.output_height} · ${data.output_frames}f @ ${data.output_fps}fps (preview ${data.preview_width}×${data.preview_height})`;
+    } catch (err) {
+      prevMsg.textContent = `Preview failed: ${err.message || err}`;
+      prevMsg.style.display = "";
+    } finally {
+      state.previewBusy = false;
+      btnUpdate.disabled = false;
+      btnUpdate.textContent = "⟳ Update";
+      markStale();                                     // widgets may have changed while rendering
+    }
+  }
+
+  function resetCropAndTrim() {
+    for (const n of CROP_WIDGETS) setWidgetValue(node, n, 0, true);
+    for (const n of TRIM_WIDGETS) setWidgetValue(node, n, 0, true);
   }
 
   async function uploadAndSelect(file) {
@@ -402,16 +540,20 @@ function installEditor(node) {
         if (Array.isArray(vidWidget.options?.values) && !vidWidget.options.values.includes(chosen)) {
           vidWidget.options.values.push(chosen);
         }
-        setWidgetValue(node, "video", chosen);
+        resetCropAndTrim();
+        setWidgetValue(node, "video", chosen, true);
+        commitWidgets(node, ["video"]);
       }
-      loadVideoPreview(chosen);
+      loadVideoPreview(chosen, true);                  // cache-bust: same name may have been overwritten
       schedulePlan();
     } catch (err) {
       msg.textContent = `Upload failed: ${err}`;
     }
   }
 
-  function loadVideoPreview(filename) {
+  function loadVideoPreview(filename, bust = false) {
+    state.loadedName = filename || null;
+    clearPreview();
     if (!filename) {
       video.removeAttribute("src");
       video.load();
@@ -419,8 +561,16 @@ function installEditor(node) {
       return;
     }
     msg.textContent = "";
-    video.src = buildViewUrl(filename);
+    const url = buildViewUrl(filename);
+    video.src = bust ? `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}` : url;
     video.load();
+  }
+
+  // A different clip makes the old crop/trim meaningless, so start fresh (widget loads never get here).
+  function onVideoChanged(val) {
+    if (val === state.loadedName) return;
+    if (state.loadedName) resetCropAndTrim();
+    loadVideoPreview(val);
   }
 
   btnLoad.addEventListener("click", () => fileInput.click());
@@ -442,23 +592,16 @@ function installEditor(node) {
   });
 
   stage.addEventListener("dblclick", () => {
-    setWidgetValue(node, "crop_x", 0);
-    setWidgetValue(node, "crop_y", 0);
-    setWidgetValue(node, "crop_w", 0);
-    setWidgetValue(node, "crop_h", 0);
+    for (const n of CROP_WIDGETS) setWidgetValue(node, n, 0);
     syncCropOverlay();
     schedulePlan();
   });
 
   stage.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
-    root.focus();
+    root.focus({ preventScroll: true });
     const mr = getMediaRect();
-    const sRect = stage.getBoundingClientRect();
-    const px = e.clientX - sRect.left;
-    const py = e.clientY - sRect.top;
-    const srcX = ((px - mr.left) / Math.max(1, mr.width)) * mr.vw;
-    const srcY = ((py - mr.top) / Math.max(1, mr.height)) * mr.vh;
+    const src = stageToSrc(eventToStage(e), mr);
 
     const cur = currentCropPx();
     const isFull = cur.x === 0 && cur.y === 0 && cur.w === cur.vw && cur.h === cur.vh;
@@ -472,9 +615,9 @@ function installEditor(node) {
       active: mode !== "draw",
       cx0: e.clientX,
       cy0: e.clientY,
-      startSrcX: srcX,
-      startSrcY: srcY,
-      orig: currentCropPx(),
+      startSrcX: src.x,
+      startSrcY: src.y,
+      orig: cur,
       vw: mr.vw,
       vh: mr.vh,
     };
@@ -489,23 +632,21 @@ function installEditor(node) {
       d.active = true;
     }
     const mr = getMediaRect();
-    const sRect = stage.getBoundingClientRect();
-    const curX = ((e.clientX - sRect.left - mr.left) / Math.max(1, mr.width)) * d.vw;
-    const curY = ((e.clientY - sRect.top - mr.top) / Math.max(1, mr.height)) * d.vh;
-    const dx = curX - d.startSrcX;
-    const dy = curY - d.startSrcY;
+    const cursor = stageToSrc(eventToStage(e), mr);
+    const dx = cursor.x - d.startSrcX;
+    const dy = cursor.y - d.startSrcY;
     const ratio = resolvedAspectRatio();
+    const o = d.orig;
 
     if (d.mode === "move") {
-      const nx = Math.max(0, Math.min(d.vw - d.orig.w, d.orig.x + dx));
-      const ny = Math.max(0, Math.min(d.vh - d.orig.h, d.orig.y + dy));
-      writeCropPx(nx, ny, d.orig.w, d.orig.h, d.vw, d.vh);
+      const nx = clamp(o.x + dx, 0, d.vw - o.w);
+      const ny = clamp(o.y + dy, 0, d.vh - o.h);
+      writeCropPx(nx, ny, o.w, o.h, d.vw, d.vh, true);
     } else if (d.mode === "draw") {
-      const cl = (v, a, b) => Math.max(a, Math.min(b, v));
-      const x0 = cl(d.startSrcX, 0, d.vw);
-      const y0 = cl(d.startSrcY, 0, d.vh);
-      const x1 = cl(curX, 0, d.vw);
-      const y1 = cl(curY, 0, d.vh);
+      const x0 = clamp(d.startSrcX, 0, d.vw);
+      const y0 = clamp(d.startSrcY, 0, d.vh);
+      const x1 = clamp(cursor.x, 0, d.vw);
+      const y1 = clamp(cursor.y, 0, d.vh);
       const sx = x1 >= x0 ? 1 : -1;                    // drag direction: any corner works
       const sy = y1 >= y0 ? 1 : -1;
       let w = Math.abs(x1 - x0);
@@ -519,40 +660,38 @@ function installEditor(node) {
       }
       w = Math.max(MIN_CROP_PX, w);
       h = Math.max(MIN_CROP_PX, h);
-      writeCropPx(sx > 0 ? x0 : x0 - w, sy > 0 ? y0 : y0 - h, w, h, d.vw, d.vh);
+      writeCropPx(sx > 0 ? x0 : x0 - w, sy > 0 ? y0 : y0 - h, w, h, d.vw, d.vh, true);
     } else {
-      let nx = d.orig.x;
-      let ny = d.orig.y;
-      let nw = d.orig.w;
-      let nh = d.orig.h;
-      if (d.mode.includes("e")) nw = Math.max(MIN_CROP_PX, d.orig.w + dx);
-      if (d.mode.includes("s")) nh = Math.max(MIN_CROP_PX, d.orig.h + dy);
-      if (d.mode.includes("w")) {
-        const clampedDx = Math.min(dx, d.orig.w - MIN_CROP_PX);
-        nx = d.orig.x + clampedDx;
-        nw = d.orig.w - clampedDx;
-      }
-      if (d.mode.includes("n")) {
-        const clampedDy = Math.min(dy, d.orig.h - MIN_CROP_PX);
-        ny = d.orig.y + clampedDy;
-        nh = d.orig.h - clampedDy;
-      }
+      // Corner resize: the opposite corner is the anchor and never moves. Working from the anchor
+      // (instead of editing x/y/w/h separately) is what stops the far edge from sliding when the
+      // dragged edge hits the frame boundary.
+      const west = d.mode.includes("w");
+      const north = d.mode.includes("n");
+      const ax = west ? o.x + o.w : o.x;
+      const ay = north ? o.y + o.h : o.y;
+      const sx = west ? -1 : 1;
+      const sy = north ? -1 : 1;
+      const roomW = sx > 0 ? d.vw - ax : ax;
+      const roomH = sy > 0 ? d.vh - ay : ay;
+      let w = clamp(sx * ((west ? o.x : o.x + o.w) + dx - ax), MIN_CROP_PX, roomW);
+      let h = clamp(sy * ((north ? o.y : o.y + o.h) + dy - ay), MIN_CROP_PX, roomH);
       if (ratio) {
-        const roomW = d.mode.includes("w") ? d.orig.x + d.orig.w : d.vw - d.orig.x;
-        const roomH = d.mode.includes("n") ? d.orig.y + d.orig.h : d.vh - d.orig.y;
-        nw = Math.max(MIN_CROP_PX, Math.min(nw, roomW, roomH * ratio));
-        nh = nw / ratio;
-        if (d.mode.includes("w")) nx = d.orig.x + d.orig.w - nw;
-        if (d.mode.includes("n")) ny = d.orig.y + d.orig.h - nh;
+        if (w / ratio >= h) h = w / ratio; else w = h * ratio;
+        if (w > roomW) { w = roomW; h = w / ratio; }
+        if (h > roomH) { h = roomH; w = h * ratio; }
       }
-      writeCropPx(nx, ny, nw, nh, d.vw, d.vh);
+      writeCropPx(sx > 0 ? ax : ax - w, sy > 0 ? ay : ay - h, w, h, d.vw, d.vh, true);
     }
     syncCropOverlay();
+    node.setDirtyCanvas?.(true, true);
   });
 
   const endCropDrag = () => {
-    if (!state.draggingCrop) return;
+    const d = state.draggingCrop;
+    if (!d) return;
     state.draggingCrop = null;
+    if (d.active) commitWidgets(node, CROP_WIDGETS);   // one callback pass instead of one per mouse move
+    syncCropOverlay();
     schedulePlan();
   };
   stage.addEventListener("pointerup", endCropDrag);
@@ -560,18 +699,23 @@ function installEditor(node) {
 
   function updateTrimFromClientX(clientX, mode) {
     const rect = trimBar.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+    const frac = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1);
     const total = Math.max(1, state.totalFrames);
     const frame = Math.round(frac * total);
 
     if (mode === "start") {
       const rawEnd = Number(getWidget(node, "end_frame")?.value || 0);
       const e = rawEnd <= 0 || rawEnd > total ? total : rawEnd;
-      setWidgetValue(node, "start_frame", Math.max(0, Math.min(e - 1, frame)));
+      const f = clamp(frame, 0, e - 1);
+      setWidgetValue(node, "start_frame", f, true);
+      video.currentTime = Math.min(f, total - 1) / Math.max(1, state.fps);
+      markStale();
     } else if (mode === "end") {
-      const s = Number(getWidget(node, "start_frame")?.value || 0);
-      const clamped = Math.max(s + 1, Math.min(total, frame));
-      setWidgetValue(node, "end_frame", clamped >= total ? 0 : clamped);
+      const s0 = Number(getWidget(node, "start_frame")?.value || 0);
+      const f = Math.max(s0 + 1, Math.min(total, frame));
+      setWidgetValue(node, "end_frame", f >= total ? 0 : f, true);
+      video.currentTime = Math.max(0, Math.min(f, total) - 1) / Math.max(1, state.fps);
+      markStale();
     } else if (mode === "scrub") {
       video.currentTime = frame / Math.max(1, state.fps);
     }
@@ -602,8 +746,12 @@ function installEditor(node) {
     if (!state.draggingTrim) return;
     const wasTrimHandle = state.draggingTrim === "start" || state.draggingTrim === "end";
     state.draggingTrim = null;
-    if (wasTrimHandle) schedulePlan();
+    if (wasTrimHandle) {
+      commitWidgets(node, TRIM_WIDGETS);
+      schedulePlan();
+    }
   });
+  trimBar.addEventListener("pointercancel", () => { state.draggingTrim = null; });
 
   video.addEventListener("loadedmetadata", () => {
     if (video.videoWidth && video.videoHeight) {
@@ -612,6 +760,9 @@ function installEditor(node) {
     }
     syncCropOverlay();
     syncTrimBar();
+  });
+  video.addEventListener("error", () => {
+    msg.textContent = "This browser can't play this file, but cropping and trimming still work.";
   });
   video.addEventListener("timeupdate", syncTrimBar);
   video.addEventListener("play", () => { btnPlay.textContent = "Pause"; });
@@ -654,10 +805,11 @@ function installEditor(node) {
 
   // Hook existing widget callbacks so manual edits update the preview & plan
   for (const w of node.widgets || []) {
+    if (!WATCH_WIDGETS.includes(w.name)) continue;
     const prev = w.callback;
     w.callback = function (val) {
       const res = prev ? prev.apply(this, arguments) : undefined;
-      if (w.name === "video") loadVideoPreview(val);
+      if (w.name === "video") onVideoChanged(val);
       syncCropOverlay();
       syncTrimBar();
       schedulePlan();
@@ -669,9 +821,13 @@ function installEditor(node) {
     serialize: false,
     hideOnZoom: false,
   });
-  domWidget.computeSize = () => [360, 320];
+  domWidget.computeSize = () => [360, 610];
 
-  node.setSize([Math.max(node.size?.[0] || 380, 380), Math.max(node.size?.[1] || 520, 520)]);
+  const ensureNodeSize = () => {
+    const need = node.computeSize?.() || [0, 0];
+    node.setSize([Math.max(node.size?.[0] || 0, 400, need[0]), Math.max(node.size?.[1] || 0, need[1])]);
+  };
+  ensureNodeSize();
 
   const origResize = node.onResize;
   node.onResize = function () {
@@ -679,6 +835,35 @@ function installEditor(node) {
     syncCropOverlay();
     syncTrimBar();
     return r;
+  };
+
+  // Saved workflows restore widget values directly (no callbacks), so the editor has to be re-synced
+  // here, otherwise it keeps showing the default video while the widgets hold the saved one.
+  const origConfigure = node.onConfigure;
+  node.onConfigure = function () {
+    const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
+    const name = getWidget(node, "video")?.value;
+    if (name && name !== state.loadedName) loadVideoPreview(name);
+    ensureNodeSize();
+    syncCropOverlay();
+    syncTrimBar();
+    schedulePlan();
+    return r;
+  };
+
+  // Overlay must follow the stage whenever its layout size changes (node resize, first load, etc.).
+  let ro = null;
+  if (typeof ResizeObserver !== "undefined") {
+    ro = new ResizeObserver(() => syncCropOverlay());
+    ro.observe(stage);
+  }
+
+  const origRemoved = node.onRemoved;
+  node.onRemoved = function () {
+    ro?.disconnect();
+    video.pause();
+    prevVideo.pause();
+    return origRemoved ? origRemoved.apply(this, arguments) : undefined;
   };
 
   const initialVideo = getWidget(node, "video")?.value;
@@ -699,4 +884,4 @@ app.registerExtension({
       return r;
     };
   },
-});
+});
