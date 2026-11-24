@@ -1,4 +1,4 @@
-// web/nougan_load_video.js — visual crop & trim editor for NouganLoadVideo.
+// web/load_nougan_video.js — visual crop & trim editor for NouganLoadVideo.
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
@@ -769,32 +769,41 @@ function installEditor(node) {
   video.addEventListener("pause", () => { btnPlay.textContent = "Play"; });
 
   root.addEventListener("keydown", (e) => {
+    // Leave Ctrl/Cmd/Alt shortcuts (copy, paste, undo, ...) to ComfyUI and the browser.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const step = e.shiftKey ? 10 : 1;
     const total = Math.max(1, state.totalFrames);
     const curF = Math.round((video.currentTime || 0) * state.fps);
     if (e.code === "Space") {
       e.preventDefault();
+      e.stopPropagation();
       if (video.paused) video.play().catch(() => {});
       else video.pause();
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
+      e.stopPropagation();
       video.currentTime = Math.max(0, curF - step) / Math.max(1, state.fps);
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
+      e.stopPropagation();
       video.currentTime = Math.min(total - 1, curF + step) / Math.max(1, state.fps);
     } else if (e.key === "Home") {
       e.preventDefault();
+      e.stopPropagation();
       video.currentTime = 0;
     } else if (e.key === "End") {
       e.preventDefault();
+      e.stopPropagation();
       video.currentTime = Math.max(0, (total - 1) / Math.max(1, state.fps));
     } else if (e.key === "[" || e.key.toLowerCase() === "i") {
       e.preventDefault();
+      e.stopPropagation();
       setWidgetValue(node, "start_frame", Math.max(0, Math.min(total - 2, curF)));
       syncTrimBar();
       schedulePlan();
     } else if (e.key === "]" || e.key.toLowerCase() === "o") {
       e.preventDefault();
+      e.stopPropagation();
       const s = Number(getWidget(node, "start_frame")?.value || 0);
       const nf = Math.max(s + 1, Math.min(total, curF));
       setWidgetValue(node, "end_frame", nf >= total ? 0 : nf);
