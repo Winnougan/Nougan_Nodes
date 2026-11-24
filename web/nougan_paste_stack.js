@@ -6,6 +6,8 @@
 //   • Click any saved card → it goes back on your clipboard, ready to Ctrl+V anywhere (an old prompt, an image).
 //   • Click-and-hold an image card and drag it onto a Load Image node → the image is uploaded and loaded into it.
 //   • Files copied in Explorer/Finder paste with one click too (via nougan_paste_stack_server.py on the ComfyUI side).
+//   • Pasted text that is an image file path, an http(s) image URL or base64 / data: URI image data is saved as the
+//     image itself (URLs/paths the browser can't read go through nougan_paste_stack_server.py). Setting: "load images from pasted…".
 //   • Drag any card up or down to reorder the stack (Alt+Up / Alt+Down on a focused card works too).
 //   • Double-click a text card (or press F2) → it grows into an editor. Edits autosave; Esc, Ctrl+Enter, Done or clicking away closes it.
 //   • "×" on a card deletes it. "×" in the header minimizes the panel to a small chip; click the chip to reopen.
@@ -21,10 +23,61 @@ const LS_UI = "nougan.pasteStack.ui";
 const ID_ENABLED = "Nougan.PasteStack.Enabled";
 const ID_LIMIT = "Nougan.PasteStack.Limit";
 const ID_GPU = "Nougan.PasteStack.WebGPU";
+const ID_RESOLVE = "Nougan.PasteStack.ResolveSources";
 const CHIP = 46;
 const MAX_TEXT = 1_000_000;            // characters
 const MAX_BLOB = 25 * 1024 * 1024;     // bytes
 const TEXT_EXT = /\.(txt|md|markdown|json|csv|tsv|ya?ml|log|ini|toml|xml|html?|css|js|py)$/i;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Pasted text that is really an image: base64 / data: URI, http(s) URL, or a file path.
+//  (Raw uncompressed pixel dumps have no header, so they can't be decoded. PNG / JPEG / WebP /
+//  GIF / BMP / AVIF in base64 are recognised by their magic bytes.)
+// ─────────────────────────────────────────────────────────────────────────────
+const URL_RE = /^https?:\/\/\S+$/i;
+const IMG_PATH_RE = /^(?:file:\/\/\/?|[A-Za-z]:[\\/]|\\\\|\/|~[\\/])[^\r\n]*\.(?:png|jpe?g|webp|gif|bmp|avif|tiff?)$/i;
+const MAX_SOURCES = 20;                // lines per paste
+
+function b64ToU8(b64) {
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+function sniffMime(u) {
+  const at = (o, str) => str.split("").every((ch, i) => u[o + i] === ch.charCodeAt(0));
+  if (u.length < 12) return "";
+  if (u[0] === 0x89 && at(1, "PNG")) return "image/png";
+  if (u[0] === 0xff && u[1] === 0xd8 && u[2] === 0xff) return "image/jpeg";
+  if (at(0, "GIF8")) return "image/gif";
+  if (at(0, "RIFF") && at(8, "WEBP")) return "image/webp";
+  if (at(4, "ftypavif") || at(4, "ftypavis")) return "image/avif";
+  if (u[0] === 0x42 && u[1] === 0x4d && !u[6] && !u[7] && !u[8] && !u[9]) return "image/bmp";
+  return "";
+}
+function blobFromBase64Text(t) {
+  let b64 = t;
+  const m = /^data:([^;,]*)((?:;[^,;]*)*),/i.exec(t);
+  if (m) {
+    if (!/;base64/i.test(m[2] || "")) return null;
+    b64 = t.slice(m[0].length);
+  }
+  b64 = b64.replace(/\s+/g, "");
+  if (b64.length < 32 || b64.length > Math.ceil(MAX_BLOB * 4 / 3) + 8) return null;
+  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(b64)) return null;
+  b64 = b64.replace(/-/g, "+").replace(/_/g, "/");
+  let mime = "";
+  try { mime = sniffMime(b64ToU8(b64.slice(0, 32))); } catch { return null; }
+  if (!mime) return null;
+  try { return new Blob([b64ToU8(b64)], { type: mime }); } catch { return null; }
+}
+function nameFromUrl(u, mime) {
+  let n = "";
+  try { n = decodeURIComponent(new URL(u).pathname.split("/").pop() || ""); } catch { /* ignore */ }
+  n = n.replace(/[\\/:*?"<>|]+/g, "_");
+  if (!/\.[A-Za-z0-9]{2,5}$/.test(n)) n = (n || "image") + "." + ((mime || "image/png").split("/")[1] || "png").replace("jpeg", "jpg");
+  return n;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WebGPU backdrop: slow domain-warped noise, a soft glow that follows the pointer,
@@ -196,6 +249,7 @@ if (!window.__nouganPasteStackLoaded) {
       // ---- settings ---------------------------------------------------------
       let limit = 50;
       let gpuWanted = true;
+      let resolveWanted = true;
       let enabled = true;
       let applyEnabled = () => {};     // real version is assigned once the DOM exists
       const tryAdd = (def) => { try { app.ui.settings.addSetting(def); } catch { /* old frontend: defaults apply */ } };
@@ -223,9 +277,18 @@ if (!window.__nouganPasteStackLoaded) {
         defaultValue: true,
         onChange: (v) => { gpuWanted = !!v; try { syncGpuVisibility(); } catch { /* not ready yet */ } },
       });
+      tryAdd({
+        id: ID_RESOLVE,
+        name: "Nougan Paste Stack: load images from pasted paths, URLs and base64",
+        type: "boolean",
+        defaultValue: true,
+        tooltip: "When the pasted text is an image file path, an http(s) image URL, or base64 / data: URI image data, save the image itself instead of the text. Paths and URLs the browser can't read are fetched by the ComfyUI server.",
+        onChange: (v) => { resolveWanted = !!v; },
+      });
       enabled = !!getSetting(ID_ENABLED, true);
       limit = clamp(Number(getSetting(ID_LIMIT, 50)) || 50, 5, 500);
       gpuWanted = !!getSetting(ID_GPU, true);
+      resolveWanted = !!getSetting(ID_RESOLVE, true);
 
       // ---- stylesheet -------------------------------------------------------
       const link = document.createElement("link");
@@ -481,6 +544,55 @@ if (!window.__nouganPasteStackLoaded) {
         report(out);
       }
 
+      // ---- pasted text that points at an image ------------------------------
+      async function serverResolve(source) {
+        try {
+          const r = await api.fetchApi("/nougan/paste_stack/resolve", {
+            method: "POST",
+            headers: { "X-Nougan-Paste": "1", "Content-Type": "application/json" },
+            body: JSON.stringify({ source }),
+          });
+          if (!r.ok) return null;
+          const f = ((await r.json()).files || [])[0];
+          return f ? new File([b64ToU8(f.data)], f.name, { type: f.mime }) : null;
+        } catch { return null; }
+      }
+      async function fetchSource(source) {
+        if (/^https?:/i.test(source)) {
+          try {   // straight from the browser: works for CORS-friendly hosts and same-origin URLs
+            const r = await fetch(source, { mode: "cors" });
+            if (r.ok) {
+              const b = await r.blob();
+              const mime = b.type.startsWith("image/") ? b.type : sniffMime(new Uint8Array(await b.slice(0, 16).arrayBuffer()));
+              if (mime) return new File([b], nameFromUrl(source, mime), { type: mime });
+              return null;                         // reachable, but not an image: keep it as text
+            }
+          } catch { /* CORS or network: let the server try */ }
+        }
+        return serverResolve(source);
+      }
+      // Returns an array of results, or null when the text isn't an image source (caller saves it as text).
+      async function resolveSources(text) {
+        const t = (text || "").trim();
+        if (!t) return null;
+        const blob = blobFromBase64Text(t);
+        if (blob) return [await addImage(blob)];
+        const lines = t.split(/\r?\n/).map((l) => l.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean);
+        if (!lines.length || lines.length > MAX_SOURCES) return null;
+        if (!lines.every((l) => URL_RE.test(l) || IMG_PATH_RE.test(l))) return null;
+        toast(lines.length > 1 ? `Loading ${lines.length} images…` : "Loading image…", 8000);
+        const out = [];
+        for (const l of lines) {
+          const f = await fetchSource(l);
+          out.push(f ? await addFile(f) : await addText(l));   // couldn't load it: keep the line as text
+        }
+        return out;
+      }
+      async function addTextOrSource(text) {
+        const r = resolveWanted ? await resolveSources(text) : null;
+        return r || [await addText(text)];
+      }
+
       // ---- reorder ----------------------------------------------------------
       // `toIndex` is the position in the list after the card has been lifted out.
       function moveItem(id, toIndex) {
@@ -650,6 +762,8 @@ if (!window.__nouganPasteStackLoaded) {
               for (const c of await navigator.clipboard.read()) {
                 if (c.types.includes("text/plain")) {
                   const text = await (await c.getType("text/plain")).text();
+                  const resolved = resolveWanted ? await resolveSources(text) : null;
+                  if (resolved) { out.push(...resolved); continue; }
                   if (LOOKS_LIKE_IMAGE_PATH.test(text.trim())) continue;   // a copied file's path, not a prompt: use the file itself
                   out.push(await addText(text));
                 } else {
@@ -658,11 +772,11 @@ if (!window.__nouganPasteStackLoaded) {
                 }
               }
             } else {
-              out.push(await addText(await navigator.clipboard.readText()));
+              out.push(...(await addTextOrSource(await navigator.clipboard.readText())));
             }
           } catch (err) {
             blocked = !!err && err.name === "NotAllowedError";
-            if (!blocked) { try { out.push(await addText(await navigator.clipboard.readText())); } catch { /* nothing */ } }
+            if (!blocked) { try { out.push(...(await addTextOrSource(await navigator.clipboard.readText()))); } catch { /* nothing */ } }
           }
         }
         if (out.some(Boolean)) { report(out); return; }
@@ -1058,7 +1172,7 @@ if (!window.__nouganPasteStackLoaded) {
           files = [...dt.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
         }
         if (files.length) { await addFiles(files); return; }
-        report([await addText(dt.getData("text/plain"))]);
+        report(await addTextOrSource(dt.getData("text/plain")));
       }, true);
 
       // Drag and drop files (or dragged text) onto the panel.
@@ -1072,7 +1186,7 @@ if (!window.__nouganPasteStackLoaded) {
         ripple(e.clientX, e.clientY);
         const files = [...(e.dataTransfer?.files || [])];
         if (files.length) await addFiles(files);
-        else report([await addText(e.dataTransfer?.getData("text/plain") || "")]);
+        else report(await addTextOrSource(e.dataTransfer?.getData("text/plain") || e.dataTransfer?.getData("text/uri-list") || ""));
       });
 
       // ---- WebGPU backdrop ----------------------------------------------------
