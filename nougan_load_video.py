@@ -39,8 +39,9 @@ FRAME_RULES = {"none": None, "4n+1": (4, 1), "8n+1": (8, 1), "17n+5": (17, 5)}
 SNAP_FROM = ["end", "start"]
 MAX_INT = 10_000_000
 
-_PLAN_CACHE = {}
-_PLAN_LOCK = threading.Lock()
+_PROBE_CACHE = {}
+_PROBE_LOCK = threading.Lock()
+_PROBE_CACHE_MAX = 64
 
 
 class PlanError(ValueError):
@@ -117,7 +118,7 @@ def _apply_rotation_np(arr: np.ndarray, steps_ccw: int) -> np.ndarray:
     return np.rot90(arr, k=steps, axes=(0, 1)).copy()
 
 
-def _probe_video(path: str):
+def _probe_video_uncached(path: str):
     """Inspect video stream metadata and decode first frame to get upright dimensions & rotation."""
     with av.open(path) as container:
         vstreams = [s for s in container.streams if s.type == "video"]
@@ -140,14 +141,16 @@ def _probe_video(path: str):
         first_h = int(vstream.codec_context.height or 0)
         steps_ccw = 0
 
+        seen_frame = False
         for packet in container.demux(vstream):
             for frame in packet.decode():
                 steps_ccw = _rotation_steps_ccw(frame)
                 rgb = frame.to_ndarray(format="rgb24")
                 rot = _apply_rotation_np(rgb, steps_ccw)
                 first_h, first_w = rot.shape[:2]
+                seen_frame = True
                 break
-            if first_w > 0 and first_h > 0:
+            if seen_frame:
                 break
 
         if first_w <= 0 or first_h <= 0:
@@ -172,13 +175,32 @@ def _probe_video(path: str):
     }
 
 
+def _probe_video(path: str):
+    """Cached probe, keyed on path + mtime + size so an edited file is re-probed."""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return _probe_video_uncached(path)
+    with _PROBE_LOCK:
+        hit = _PROBE_CACHE.get(key)
+    if hit is not None:
+        return dict(hit)
+    result = _probe_video_uncached(path)
+    with _PROBE_LOCK:
+        if len(_PROBE_CACHE) >= _PROBE_CACHE_MAX:
+            _PROBE_CACHE.pop(next(iter(_PROBE_CACHE)))
+        _PROBE_CACHE[key] = dict(result)
+    return result
+
+
 def _snap_down_rule(count: int, rule_name: str) -> int:
     rule = FRAME_RULES.get(rule_name)
     if not rule or count <= 0:
         return max(0, count)
     step, offset = rule
     if count < offset:
-        return count
+        raise PlanError(f"Only {count} frame(s) selected, but {rule_name} needs at least {offset}. Widen the trim.")
     k = (count - offset) // step
     return max(1, k * step + offset)
 
@@ -238,7 +260,7 @@ def build_plan(
     size_h: int = 720,
     multiple_of: int = 16,
     frame_rule: str = "none",
-    snap_from: str = "end",
+    snap_from: str = "start",
     max_frames: int = 0,
     target_fps: float = 0.0,
 ):
@@ -295,6 +317,16 @@ def build_plan(
     cw = max(1, min(cw, src_w - cx))
     ch = max(1, min(ch, src_h - cy))
 
+    # No resize: centre-crop down to a multiple instead of resampling the whole frame.
+    if resize_mode not in RESIZE_MODES or resize_mode == "none":
+        m = max(1, int(multiple_of))
+        if m > 1:
+            tw = (cw // m) * m if cw >= m else cw
+            th = (ch // m) * m if ch >= m else ch
+            cx += (cw - tw) // 2
+            cy += (ch - th) // 2
+            cw, ch = tw, th
+
     out_w, out_h = _compute_output_size(cw, ch, resize_mode, size, size_h, multiple_of)
 
     start_sec = eff_start / src_fps
@@ -329,8 +361,6 @@ def build_plan(
 
     digest = hashlib.sha1(repr(sorted(plan.items())).encode("utf-8")).hexdigest()[:12]
     plan["plan_id"] = digest
-    with _PLAN_LOCK:
-        _PLAN_CACHE[digest] = plan
     return plan
 
 
@@ -372,80 +402,81 @@ def _resample_indices(src_count: int, target_count: int) -> list[int]:
     return [min(src_count - 1, int(round(i * (src_count - 1) / (target_count - 1)))) for i in range(target_count)]
 
 
+def _to_stereo_planar(arr: np.ndarray) -> np.ndarray:
+    """Return float32 (2, N) from a planar (C, N) or flat array."""
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    if arr.shape[0] == 1:
+        arr = np.repeat(arr, 2, axis=0)
+    elif arr.shape[0] > 2:
+        arr = arr[:2]
+    return arr.astype(np.float32, copy=False)
+
+
 def _extract_trimmed_audio(path: str, start_sec: float, end_sec: float, sample_rate: int = 44100):
-    """Extract and trim audio to [start_sec, end_sec) as ComfyUI AUDIO dict."""
+    """Extract audio for [start_sec, end_sec) as a ComfyUI AUDIO dict, exactly sample-length."""
     if torch is None:
         return None
     duration = max(0.0, end_sec - start_sec)
     target_samples = max(1, int(round(duration * sample_rate)))
 
+    def _silence():
+        return {"waveform": torch.zeros((1, 2, target_samples), dtype=torch.float32), "sample_rate": sample_rate}
+
+    chunks = []
+    got = 0
+    first_t = None
     with av.open(path) as container:
         astreams = [s for s in container.streams if s.type == "audio"]
         if not astreams:
-            return {
-                "waveform": torch.zeros((1, 2, target_samples), dtype=torch.float32),
-                "sample_rate": sample_rate,
-            }
-
+            return _silence()
         astream = astreams[0]
-        resampler = av.AudioResampler(format="flt", layout="stereo", rate=sample_rate)
-        chunks = []
+        # "fltp" (planar) so every resampled frame is shaped (channels, samples).
+        resampler = av.AudioResampler(format="fltp", layout="stereo", rate=sample_rate)
 
-        if start_sec > 0.05:
-            seek_ts = int(start_sec / float(astream.time_base or (1.0 / sample_rate)))
+        if start_sec > 0.5 and astream.time_base:
             try:
-                container.seek(seek_ts, stream=astream)
+                container.seek(int((start_sec - 0.5) / float(astream.time_base)), stream=astream, backward=True)
             except Exception:
-                pass
+                try:
+                    container.seek(0)
+                except Exception:
+                    pass
 
+        stop_t = end_sec + 0.25
+        done = False
         for packet in container.demux(astream):
             for frame in packet.decode():
-                f_time = float(frame.pts * frame.time_base) if (frame.pts is not None and frame.time_base) else start_sec
-                f_dur = float(frame.samples) / float(frame.sample_rate or sample_rate)
-                if f_time + f_dur < start_sec:
-                    continue
-                if f_time > end_sec + 0.1:
-                    break
+                if first_t is None:
+                    first_t = float(frame.time) if frame.time is not None else max(0.0, start_sec)
                 for rframe in resampler.resample(frame):
-                    arr = rframe.to_ndarray()
-                    if arr.ndim == 1:
-                        arr = np.stack([arr, arr], axis=0)
-                    elif arr.shape[0] == 1:
-                        arr = np.repeat(arr, 2, axis=0)
-                    r_time = float(rframe.pts * rframe.time_base) if (rframe.pts is not None and rframe.time_base) else f_time
-                    r_dur = float(rframe.samples) / float(sample_rate)
-                    # Trim partial edge samples
-                    keep_start = 0
-                    keep_end = arr.shape[1]
-                    if r_time < start_sec and r_dur > 0:
-                        keep_start = min(keep_end, int(round(((start_sec - r_time) / r_dur) * keep_end)))
-                    if r_time + r_dur > end_sec and r_dur > 0:
-                        keep_end = max(keep_start, int(round(((end_sec - r_time) / r_dur) * keep_end)))
-                    if keep_end > keep_start:
-                        chunks.append(arr[:, keep_start:keep_end])
-            else:
-                continue
-            break
+                    arr = _to_stereo_planar(rframe.to_ndarray())
+                    chunks.append(arr)
+                    got += arr.shape[1]
+                if first_t + got / sample_rate >= stop_t:
+                    done = True
+                    break
+            if done:
+                break
+        if not done:
+            for rframe in resampler.resample(None):
+                arr = _to_stereo_planar(rframe.to_ndarray())
+                chunks.append(arr)
+                got += arr.shape[1]
 
-        for rframe in resampler.resample(None):
-            arr = rframe.to_ndarray()
-            if arr.ndim == 1:
-                arr = np.stack([arr, arr], axis=0)
-            elif arr.shape[0] == 1:
-                arr = np.repeat(arr, 2, axis=0)
-            chunks.append(arr)
+    if not chunks or first_t is None:
+        return _silence()
 
-    if not chunks:
-        wav = torch.zeros((1, 2, target_samples), dtype=torch.float32)
-    else:
-        cat = np.concatenate(chunks, axis=1)
-        if cat.shape[1] > target_samples:
-            cat = cat[:, :target_samples]
-        elif cat.shape[1] < target_samples:
-            pad = np.zeros((cat.shape[0], target_samples - cat.shape[1]), dtype=np.float32)
-            cat = np.concatenate([cat, pad], axis=1)
-        wav = torch.from_numpy(np.clip(cat, -1.0, 1.0).astype(np.float32)).unsqueeze(0)
-
+    cat = np.concatenate(chunks, axis=1)
+    offset = int(round((start_sec - first_t) * sample_rate))
+    if offset > 0:
+        cat = cat[:, offset:]
+    elif offset < 0:
+        cat = np.concatenate([np.zeros((2, -offset), dtype=np.float32), cat], axis=1)
+    cat = cat[:, :target_samples]
+    if cat.shape[1] < target_samples:
+        cat = np.concatenate([cat, np.zeros((2, target_samples - cat.shape[1]), dtype=np.float32)], axis=1)
+    wav = torch.from_numpy(np.ascontiguousarray(np.clip(cat, -1.0, 1.0))).unsqueeze(0)
     return {"waveform": wav, "sample_rate": sample_rate}
 
 
@@ -508,14 +539,14 @@ def decode_plan(plan: dict, resize_method: str = "bicubic"):
     decoded = []
     for cropped in _iter_source_frames(plan):
         resized = _resize_frame_np(cropped, out_w, out_h, resize_method)
-        decoded.append(resized.astype(np.float32) / 255.0)
+        decoded.append(np.ascontiguousarray(resized, dtype=np.uint8))
 
     if not decoded:
         raise PlanError("Decoded 0 frames for the requested trim range.")
 
     indices = _resample_indices(len(decoded), target_count)
     selected = [decoded[i] for i in indices]
-    batch = torch.from_numpy(np.stack(selected, axis=0)).to(torch.float32)
+    batch = torch.from_numpy(np.stack(selected, axis=0)).to(torch.float32).div_(255.0)
     audio = _extract_trimmed_audio(plan["path"], plan["start_sec"], plan["end_sec"])
     return batch, audio, int(batch.shape[0]), float(plan["output_fps"])
 
@@ -645,12 +676,12 @@ class NouganLoadVideo:
                 "crop_w": ("INT", {"default": 0, "min": 0, "max": MAX_INT, "step": 1}),
                 "crop_h": ("INT", {"default": 0, "min": 0, "max": MAX_INT, "step": 1}),
                 "resize_mode": (RESIZE_MODES, {"default": "none"}),
-                "size": ("INT", {"default": 720, "min": 16, "max": 8192, "step": 1}),
-                "size_h": ("INT", {"default": 720, "min": 16, "max": 8192, "step": 1}),
-                "multiple_of": ("INT", {"default": 16, "min": 1, "max": 128, "step": 1}),
+                "size": ("INT", {"default": 720, "min": 16, "max": 8192, "step": 1, "tooltip": "Target for short_edge / long_edge / width, and the width for exact."}),
+                "size_h": ("INT", {"default": 720, "min": 16, "max": 8192, "step": 1, "tooltip": "Target for height mode, and the height for exact. Other modes use size."}),
+                "multiple_of": ("INT", {"default": 16, "min": 1, "max": 128, "step": 1, "tooltip": "Output width/height are snapped down to this multiple. With resize_mode none the crop is trimmed evenly from the edges instead of resampled."}),
                 "resize_method": (RESIZE_METHODS, {"default": "bicubic"}),
                 "frame_rule": (list(FRAME_RULES.keys()), {"default": "17n+5"}),
-                "snap_from": (SNAP_FROM, {"default": "end"}),
+                "snap_from": (SNAP_FROM, {"default": "start", "tooltip": "When frame_rule has to drop frames: \"start\" keeps the first frames and drops from the end; \"end\" keeps the last frames and drops from the start."}),
                 "max_frames": ("INT", {"default": 0, "min": 0, "max": MAX_INT, "step": 1}),
                 "target_fps": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 240.0, "step": 0.1}),
             }
@@ -660,6 +691,17 @@ class NouganLoadVideo:
     RETURN_NAMES = ("frames", "audio", "frame_count", "fps")
     FUNCTION = "load_video"
     CATEGORY = "Nougan/Video"
+
+    @classmethod
+    def IS_CHANGED(cls, video, **kwargs):
+        h = hashlib.sha256()
+        try:
+            st = os.stat(resolve_video_path(video))
+            h.update(f"{st.st_mtime_ns}:{st.st_size}".encode("utf-8"))
+        except Exception:
+            h.update(b"missing")
+        h.update(repr(sorted(kwargs.items())).encode("utf-8"))
+        return h.hexdigest()
 
     def load_video(
         self,
@@ -676,7 +718,7 @@ class NouganLoadVideo:
         multiple_of=16,
         resize_method="bicubic",
         frame_rule="17n+5",
-        snap_from="end",
+        snap_from="start",
         max_frames=0,
         target_fps=0.0,
     ):
@@ -714,7 +756,7 @@ def _plan_from_body(body: dict) -> dict:
         size_h=body.get("size_h", 720),
         multiple_of=body.get("multiple_of", 16),
         frame_rule=body.get("frame_rule", "17n+5"),
-        snap_from=body.get("snap_from", "end"),
+        snap_from=body.get("snap_from", "start"),
         max_frames=body.get("max_frames", 0),
         target_fps=body.get("target_fps", 0.0),
     )
@@ -735,7 +777,7 @@ def register_routes(prompt_server):
 
         try:
             plan = await asyncio.get_running_loop().run_in_executor(None, lambda: _plan_from_body(body))
-            return web.json_response(plan)
+            return web.json_response({k: v for k, v in plan.items() if k != "path"})
         except PlanError as exc:
             return web.json_response({"error": str(exc)}, status=400)
         except Exception as exc:
