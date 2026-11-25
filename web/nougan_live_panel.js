@@ -36,6 +36,7 @@ import { api } from "../../scripts/api.js";
 import { createPanelPreview } from "./nougan_panel_preview.js";
 import { createProgress } from "./nougan_panel_progress.js";
 import { createRunSelected } from "./nougan_panel_run.js";
+import { createOutputPreview } from "./nougan_panel_output.js";
 
 const STORAGE_KEY = "nougan_live_panel_state";
 const SETTING_ID = "Nougan.LivePanel.Enabled";
@@ -97,7 +98,7 @@ const THEME_VARS = {
 };
 
 const state = Object.assign(
-    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto", runSel: true, cmpMode: "wipe", cmpPos: 50, support: true },
+    { x: null, y: 70, w: 300, h: null, collapsed: false, dock: "float", minimized: false, theme: "comfy", preview: false, previewH: 260, progress: true, progressFx: "auto", runSel: true, outPrev: true, cmpMode: "wipe", cmpPos: 50, support: true },
     loadState()
 );
 if (!THEMES[state.theme]) state.theme = "comfy";
@@ -1810,6 +1811,7 @@ function openThemeMenu(anchor) {
     };
     opt("Show progress bar", state.progress, "", () => { state.progress = !state.progress; syncProgress(); });
     opt("Show Run selected (output node)", state.runSel !== false, "", () => { state.runSel = state.runSel === false; syncProgress(); });
+    opt("Show output preview (image / video / audio)", state.outPrev !== false, "", () => { state.outPrev = state.outPrev === false; syncProgress(); });
     opt("WebGPU effects", state.progressFx === "auto", `now: ${progress?.renderer() || "dom"}`, () => {
         state.progressFx = state.progressFx === "auto" ? "dom" : "auto";
         progress?.setFx(state.progressFx);
@@ -2543,6 +2545,7 @@ const run = { running: false, peak: 0 };
 let stats = null;
 let runEls = null;
 let runSel = null;     // nougan_panel_run.js: run only the selected / pinned output node(s)
+let outPrev = null;    // nougan_panel_output.js: image / video / audio result of output nodes
 let progress = null;   // nougan_panel_progress.js: label, step n/N, ETA, queue depth, WebGPU or DOM bar
 
 async function doQueue() {
@@ -2567,7 +2570,8 @@ function buildRunBar() {
     sBtn.addEventListener("click", doInterrupt);
     top.append(qBtn, sBtn);
 
-    runSel = createRunSelected();
+    runSel = createRunSelected({ onChange: () => outPrev?.refresh() });
+    outPrev = createOutputPreview({ getFilter: () => runSel?.getTargetIds() ?? null });
 
     progress = createProgress({ fx: state.progressFx });
 
@@ -2586,7 +2590,7 @@ function buildRunBar() {
     const vram = mk("VRAM"), ram = mk("RAM");
     meters.append(vram.m, ram.m);
 
-    host.append(top, runSel.el, progress.el, meters);
+    host.append(top, runSel.el, progress.el, outPrev.el, meters);
     runEls = { vram, ram };
     return host;
 }
@@ -2595,6 +2599,7 @@ function buildRunBar() {
 function syncProgress() {
     progress?.setEnabled(!!state.progress && visible && !state.minimized);
     runSel?.setEnabled(state.runSel !== false && visible && !state.minimized);
+    outPrev?.setEnabled(state.outPrev !== false && visible && !state.minimized);
 }
 
 const GB = 1073741824;

@@ -4,8 +4,9 @@
 // you choose (plus whatever they depend on), and a small target picker:
 //
 //   * "Selected on canvas" (default): runs whichever output nodes are selected right now.
-//   * Any output node in the graph, picked from the list: that node is pinned as the target and the
-//     button always runs it, regardless of what is selected. (Remembered between sessions.)
+//   * Pinned: pick any output node from the list, or select one on the canvas and click the pin button.
+//     The button then always runs that node, whatever is selected. The pin is stored inside the
+//     workflow (graph.extra), so it follows the workflow and never leaks onto another one.
 //
 // Shift+click queues at the front of the queue instead of the back.
 //
@@ -18,17 +19,20 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const STYLE_ID = "nlp-runsel-stylesheet";
-const LS_KEY = "nlp.runsel.target";
+const EXTRA_KEY = "nlpPinnedOutput";
 const AUTO = "__selected__";
 
 const ICON_RUN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.6v10.8a.5.5 0 0 0 .76.43l8.6-5.4a.5.5 0 0 0 0-.86l-8.6-5.4A.5.5 0 0 0 4 2.6z"/></svg>';
 const ICON_LOCATE = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v2.5M8 12v2.5M1.5 8H4M12 8h2.5"/></svg>';
+
+const ICON_PIN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5l4 4-2 .8-2.2 2.2.4 2.6-.9.9-2.6-2.6-3.6 3.6M6.1 5.1l-.9.9 4.8 4.8"/></svg>';
 
 const CSS = `
 .nlp-rs{display:flex;align-items:center;gap:6px;min-width:0;padding:0 10px 8px;color:var(--nlp-fg,#d4d4d4);font:11px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif}
 .nlp-rs .nlp-fbtn{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .nlp-rs .nlp-fbtn:disabled{opacity:.5;cursor:default}
 .nlp-rs-run svg{color:var(--nlp-accent,#e67e22)}
+.nlp-rs .nlp-rs-pin.nlp-rs-on{color:var(--nlp-accent,#e67e22);border-color:var(--nlp-accent,#e67e22)}
 .nlp-rs select{flex:1 1 0;min-width:0;height:26px;padding:0 6px;font:inherit;color:inherit;cursor:pointer;text-overflow:ellipsis;
   background:var(--nlp-input,#121212);border:1px solid var(--nlp-border,#3a3a3a);border-radius:5px}
 .nlp-rs select:hover{border-color:var(--nlp-accent,#e67e22)}
@@ -58,9 +62,26 @@ const isOutputNode = (n) => !!n?.constructor?.nodeData?.output_node;
 const isActive = (n) => n.mode !== 2 && n.mode !== 4;      // not muted / bypassed
 const nodeLabel = (n) => `${n.title || n.type} #${n.id}`;
 
+const rootGraph = () => app.rootGraph || app.graph;
+
 function allOutputNodes() {
-    const nodes = app.graph?._nodes || app.graph?.nodes || [];
+    const g = rootGraph();
+    const nodes = g?._nodes || g?.nodes || [];
     return nodes.filter(isOutputNode);
+}
+
+function readPin() {
+    const v = rootGraph()?.extra?.[EXTRA_KEY];
+    return v == null ? AUTO : String(v);
+}
+
+function writePin(id) {
+    const g = rootGraph();
+    if (!g) return;
+    try {
+        if (id === AUTO) { if (g.extra) delete g.extra[EXTRA_KEY]; }
+        else { g.extra = g.extra || {}; g.extra[EXTRA_KEY] = id; }
+    } catch {}
 }
 
 function canvasSelection() {
@@ -91,7 +112,7 @@ function pruneToTargets(output, targetIds) {
     return out;
 }
 
-export function createRunSelected() {
+export function createRunSelected({ onChange } = {}) {
     ensureStyles();
 
     const root = $("div", "nlp-rs");
@@ -99,6 +120,9 @@ export function createRunSelected() {
     btn.type = "button";
     btn.innerHTML = ICON_RUN + "<span>Run selected</span>";
     const sel = $("select", null, root);
+    const pin = $("button", "nlp-fbtn nlp-runbtn nlp-rs-pin", root);
+    pin.type = "button";
+    pin.innerHTML = ICON_PIN;
     const loc = $("button", "nlp-fbtn nlp-runbtn nlp-rs-loc", root);
     loc.type = "button";
     loc.innerHTML = ICON_LOCATE;
@@ -106,8 +130,9 @@ export function createRunSelected() {
     const msg = $("span", "nlp-rs-msg", root);
 
     let enabled = false;
-    let pinned = AUTO;
-    try { pinned = localStorage.getItem(LS_KEY) || AUTO; } catch {}
+    let graphTimer = null;
+    let pinned = readPin();
+    let lastGraph = null;
     let msgTimer = null;
 
     function flash(text, kind) {
@@ -130,17 +155,37 @@ export function createRunSelected() {
             o.textContent = nodeLabel(n) + (isActive(n) ? "" : " (off)");
         }
         // a pinned node that no longer exists falls back to auto
-        if (pinned !== AUTO && !outs.some((n) => String(n.id) === pinned)) pinned = AUTO;
+        if (pinned !== AUTO && !outs.some((n) => String(n.id) === pinned)) { pinned = AUTO; writePin(AUTO); onChange?.(); }
         sel.value = pinned;
         refreshUi();
     }
 
     function refreshUi() {
-        const pin = pinned !== AUTO;
-        loc.style.display = pin ? "" : "none";
-        btn.title = pin
+        const p = pinned !== AUTO;
+        loc.style.display = p ? "" : "none";
+        pin.classList.toggle("nlp-rs-on", p);
+        pin.title = p ? "Unpin target (go back to the canvas selection)" : "Pin the output node selected on the canvas as the target";
+        btn.title = p
             ? "Run only the pinned output node (Shift: queue at the front)"
             : "Run only the output node(s) selected on the canvas (Shift: queue at the front)";
+    }
+
+    function setPinned(id) {
+        pinned = id || AUTO;
+        writePin(pinned);
+        if (sel.value !== pinned) sel.value = pinned;
+        refreshUi();
+        onChange?.();
+    }
+
+    // the pin lives in the workflow: re-read it when another workflow is shown
+    function syncFromGraph() {
+        const g = rootGraph();
+        if (g === lastGraph) return;
+        lastGraph = g;
+        const next = readPin();
+        if (next !== pinned) { pinned = next; onChange?.(); }
+        rebuildList();
     }
 
     function resolveTargets() {
@@ -190,10 +235,14 @@ export function createRunSelected() {
 
     // ---- events ----
     const onRun = (e) => run(e.shiftKey);
-    const onPick = () => {
-        pinned = sel.value || AUTO;
-        try { pinned === AUTO ? localStorage.removeItem(LS_KEY) : localStorage.setItem(LS_KEY, pinned); } catch {}
-        refreshUi();
+    const onPick = () => setPinned(sel.value || AUTO);
+    const onPin = () => {
+        if (pinned !== AUTO) { setPinned(AUTO); flash("Unpinned", "ok"); return; }
+        const t = canvasSelection().filter(isOutputNode);
+        if (!t.length) { flash("Select an output node, then pin", "bad"); return; }
+        rebuildList();
+        setPinned(String(t[0].id));
+        flash("Pinned " + nodeLabel(t[0]), "ok");
     };
     const onLocate = () => {
         const n = allOutputNodes().find((x) => String(x.id) === pinned);
@@ -217,13 +266,18 @@ export function createRunSelected() {
             sel.addEventListener("mousedown", onOpen);
             sel.addEventListener("focus", onOpen);
             loc.addEventListener("click", onLocate);
-            rebuildList();
+            pin.addEventListener("click", onPin);
+            lastGraph = null;
+            syncFromGraph();
+            graphTimer = setInterval(syncFromGraph, 1500);
         } else {
             btn.removeEventListener("click", onRun);
             sel.removeEventListener("change", onPick);
             sel.removeEventListener("mousedown", onOpen);
             sel.removeEventListener("focus", onOpen);
             loc.removeEventListener("click", onLocate);
+            pin.removeEventListener("click", onPin);
+            clearInterval(graphTimer);
             clearTimeout(msgTimer);
             root.style.display = "none";
         }
@@ -235,5 +289,9 @@ export function createRunSelected() {
     }
 
     root.style.display = "none";
-    return { el: root, setEnabled, destroy, run: () => run(false) };
+    return {
+        el: root, setEnabled, destroy, run: () => run(false),
+        // ids of the pinned output node, or null when the target follows the canvas selection
+        getTargetIds: () => (pinned === AUTO ? null : [pinned]),
+    };
 }
