@@ -4,7 +4,10 @@
 //   • Hover the panel and left-click the paste area → whatever is on your clipboard (text or image) is saved.
 //   • Hover + Ctrl+V, or drop files on it → text, images and text files are saved.
 //   • Click any saved card → it goes back on your clipboard, ready to Ctrl+V anywhere (an old prompt, an image).
-//   • Click-and-hold an image card and drag it onto a Load Image node → the image is uploaded and loaded into it.
+//   • Click-and-hold an image card and drag it onto the graph:
+//       - onto a Load Image node → the image is uploaded and loaded into it;
+//       - onto empty canvas (or any other node) → a new Load Image node is created and filled.
+//     Works with the classic canvas and with Nodes 2.0.
 //   • Files copied in Explorer/Finder paste with one click too (via nougan_paste_stack_server.py on the ComfyUI side).
 //   • Pasted text that is an image file path, an http(s) image URL or base64 / data: URI image data is saved as the
 //     image itself (URLs/paths the browser can't read go through nougan_paste_stack_server.py). Setting: "load images from pasted…".
@@ -28,6 +31,10 @@ const CHIP = 46;
 const MAX_TEXT = 1_000_000;            // characters
 const MAX_BLOB = 25 * 1024 * 1024;     // bytes
 const TEXT_EXT = /\.(txt|md|markdown|json|csv|tsv|ya?ml|log|ini|toml|xml|html?|css|js|py)$/i;
+
+// Elements that mean "the pointer is over the graph": the canvas itself, plus (Nodes 2.0) the DOM node
+// layer that sits on top of it.
+const GRAPH_SURFACE = "[data-node-id], .lg-node, .transform-pane, #graph-canvas-container";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Pasted text that is really an image: base64 / data: URI, http(s) URL, or a file path.
@@ -840,7 +847,7 @@ if (!window.__nouganPasteStackLoaded) {
         }
       }
 
-      // ---- drag cards: reorder inside the panel, or drop an image on a Load Image node ----------
+      // ---- drag cards: reorder inside the panel, or drop an image on the graph ----------------
       let drag = null;
       let justDragged = false;
       const ghost = el("div", "nps-ghost");
@@ -859,13 +866,21 @@ if (!window.__nouganPasteStackLoaded) {
         if (!node || node.flags?.collapsed || node.comfyClass === "LoadImageOutput") return null;
         return node.widgets?.find((w) => w.name === "image" && (w.type === "combo" || w.options?.values)) || null;
       }
-      function nodeAt(cx, cy) {
+      // Is the pointer over the graph, and if so where (graph coordinates) and over which node?
+      // Works with the classic canvas and with Nodes 2.0, where the nodes are DOM elements layered over
+      // the canvas (so the element under the pointer is not the <canvas> itself). Graph coordinates come
+      // from the canvas transform, which is maintained in both modes.
+      function graphHit(cx, cy) {
         const c = app.canvas;
-        if (!c?.canvas || document.elementFromPoint(cx, cy) !== c.canvas) return null;   // not over the graph canvas
+        if (!c?.canvas) return null;
+        const top = document.elementFromPoint(cx, cy);
+        const onGraph = top === c.canvas || !!top?.closest?.(GRAPH_SURFACE);
+        if (!onGraph) return null;
         const rect = c.canvas.getBoundingClientRect();
+        if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) return null;
         const gx = (cx - rect.left) / c.ds.scale - c.ds.offset[0];
         const gy = (cy - rect.top) / c.ds.scale - c.ds.offset[1];
-        return graphOf()?.getNodeOnPos?.(gx, gy) ?? null;
+        return { gx, gy, node: graphOf()?.getNodeOnPos?.(gx, gy) ?? null };
       }
       function showTarget(node) {
         if (!node) { targetBox.hidden = true; return; }
@@ -890,9 +905,27 @@ if (!window.__nouganPasteStackLoaded) {
         const j = await r.json();
         return j.subfolder ? `${j.subfolder}/${j.name}` : j.name;
       }
-      async function dropOnNode(it, node) {
+      // Creates a Load Image node at the drop point; if the drop landed on some other node, beside that node
+      // instead so the new one doesn't sit on top of it.
+      function createLoadImageAt(hit) {
+        const node = window.LiteGraph?.createNode?.("LoadImage");
+        const graph = graphOf();
+        if (!node || !graph) return null;
+        const near = hit.node;
+        node.pos = near ? [near.pos[0] + near.size[0] + 30, near.pos[1]] : [hit.gx, hit.gy];
+        graph.add(node);
+        return node;
+      }
+      async function dropOnGraph(it, hit) {
+        let node = imageWidgetOf(hit.node) ? hit.node : null;
+        let created = false;
+        if (!node) {
+          node = createLoadImageAt(hit);
+          created = true;
+          if (!node) { toast("Couldn't create a Load Image node.", 4200); return; }
+        }
         const w = imageWidgetOf(node);
-        if (!w) return;
+        if (!w) { toast("That node has no image input to fill.", 4200); return; }
         try {
           const name = await uploadImage(it);
           const old = w.value;
@@ -902,7 +935,7 @@ if (!window.__nouganPasteStackLoaded) {
           try { node.onWidgetChanged?.(w.name, name, old, w); } catch { /* ignore */ }
           try { graphOf()?.change?.(); } catch { /* ignore */ }
           app.canvas?.setDirty?.(true, true);
-          toast(`Loaded into ${node.title || node.type}.`);
+          toast(created ? "Created a Load Image node." : `Loaded into ${node.title || node.type}.`);
         } catch (err) {
           toast(`Couldn't load it: ${err?.message || "upload failed"}`, 4200);
         }
@@ -963,20 +996,19 @@ if (!window.__nouganPasteStackLoaded) {
         drag.x = e.clientX; drag.y = e.clientY;
         ghost.style.transform = `translate(${e.clientX + 14}px, ${e.clientY + 14}px)`;
         const inside = inRect(e.clientX, e.clientY, panel.getBoundingClientRect());
-        drag.mode = inside ? "reorder" : "node";
+        drag.mode = inside ? "reorder" : "graph";
         if (inside) {
-          drag.node = null;
+          drag.hit = null;
           targetBox.hidden = true;
           ghost.classList.remove("nps-ok");
           updateReorder();
         } else {
           insertBar.hidden = true;
           drag.spot = null;
-          const node = drag.it.kind === "image" ? nodeAt(e.clientX, e.clientY) : null;
-          const ok = imageWidgetOf(node) ? node : null;
-          drag.node = ok;
-          showTarget(ok);
-          ghost.classList.toggle("nps-ok", !!ok);
+          const hit = drag.it.kind === "image" ? graphHit(e.clientX, e.clientY) : null;
+          drag.hit = hit;
+          showTarget(hit && imageWidgetOf(hit.node) ? hit.node : null);   // outline only an existing Load Image
+          ghost.classList.toggle("nps-ok", !!hit);                        // "ok" = a drop here will work
         }
       }
       function endDrag(e, cancel) {
@@ -996,15 +1028,15 @@ if (!window.__nouganPasteStackLoaded) {
         setTimeout(() => { justDragged = false; }, 60);   // the card may be rebuilt, so its click might never arrive
         if (cancel) return;
         if (d.mode === "reorder" && d.spot) moveItem(d.it.id, d.spot.idx);
-        else if (d.node) dropOnNode(d.it, d.node);
-        else if (d.it.kind === "image") toast("Drop it on a Load Image node to use it, or inside the stack to reorder.");
+        else if (d.hit) dropOnGraph(d.it, d.hit);
+        else if (d.it.kind === "image") toast("Drop it on the canvas to create a Load Image node, or on one to use it. Inside the stack it reorders.", 3600);
       }
       function attachDrag(card, it) {
         card.addEventListener("pointerdown", (e) => {
           if (e.button !== 0 || e.target.closest(".nps-x, .nps-done, .nps-edit") || card.classList.contains("nps-editing")) return;
           justDragged = false;
           drag = { it, card, id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY,
-                   active: false, node: null, mode: "reorder", spot: null, scroller: 0 };
+                   active: false, hit: null, mode: "reorder", spot: null, scroller: 0 };
           try { card.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         });
         card.addEventListener("pointermove", (e) => {
@@ -1028,7 +1060,7 @@ if (!window.__nouganPasteStackLoaded) {
         card.dataset.id = it.id;
         card.dataset.kind = it.kind;
         card.title = it.kind === "image"
-          ? "Click to copy. Drag to reorder, or drag onto a Load Image node to use it."
+          ? "Click to copy. Drag to reorder, or drag onto the canvas to load it into a Load Image node."
           : it.kind === "text"
             ? "Click to copy. Double-click to edit. Drag to reorder."
             : "Click to download. Drag to reorder.";
