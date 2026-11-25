@@ -317,6 +317,20 @@ _FEATURES = [
     # Explorer/Finder (browsers can't read those) and resolves pasted image paths / URLs. Registers
     # /nougan/paste_stack/clipboard and /nougan/paste_stack/resolve, local requests only. No nodes.
     ("Paste Stack clipboard helper", "nougan_paste_stack_server", []),
+
+    # Moss Image Pro port: canvas math (aspect/MP/custom, snapped to the 16 px latent grid), LoRA slots
+    # with Pre/Post trigger words, prompt assembly (Pre triggers + text + Post triggers).
+    # nougan_moss_loras imports _apply from nougan_lora_loader (keep that file present).
+    # Loader/Sampler/I2I/Layout/Vision are not built yet; register each one here when it lands.
+    ("Moss Canvas", "nougan_moss_canvas", [
+        ("NouganMossCanvas", "NouganMossCanvas", "Nougan Moss Canvas 📐"),
+    ]),
+    ("Moss LoRAs", "nougan_moss_loras", [
+        ("NouganMossLoras", "NouganMossLoras", "Nougan Moss LoRAs 🎚️"),
+    ]),
+    ("Moss Prompt", "nougan_moss_prompt", [
+        ("NouganMossPrompt", "NouganMossPrompt", "Nougan Moss Prompt ✍️"),
+    ]),
 ]
 
 # Frontend-only features: no Python module, no nodes, just a script in WEB_DIRECTORY that ComfyUI
